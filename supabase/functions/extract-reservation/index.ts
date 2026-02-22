@@ -65,7 +65,8 @@ Retorne SOMENTE JSON no formato:
   }
 }`;
 
-const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const TEXT_MODEL = 'arcee-ai/trinity-large-preview:free';
 const LIMIT_PER_HOUR = 20;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
@@ -266,9 +267,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    const apiKey = Deno.env.get('OPENROUTER_API_KEY') ?? Deno.env.get('OPENAI_API_KEY');
     if (!apiKey) {
-      return errorResponse(requestId, 'MISCONFIGURED', 'Integração IA não configurada.', 500);
+      return errorResponse(requestId, 'MISCONFIGURED', 'Integração IA não configurada (OPENROUTER_API_KEY).', 500);
     }
 
     const body = await req.json();
@@ -279,17 +280,18 @@ Deno.serve(async (req) => {
       return errorResponse(requestId, 'BAD_REQUEST', 'Texto não informado para extração.', 400);
     }
 
-    const aiResponse = await fetch(OPENAI_URL, {
+    const aiResponse = await fetch(OPENROUTER_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
+        'HTTP-Referer': Deno.env.get('APP_ORIGIN') ?? 'https://trip-planner-foundation.local',
+        'X-Title': 'Trip Planner Foundation',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: TEXT_MODEL,
         temperature: 0.1,
         max_tokens: 900,
-        response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: PROMPT },
           {
@@ -302,13 +304,14 @@ Deno.serve(async (req) => {
 
     if (!aiResponse.ok) {
       const raw = await aiResponse.text();
-      console.error('[extract-reservation]', requestId, 'openai_error', aiResponse.status, raw.slice(0, 240));
+      console.error('[extract-reservation]', requestId, 'openrouter_error', aiResponse.status, raw.slice(0, 240));
       return errorResponse(requestId, 'UPSTREAM_ERROR', 'Falha na extração IA.', 502);
     }
 
     const aiJson = await aiResponse.json();
     const content = aiJson?.choices?.[0]?.message?.content;
     const usage = aiJson?.usage ?? null;
+    const reasoningTokens = aiJson?.usage?.reasoning_tokens ?? aiJson?.usage?.reasoningTokens ?? null;
     if (typeof content !== 'string') {
       return errorResponse(requestId, 'UPSTREAM_ERROR', 'Resposta IA vazia.', 502);
     }
@@ -418,6 +421,7 @@ Deno.serve(async (req) => {
       userId: auth.userId,
       remaining: rate.remaining,
       usage,
+      reasoningTokens,
       type: normalized.type,
       scope: normalized.scope,
       confidence: normalized.confidence,

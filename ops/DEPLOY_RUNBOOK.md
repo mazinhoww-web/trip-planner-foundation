@@ -22,8 +22,10 @@ supabase db push
 
 ## 3) Configurar secrets de functions
 ```bash
-supabase secrets set OPENAI_API_KEY=<VALUE>
+supabase secrets set OPENROUTER_API_KEY=<VALUE>
+supabase secrets set OPENAI_API_KEY=<VALUE> # fallback opcional
 supabase secrets set OCR_SPACE_API_KEY=<VALUE>
+supabase secrets set APP_ORIGIN=https://<dominio-app>
 ```
 
 ## 4) Publicar Edge Functions

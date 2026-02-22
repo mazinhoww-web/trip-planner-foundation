@@ -48,7 +48,8 @@ This project now uses Supabase Edge Functions for AI enrichment:
 Set required environment variables:
 
 - Frontend: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`
-- Supabase Functions (server-side): `OPENAI_API_KEY`
+- Supabase Functions (server-side): `OPENROUTER_API_KEY` (texto/visão via OpenRouter)
+- Opcional fallback: `OPENAI_API_KEY`
 
 Deploy functions:
 

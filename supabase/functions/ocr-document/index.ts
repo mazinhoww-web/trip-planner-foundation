@@ -7,7 +7,8 @@ Retorne apenas texto bruto.
 Nao invente palavras ilegiveis.
 Se algo estiver ilegivel, simplesmente omita.`;
 
-const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const IMAGE_MODEL = 'google/gemma-3-27b-it:free';
 const LIMIT_PER_HOUR = 10;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
@@ -110,20 +111,22 @@ async function runOcrSpace(base64: string, mimeType: string | null) {
   return { text, error: null as string | null };
 }
 
-async function runOpenAiVision(base64: string, mimeType: string | null) {
-  const apiKey = Deno.env.get('OPENAI_API_KEY');
+async function runOpenRouterVision(base64: string, mimeType: string | null) {
+  const apiKey = Deno.env.get('OPENROUTER_API_KEY') ?? Deno.env.get('OPENAI_API_KEY');
   if (!apiKey) {
-    return { text: '', error: 'OPENAI_API_KEY não configurada.' };
+    return { text: '', error: 'OPENROUTER_API_KEY não configurada.' };
   }
 
-  const res = await fetch(OPENAI_URL, {
+  const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
+      'HTTP-Referer': Deno.env.get('APP_ORIGIN') ?? 'https://trip-planner-foundation.local',
+      'X-Title': 'Trip Planner Foundation',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model: IMAGE_MODEL,
       temperature: 0,
       max_tokens: 1000,
       messages: [
@@ -146,13 +149,13 @@ async function runOpenAiVision(base64: string, mimeType: string | null) {
 
   if (!res.ok) {
     const raw = await res.text();
-    return { text: '', error: `OpenAI vision falhou (${res.status}): ${raw.slice(0, 120)}` };
+    return { text: '', error: `Gemma vision falhou (${res.status}): ${raw.slice(0, 120)}` };
   }
 
   const json = await res.json();
   const text = (json?.choices?.[0]?.message?.content || '').trim();
   if (!text) {
-    return { text: '', error: 'OpenAI vision sem texto extraído.' };
+    return { text: '', error: 'Gemma vision sem texto extraído.' };
   }
 
   return { text, error: null as string | null };
@@ -239,20 +242,20 @@ Deno.serve(async (req) => {
     }
 
     if (['png', 'jpg', 'jpeg', 'webp'].includes(ext) || (mimeType || '').startsWith('image/')) {
-      const vision = await runOpenAiVision(fileBase64, mimeType);
+      const vision = await runOpenRouterVision(fileBase64, mimeType);
       if (!vision.error && vision.text) {
         const metrics = qualityMetricsFromText(vision.text);
         console.info('[ocr-document]', requestId, 'success', {
           userId: auth.userId,
-          method: 'openai_vision',
+          method: 'gemma_vision',
           remaining: rate.remaining,
           qualityMetrics: metrics,
         });
-        return successResponse({ text: vision.text, method: 'openai_vision', warnings, qualityMetrics: metrics });
+        return successResponse({ text: vision.text, method: 'gemma_vision', warnings, qualityMetrics: metrics });
       }
 
-      warnings.push(vision.error || 'OpenAI vision indisponível.');
-      console.error('[ocr-document]', requestId, 'openai_vision_failure', vision.error);
+      warnings.push(vision.error || 'Gemma vision indisponível.');
+      console.error('[ocr-document]', requestId, 'gemma_vision_failure', vision.error);
     }
 
     return errorResponse(requestId, 'UPSTREAM_ERROR', 'Falha no OCR em todas as camadas.', 502, {

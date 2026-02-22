@@ -5,8 +5,10 @@
   - [ ] `VITE_SUPABASE_URL`
   - [ ] `VITE_SUPABASE_PUBLISHABLE_KEY`
 - [ ] Supabase Edge Functions secrets com:
-  - [ ] `OPENAI_API_KEY`
+  - [ ] `OPENROUTER_API_KEY`
+  - [ ] `OPENAI_API_KEY` (fallback opcional)
   - [ ] `OCR_SPACE_API_KEY` (opcional recomendado)
+  - [ ] `APP_ORIGIN`
 - [ ] Variáveis do projeto revisadas contra `.env.example`.
 
 ## 2) Database and SQL
