@@ -60,6 +60,14 @@ supabase functions deploy ocr-document
 supabase functions deploy extract-reservation
 ```
 
+## Google Auth setup
+
+- Frontend already supports `Entrar com Google` (OAuth redirect to `/auth/callback`).
+- Enable provider in Supabase Dashboard:
+  - `Authentication` -> `Providers` -> `Google` -> `Enable`
+  - configure `Client ID` and `Client Secret` from Google Cloud
+  - ensure app callback includes `/auth/callback`
+
 ## Go-live operations (Prompt 10)
 
 Operational deliverables are versioned under `/ops`:

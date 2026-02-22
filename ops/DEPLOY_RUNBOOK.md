@@ -49,6 +49,10 @@ vercel --prod
 ## 7) Validar callback de autenticação
 1. Em Supabase Auth, confirmar `Site URL` e `Redirect URLs`:
    - `https://<dominio>/auth/callback`
+2. Em Supabase Auth > Providers > Google:
+   - Habilitar provider
+   - Informar `Client ID` e `Client Secret` do Google Cloud
+   - Incluir no Google Console o callback Supabase exibido no painel (ex.: `https://<project-ref>.supabase.co/auth/v1/callback`)
 2. Executar login e validar redirecionamento para `/app`.
 
 ## 8) Executar smoke tests de go-live

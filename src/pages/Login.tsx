@@ -5,11 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plane } from 'lucide-react';
+import { Chrome, Plane } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function Login() {
-  const { signIn, user } = useAuth();
+  const { signIn, signInWithGoogle, user } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -32,6 +32,15 @@ export default function Login() {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    const { error } = await signInWithGoogle();
+    setLoading(false);
+    if (error) {
+      toast.error('Falha ao iniciar login com Google.');
+    }
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <Card className="w-full max-w-md shadow-lg border-border/50">
@@ -45,6 +54,15 @@ export default function Login() {
           <CardDescription>Entre na sua conta para gerenciar suas viagens</CardDescription>
         </CardHeader>
         <CardContent>
+          <Button type="button" variant="outline" className="mb-4 w-full" onClick={handleGoogleSignIn} disabled={loading}>
+            <Chrome className="mr-2 h-4 w-4" />
+            Continuar com Google
+          </Button>
+          <div className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="h-px flex-1 bg-border" />
+            ou entre com email
+            <span className="h-px flex-1 bg-border" />
+          </div>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>

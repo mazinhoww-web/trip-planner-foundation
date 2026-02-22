@@ -21,6 +21,10 @@
 - [ ] Supabase Auth URL Settings:
   - [ ] Site URL = domínio de produção Vercel
   - [ ] Redirect URL contém `<dominio>/auth/callback`
+- [ ] Google OAuth Provider:
+  - [ ] Enabled = true
+  - [ ] Client ID configurado
+  - [ ] Client Secret configurado
 - [ ] Callback testado com login real em preview e produção.
 
 ## 4) Storage
