@@ -21,13 +21,12 @@ import {
   tryExtractNativeText,
   uploadImportFile,
 } from '@/services/importPipeline';
-import { FileUp, Loader2, WandSparkles, Check, Circle } from 'lucide-react';
+import { FileUp, Loader2, WandSparkles, Check, Circle, FileText, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 type StepStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
+type QueueStatus = 'pending' | 'processing' | 'review' | 'saving' | 'saved' | 'failed';
 type VisualStepKey = 'read' | 'identified' | 'saving' | 'photos' | 'tips' | 'done';
-
-type StepKey = 'upload' | 'metadata' | 'native' | 'ocr' | 'extract' | 'review';
 
 type ReviewState = {
   type: ImportType;
@@ -60,6 +59,12 @@ type ReviewState = {
     valor: string;
     moeda: string;
   };
+  restaurante: {
+    nome: string;
+    cidade: string;
+    tipo: string;
+    rating: string;
+  };
 };
 
 type ImportSummary = {
@@ -77,31 +82,29 @@ type ImportSummary = {
   nextSteps: string[];
 };
 
-const PIPELINE_STEPS: { key: StepKey; label: string }[] = [
-  { key: 'upload', label: '1. Upload do arquivo' },
-  { key: 'metadata', label: '2. Persistência de metadados' },
-  { key: 'native', label: '3. Leitura de texto nativo' },
-  { key: 'ocr', label: '4. OCR em camadas (fallback)' },
-  { key: 'extract', label: '5. Extração IA estruturada' },
-  { key: 'review', label: '6. Revisão manual e salvamento' },
-];
-
-const defaultSteps = (): Record<StepKey, StepStatus> => ({
-  upload: 'pending',
-  metadata: 'pending',
-  native: 'pending',
-  ocr: 'pending',
-  extract: 'pending',
-  review: 'pending',
-});
+type ImportQueueItem = {
+  id: string;
+  file: File;
+  status: QueueStatus;
+  visualSteps: Record<VisualStepKey, StepStatus>;
+  warnings: string[];
+  confidence: number | null;
+  missingFields: string[];
+  identifiedType: ImportType | null;
+  reviewState: ReviewState | null;
+  rawText: string;
+  summary: ImportSummary | null;
+  hotelPhotos: string[];
+  photoIndex: number;
+};
 
 const VISUAL_STEPS: { key: VisualStepKey; label: string }[] = [
   { key: 'read', label: 'Lendo documento' },
-  { key: 'identified', label: 'Reserva identificada' },
-  { key: 'saving', label: 'Salvando reserva' },
+  { key: 'identified', label: 'Tipo detectado' },
+  { key: 'saving', label: 'Salvando dados' },
   { key: 'photos', label: 'Buscando fotos' },
   { key: 'tips', label: 'Gerando dicas' },
-  { key: 'done', label: 'Pronto!' },
+  { key: 'done', label: 'Concluído' },
 ];
 
 const defaultVisualSteps = (): Record<VisualStepKey, StepStatus> => ({
@@ -140,91 +143,136 @@ function filledCount(values: Array<string | number | null | undefined>) {
   }, 0);
 }
 
-function inferTypeFromData(extracted: ExtractedReservation): ImportType {
+function inferTypeScores(extracted: ExtractedReservation) {
   const voo = extracted.data.voo;
   const hospedagem = extracted.data.hospedagem;
   const transporte = extracted.data.transporte;
+  const restaurante = extracted.data.restaurante;
 
   const scores: Record<ImportType, number> = {
     voo: filledCount([voo?.numero, voo?.companhia, voo?.origem, voo?.destino, voo?.data, voo?.valor]),
     hospedagem: filledCount([hospedagem?.nome, hospedagem?.localizacao, hospedagem?.check_in, hospedagem?.check_out, hospedagem?.valor]),
     transporte: filledCount([transporte?.tipo, transporte?.operadora, transporte?.origem, transporte?.destino, transporte?.data, transporte?.valor]),
+    restaurante: filledCount([restaurante?.nome, restaurante?.cidade, restaurante?.tipo, restaurante?.rating]),
   };
 
   const ordered = (Object.entries(scores) as Array<[ImportType, number]>).sort((a, b) => b[1] - a[1]);
-  return ordered[0][0];
+  return { scores, bestType: ordered[0]?.[0] ?? 'transporte', bestScore: ordered[0]?.[1] ?? 0 };
 }
 
 function detectTypeFromText(raw: string, fileName: string): ImportType {
   const bag = `${raw} ${fileName}`.toLowerCase();
-  if (/\b(latam|flight|boarding|voo|aeroporto|pnr|iata)\b/.test(bag) || /\bla\d{3,}[a-z0-9]*\b/i.test(bag)) {
+
+  if (/\b(latam|gol|azul|flight|boarding|voo|aeroporto|pnr|iata|ticket|itiner[áa]rio)\b/.test(bag) || /\b[a-z]{2}\d{3,}[a-z0-9]*\b/i.test(bag)) {
     return 'voo';
   }
-  if (/\b(airbnb|hotel|hospedagem|booking|check-in|check out|checkout|reserva)\b/.test(bag)) {
+
+  if (/\b(restaurant|restaurante|mesa|reservation at|reserva de mesa|opentable|tripadvisor)\b/.test(bag)) {
+    return 'restaurante';
+  }
+
+  if (/\b(airbnb|hotel|hospedagem|booking|check-in|check out|checkout|pousada)\b/.test(bag)) {
     return 'hospedagem';
   }
+
   return 'transporte';
+}
+
+function resolveImportType(extracted: ExtractedReservation, rawText: string, fileName: string): ImportType {
+  const { scores, bestType, bestScore } = inferTypeScores(extracted);
+  const hintType = detectTypeFromText(rawText, fileName);
+  const extractedType = extracted.type;
+
+  if (bestScore === 0) return hintType;
+
+  if (extractedType && scores[extractedType] >= Math.max(2, bestScore - 1)) {
+    return extractedType;
+  }
+
+  if (scores[bestType] <= 1) return hintType;
+
+  if (hintType !== bestType && scores[bestType] <= 2) return hintType;
+
+  return bestType;
 }
 
 function inferFallbackExtraction(raw: string, fileName: string, tripDestination?: string | null): ExtractedReservation {
   const type = detectTypeFromText(raw, fileName);
-  const amountMatch = raw.match(/(R\$|USD|EUR|CHF)\s*([0-9][0-9.,]*)/i);
+  const amountMatch = raw.match(/(R\$|USD|EUR|CHF|GBP)\s*([0-9][0-9.,]*)/i);
   const amount = amountMatch ? Number((amountMatch[2] || '').replace(/\./g, '').replace(',', '.')) : null;
   const currency = amountMatch?.[1]?.toUpperCase().replace('$', '') ?? null;
 
   const flightNumber = (raw.match(/\b([A-Z]{2}\d{3,}[A-Z0-9]*)\b/) || fileName.match(/\b([A-Z]{2}\d{3,}[A-Z0-9]*)\b/i))?.[1] ?? null;
   const airline =
-    /\blatam\b/i.test(raw) || /\blatam\b/i.test(fileName) ? 'LATAM' :
-      /\bgol\b/i.test(raw) || /\bgol\b/i.test(fileName) ? 'GOL' :
-        /\bazul\b/i.test(raw) || /\bazul\b/i.test(fileName) ? 'AZUL' : null;
+    /\blatam\b/i.test(raw) || /\blatam\b/i.test(fileName)
+      ? 'LATAM'
+      : /\bgol\b/i.test(raw) || /\bgol\b/i.test(fileName)
+        ? 'GOL'
+        : /\bazul\b/i.test(raw) || /\bazul\b/i.test(fileName)
+          ? 'AZUL'
+          : null;
 
-  const placeGuess =
-    /\bairbnb\b/i.test(raw) || /\bairbnb\b/i.test(fileName)
-      ? 'Hospedagem Airbnb'
-      : fileName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').trim();
+  const cleanedName = fileName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').trim();
 
   return {
     type,
-    confidence: 0.35,
+    confidence: 0.4,
     missingFields: ['review_manual_requerida'],
     data: {
-      voo: type === 'voo' ? {
-        numero: flightNumber,
-        companhia: airline,
-        origem: null,
-        destino: null,
-        data: null,
-        status: 'pendente',
-        valor: Number.isFinite(amount as number) ? amount : null,
-        moeda: currency || 'BRL',
-      } : null,
-      hospedagem: type === 'hospedagem' ? {
-        nome: placeGuess || 'Hospedagem',
-        localizacao: tripDestination ?? null,
-        check_in: null,
-        check_out: null,
-        status: 'pendente',
-        valor: Number.isFinite(amount as number) ? amount : null,
-        moeda: currency || 'BRL',
-      } : null,
-      transporte: type === 'transporte' ? {
-        tipo: 'Transporte',
-        operadora: null,
-        origem: null,
-        destino: null,
-        data: null,
-        status: 'pendente',
-        valor: Number.isFinite(amount as number) ? amount : null,
-        moeda: currency || 'BRL',
-      } : null,
+      voo:
+        type === 'voo'
+          ? {
+              numero: flightNumber,
+              companhia: airline,
+              origem: null,
+              destino: null,
+              data: null,
+              status: 'pendente',
+              valor: Number.isFinite(amount as number) ? amount : null,
+              moeda: currency || 'BRL',
+            }
+          : null,
+      hospedagem:
+        type === 'hospedagem'
+          ? {
+              nome: cleanedName || 'Hospedagem',
+              localizacao: tripDestination ?? null,
+              check_in: null,
+              check_out: null,
+              status: 'pendente',
+              valor: Number.isFinite(amount as number) ? amount : null,
+              moeda: currency || 'BRL',
+            }
+          : null,
+      transporte:
+        type === 'transporte'
+          ? {
+              tipo: cleanedName || 'Transporte',
+              operadora: null,
+              origem: null,
+              destino: null,
+              data: null,
+              status: 'pendente',
+              valor: Number.isFinite(amount as number) ? amount : null,
+              moeda: currency || 'BRL',
+            }
+          : null,
+      restaurante:
+        type === 'restaurante'
+          ? {
+              nome: cleanedName || 'Reserva de restaurante',
+              cidade: tripDestination ?? null,
+              tipo: 'Reserva',
+              rating: null,
+            }
+          : null,
     },
   };
 }
 
-function toReviewState(extracted: ExtractedReservation): ReviewState {
-  const defaultType: ImportType = extracted.type ?? inferTypeFromData(extracted);
+function toReviewState(extracted: ExtractedReservation, resolvedType: ImportType): ReviewState {
   return {
-    type: defaultType,
+    type: resolvedType,
     voo: {
       numero: extracted.data.voo?.numero ?? '',
       companhia: extracted.data.voo?.companhia ?? '',
@@ -253,6 +301,12 @@ function toReviewState(extracted: ExtractedReservation): ReviewState {
       status: extracted.data.transporte?.status ?? 'pendente',
       valor: extracted.data.transporte?.valor != null ? String(extracted.data.transporte.valor) : '',
       moeda: extracted.data.transporte?.moeda ?? 'BRL',
+    },
+    restaurante: {
+      nome: extracted.data.restaurante?.nome ?? '',
+      cidade: extracted.data.restaurante?.cidade ?? '',
+      tipo: extracted.data.restaurante?.tipo ?? '',
+      rating: extracted.data.restaurante?.rating != null ? String(extracted.data.restaurante.rating) : '',
     },
   };
 }
@@ -290,11 +344,12 @@ function hotelPhotoUrls(name: string, location: string) {
   ];
 }
 
-function identifyLabel(type: ImportType | null | undefined) {
-  if (type === 'hospedagem') return 'Hotel identificado';
-  if (type === 'voo') return 'Voo identificado';
-  if (type === 'transporte') return 'Transporte identificado';
-  return 'Reserva identificada';
+function typeLabel(type: ImportType | null | undefined) {
+  if (type === 'hospedagem') return 'Hospedagem';
+  if (type === 'voo') return 'Voo';
+  if (type === 'transporte') return 'Transporte';
+  if (type === 'restaurante') return 'Restaurante';
+  return 'A definir';
 }
 
 function toDateLabel(date?: string | null) {
@@ -315,22 +370,52 @@ function diffNights(checkIn?: string | null, checkOut?: string | null) {
 
 function toUserWarning(text: string) {
   const lower = text.toLowerCase();
-  if (lower.includes('bucket de storage')) {
-    return 'Não foi possível anexar o arquivo original agora, mas você pode seguir com a importação normalmente.';
-  }
-  if (lower.includes('metadados')) {
-    return 'Não foi possível registrar o anexo neste momento. A importação da reserva seguirá normalmente.';
+  if (lower.includes('bucket') || lower.includes('storage')) {
+    return 'Não foi possível anexar o arquivo original agora. A importação segue normalmente.';
   }
   if (lower.includes('ocr')) {
-    return 'Não conseguimos ler todo o conteúdo automaticamente. Revise os campos antes de salvar.';
+    return 'A leitura automática ficou incompleta. Revise os campos antes de salvar.';
   }
-  if (lower.includes('extração ia')) {
-    return 'A identificação automática ficou incompleta. Revise os dados antes de salvar.';
+  if (lower.includes('extração') || lower.includes('edge function') || lower.includes('failed to send a request')) {
+    return 'A IA não respondeu com dados suficientes agora. Preenchemos um rascunho para revisão.';
   }
-  if (lower.includes('edge function') || lower.includes('failed to send a request')) {
-    return 'A análise automática não respondeu agora. Preenchemos um rascunho para você revisar e salvar.';
+  if (lower.includes('metadados')) {
+    return 'O registro do anexo não foi concluído, mas você ainda pode salvar a reserva.';
   }
-  return text;
+  return 'Alguns dados exigem revisão manual antes de salvar.';
+}
+
+function queueStatusLabel(status: QueueStatus) {
+  if (status === 'pending') return 'Aguardando';
+  if (status === 'processing') return 'Analisando';
+  if (status === 'review') return 'Revisar';
+  if (status === 'saving') return 'Salvando';
+  if (status === 'saved') return 'Salvo';
+  return 'Falha';
+}
+
+function queueStatusVariant(status: QueueStatus): 'secondary' | 'default' | 'destructive' {
+  if (status === 'saved') return 'default';
+  if (status === 'failed') return 'destructive';
+  return 'secondary';
+}
+
+function makeQueueItem(file: File): ImportQueueItem {
+  return {
+    id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`,
+    file,
+    status: 'pending',
+    visualSteps: defaultVisualSteps(),
+    warnings: [],
+    confidence: null,
+    missingFields: [],
+    identifiedType: null,
+    reviewState: null,
+    rawText: '',
+    summary: null,
+    hotelPhotos: [],
+    photoIndex: 0,
+  };
 }
 
 export function ImportReservationDialog() {
@@ -341,212 +426,199 @@ export function ImportReservationDialog() {
   const flightsModule = useModuleData('voos');
   const staysModule = useModuleData('hospedagens');
   const transportsModule = useModuleData('transportes');
+  const restaurantsModule = useModuleData('restaurantes');
 
   const [open, setOpen] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
-  const [steps, setSteps] = useState<Record<StepKey, StepStatus>>(defaultSteps);
-  const [visualSteps, setVisualSteps] = useState<Record<VisualStepKey, StepStatus>>(defaultVisualSteps);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [queue, setQueue] = useState<ImportQueueItem[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [isProcessingBatch, setIsProcessingBatch] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [warnings, setWarnings] = useState<string[]>([]);
-  const [rawText, setRawText] = useState('');
-  const [confidence, setConfidence] = useState<number | null>(null);
-  const [missingFields, setMissingFields] = useState<string[]>([]);
-  const [reviewState, setReviewState] = useState<ReviewState | null>(null);
-  const [identifiedType, setIdentifiedType] = useState<ImportType | null>(null);
-  const [hotelPhotos, setHotelPhotos] = useState<string[]>([]);
-  const [photoIndex, setPhotoIndex] = useState(0);
-  const [summary, setSummary] = useState<ImportSummary | null>(null);
   const descriptionId = useId();
   const fileInputId = useId();
 
-  const canProcess = !!file && !!user && !!currentTripId && !isProcessing;
+  const activeItem = useMemo(() => queue.find((item) => item.id === activeId) ?? null, [queue, activeId]);
 
-  const visualStepsWithLabel = useMemo(() => {
-    const identifiedLabel = identifyLabel(identifiedType ?? reviewState?.type ?? null);
-    return VISUAL_STEPS.map((step) => (step.key === 'identified' ? { ...step, label: identifiedLabel } : step));
-  }, [identifiedType, reviewState?.type]);
+  const canProcess = queue.length > 0 && !!user && !!currentTripId && !isProcessingBatch;
 
   const visualProgress = useMemo(() => {
+    if (!activeItem) return 0;
     const total = VISUAL_STEPS.length;
-    const done = VISUAL_STEPS.reduce((count, step) => count + (visualSteps[step.key] === 'completed' ? 1 : 0), 0);
+    const done = VISUAL_STEPS.reduce((count, step) => count + (activeItem.visualSteps[step.key] === 'completed' ? 1 : 0), 0);
     return Math.round((done / total) * 100);
-  }, [visualSteps]);
-
-  const extractedPreview = useMemo(() => {
-    if (!reviewState) return null;
-
-    if (reviewState.type === 'hospedagem') {
-      return {
-        title: reviewState.hospedagem.nome || 'Hospedagem identificada',
-        subtitle: reviewState.hospedagem.localizacao || 'Localização não informada',
-        amount: reviewState.hospedagem.valor ? Number(reviewState.hospedagem.valor) : null,
-        currency: reviewState.hospedagem.moeda || 'BRL',
-        checkIn: reviewState.hospedagem.check_in || null,
-        checkOut: reviewState.hospedagem.check_out || null,
-      };
-    }
-
-    if (reviewState.type === 'voo') {
-      return {
-        title: reviewState.voo.numero || reviewState.voo.companhia || 'Voo identificado',
-        subtitle: `${reviewState.voo.origem || 'Origem'} → ${reviewState.voo.destino || 'Destino'}`,
-        amount: reviewState.voo.valor ? Number(reviewState.voo.valor) : null,
-        currency: reviewState.voo.moeda || 'BRL',
-        checkIn: null,
-        checkOut: null,
-      };
-    }
-
-    return {
-      title: reviewState.transporte.tipo || reviewState.transporte.operadora || 'Transporte identificado',
-      subtitle: `${reviewState.transporte.origem || 'Origem'} → ${reviewState.transporte.destino || 'Destino'}`,
-      amount: reviewState.transporte.valor ? Number(reviewState.transporte.valor) : null,
-      currency: reviewState.transporte.moeda || 'BRL',
-      checkIn: null,
-      checkOut: null,
-    };
-  }, [reviewState]);
+  }, [activeItem]);
 
   const pipelineStatusText = useMemo(() => {
-    if (isProcessing) return 'Processando importação...';
-    if (isSaving) return 'Salvando reserva e finalizando etapas...';
-    if (summary) return 'Importação concluída. Confira o resumo e próximos passos.';
-    if (!reviewState) return 'Selecione um arquivo e execute o pipeline.';
-    return 'Revisão pronta. Ajuste os campos e salve no módulo correto.';
-  }, [isProcessing, isSaving, reviewState, summary]);
+    if (!activeItem) return 'Selecione os arquivos e clique em “Analisar arquivos”.';
+    if (activeItem.status === 'processing') return `Analisando ${activeItem.file.name}...`;
+    if (activeItem.status === 'saving') return 'Salvando no módulo correto...';
+    if (activeItem.status === 'saved') return 'Arquivo salvo com sucesso.';
+    if (activeItem.status === 'failed') return 'Não foi possível concluir este arquivo. Você pode tentar novamente.';
+    if (activeItem.status === 'review') return 'Revise os campos e salve no módulo detectado.';
+    return 'Pronto para iniciar análise.';
+  }, [activeItem]);
 
-  const setStep = (key: StepKey, status: StepStatus) => {
-    setSteps((prev) => ({ ...prev, [key]: status }));
+  const setItem = (itemId: string, updater: (item: ImportQueueItem) => ImportQueueItem) => {
+    setQueue((prev) => prev.map((item) => (item.id === itemId ? updater(item) : item)));
   };
 
-  const setVisualStep = (key: VisualStepKey, status: StepStatus) => {
-    setVisualSteps((prev) => ({ ...prev, [key]: status }));
+  const setItemStep = (itemId: string, key: VisualStepKey, status: StepStatus) => {
+    setItem(itemId, (item) => ({ ...item, visualSteps: { ...item.visualSteps, [key]: status } }));
   };
 
-  const runPipeline = async () => {
-    if (!file || !user || !currentTripId) {
-      toast.error('Sessão inválida para importar reserva.');
-      return;
+  const onSelectFiles = (files: FileList | null) => {
+    const picked = Array.from(files ?? []);
+    if (picked.length === 0) return;
+
+    const invalid = picked.filter((file) => !isAllowedImportFile(file));
+    if (invalid.length > 0) {
+      toast.error('Alguns arquivos foram ignorados por formato inválido.');
     }
 
-    if (!isAllowedImportFile(file)) {
-      toast.error('Formato não suportado. Use txt, html, eml, pdf, png, jpg ou webp.');
-      return;
-    }
+    const valid = picked.filter((file) => isAllowedImportFile(file));
+    const nextQueue = valid.map(makeQueueItem);
+    setQueue(nextQueue);
+    setActiveId(nextQueue[0]?.id ?? null);
+  };
 
-    setIsProcessing(true);
-    setWarnings([]);
-    setRawText('');
-    setConfidence(null);
-    setMissingFields([]);
-    setReviewState(null);
-    setIdentifiedType(null);
-    setSummary(null);
-    setHotelPhotos([]);
-    setPhotoIndex(0);
-    setSteps(defaultSteps());
-    setVisualSteps(defaultVisualSteps());
-    setVisualStep('read', 'in_progress');
+  const processOneFile = async (itemId: string) => {
+    const item = queue.find((entry) => entry.id === itemId);
+    if (!item || !user || !currentTripId) return;
+
+    const file = item.file;
+
+    setItem(itemId, (current) => ({
+      ...current,
+      status: 'processing',
+      warnings: [],
+      confidence: null,
+      missingFields: [],
+      identifiedType: null,
+      reviewState: null,
+      rawText: '',
+      summary: null,
+      hotelPhotos: [],
+      photoIndex: 0,
+      visualSteps: { ...defaultVisualSteps(), read: 'in_progress' },
+    }));
+
+    const localWarnings: string[] = [];
 
     try {
-      setStep('upload', 'in_progress');
       const upload = await uploadImportFile(file, user.id, currentTripId);
-      if (upload.uploaded) {
-        setStep('upload', 'completed');
-      } else {
-        setStep('upload', 'failed');
-        if (upload.warning) {
-          setWarnings((prev) => prev.concat(`${upload.warning} O fluxo seguirá sem anexar o arquivo original.`));
-        }
+      if (!upload.uploaded && upload.warning) {
+        localWarnings.push(upload.warning);
       }
 
-      setStep('metadata', 'in_progress');
       try {
         await documentsModule.create({
           nome: file.name,
           tipo: `importacao/${upload.ext}`,
           arquivo_url: upload.path ?? null,
         } as Omit<TablesInsert<'documentos'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'>);
-        setStep('metadata', 'completed');
       } catch (metadataError) {
         console.error('[import][metadata_failure]', { file: file.name, error: metadataError });
-        setStep('metadata', 'failed');
-        const message = metadataError instanceof Error ? metadataError.message : 'Falha ao registrar metadados.';
-        setWarnings((prev) => prev.concat(`${message} O processamento continuará normalmente.`));
+        localWarnings.push('Falha ao registrar metadados do anexo.');
       }
 
-      setStep('native', 'in_progress');
       const native = await tryExtractNativeText(file);
-      let extractedText = native.text;
-      if (native.text) {
-        setStep('native', 'completed');
-        setStep('ocr', 'skipped');
-      } else {
-        setStep('native', 'completed');
-        setStep('ocr', 'in_progress');
+      let extractedText = native.text ?? '';
+
+      if (!native.text) {
         try {
           const ocr = await runOcrDocument(file);
-          extractedText = ocr.text;
-          setWarnings((prev) => prev.concat(ocr.warnings));
-          setStep('ocr', 'completed');
+          extractedText = ocr.text ?? '';
+          localWarnings.push(...ocr.warnings);
         } catch (ocrError) {
           console.error('[import][ocr_failure]', { file: file.name, error: ocrError });
-          const message = ocrError instanceof Error ? ocrError.message : 'OCR falhou.';
-          setWarnings((prev) => prev.concat(`${message} Revise manualmente os campos antes de salvar.`));
-          setStep('ocr', 'failed');
+          localWarnings.push(ocrError instanceof Error ? ocrError.message : 'OCR não disponível no momento.');
         }
       }
 
-      setRawText(extractedText || '');
-      setVisualStep('read', 'completed');
+      setItemStep(itemId, 'read', 'completed');
+      setItemStep(itemId, 'identified', 'in_progress');
 
-      setStep('extract', 'in_progress');
-      setVisualStep('identified', 'in_progress');
-      if (extractedText && extractedText.trim().length > 20) {
+      let extracted: ExtractedReservation;
+      if (extractedText.trim().length > 20) {
         try {
-          const extracted = await extractReservationStructured(extractedText, file.name);
-          setConfidence(extracted.confidence);
-          setMissingFields(extracted.missingFields || []);
-          setIdentifiedType(extracted.type ?? null);
-          setReviewState(toReviewState(extracted));
-          setStep('extract', 'completed');
-          setVisualStep('identified', 'completed');
+          extracted = await extractReservationStructured(extractedText, file.name);
         } catch (extractError) {
           console.error('[import][extract_failure]', { file: file.name, error: extractError });
-          const message = extractError instanceof Error ? extractError.message : 'Falha na extração IA.';
-          const fallback = inferFallbackExtraction(extractedText || '', file.name, currentTrip?.destino);
-          setWarnings((prev) => prev.concat(`${message} Fluxo segue em revisão assistida.`));
-          setStep('extract', 'failed');
-          setVisualStep('identified', 'completed');
-          setIdentifiedType(fallback.type);
-          setReviewState(toReviewState(fallback));
+          localWarnings.push(extractError instanceof Error ? extractError.message : 'Extração IA incompleta.');
+          extracted = inferFallbackExtraction(extractedText, file.name, currentTrip?.destino);
         }
       } else {
-        const fallback = inferFallbackExtraction('', file.name, currentTrip?.destino);
-        setWarnings((prev) => prev.concat('Sem texto suficiente para IA. Preenchemos um rascunho para revisão manual.'));
-        setStep('extract', 'failed');
-        setVisualStep('identified', 'completed');
-        setIdentifiedType(fallback.type);
-        setReviewState(toReviewState(fallback));
+        localWarnings.push('Texto insuficiente para extração automática.');
+        extracted = inferFallbackExtraction(extractedText, file.name, currentTrip?.destino);
       }
 
-      setStep('review', 'in_progress');
-      toast.success('Pipeline concluído. Revise os campos antes de salvar.');
+      const resolvedType = resolveImportType(extracted, extractedText, file.name);
+      const review = toReviewState(extracted, resolvedType);
+
+      setItem(itemId, (current) => ({
+        ...current,
+        status: 'review',
+        warnings: localWarnings,
+        confidence: extracted.confidence,
+        missingFields: extracted.missingFields ?? [],
+        identifiedType: resolvedType,
+        reviewState: review,
+        rawText: extractedText,
+        visualSteps: {
+          ...current.visualSteps,
+          read: 'completed',
+          identified: 'completed',
+          saving: 'pending',
+          photos: 'pending',
+          tips: 'pending',
+          done: 'pending',
+        },
+      }));
     } catch (error) {
       console.error('[import][pipeline_fatal]', { file: file.name, error });
-      const message = error instanceof Error ? error.message : 'Falha no pipeline de importação.';
-      toast.error(message);
-      setVisualStep('read', 'failed');
-    } finally {
-      setIsProcessing(false);
+      const fallbackWarning = error instanceof Error ? error.message : 'Falha geral na análise.';
+      setItem(itemId, (current) => ({
+        ...current,
+        status: 'failed',
+        warnings: localWarnings.concat(fallbackWarning),
+        visualSteps: {
+          ...current.visualSteps,
+          read: 'failed',
+        },
+      }));
     }
   };
 
-  const saveReviewed = async () => {
-    if (!reviewState) return;
+  const runBatch = async () => {
+    if (!canProcess) return;
+    setIsProcessingBatch(true);
+
+    const targets = queue.map((item) => item.id);
+    for (const itemId of targets) {
+      setActiveId(itemId);
+      // eslint-disable-next-line no-await-in-loop
+      await processOneFile(itemId);
+    }
+
+    setIsProcessingBatch(false);
+    toast.success('Análise concluída. Revise e salve cada item.');
+  };
+
+  const updateActiveReview = (updater: (review: ReviewState) => ReviewState) => {
+    if (!activeItem?.reviewState) return;
+    setItem(activeItem.id, (item) => {
+      if (!item.reviewState) return item;
+      return { ...item, reviewState: updater(item.reviewState) };
+    });
+  };
+
+  const saveActiveReviewed = async () => {
+    if (!activeItem?.reviewState) return;
+
+    const reviewState = activeItem.reviewState;
     setIsSaving(true);
-    setVisualStep('saving', 'in_progress');
+    setItem(activeItem.id, (item) => ({ ...item, status: 'saving' }));
+    setItemStep(activeItem.id, 'saving', 'in_progress');
+
     try {
       let flightsAfter = [...flightsModule.data];
       let staysAfter = [...staysModule.data];
@@ -558,6 +630,7 @@ export function ImportReservationDialog() {
       let currency = 'BRL';
       let checkIn: string | null = null;
       let checkOut: string | null = null;
+      let photos: string[] = [];
 
       if (reviewState.type === 'voo') {
         const payload: Omit<TablesInsert<'voos'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
@@ -571,15 +644,14 @@ export function ImportReservationDialog() {
           moeda: reviewState.voo.moeda || 'BRL',
         };
         const created = await flightsModule.create(payload);
-        if (created) {
-          flightsAfter = [created, ...flightsAfter];
-        }
+        if (created) flightsAfter = [created, ...flightsAfter];
+
         title = payload.numero || payload.companhia || 'Voo importado';
         subtitle = `${payload.origem || 'Origem'} → ${payload.destino || 'Destino'}`;
         amount = payload.valor ?? null;
         currency = payload.moeda ?? 'BRL';
-        setVisualStep('photos', 'skipped');
-        setVisualStep('tips', 'skipped');
+        setItemStep(activeItem.id, 'photos', 'skipped');
+        setItemStep(activeItem.id, 'tips', 'skipped');
       }
 
       if (reviewState.type === 'hospedagem') {
@@ -597,15 +669,15 @@ export function ImportReservationDialog() {
           restaurantes_proximos: null,
           dica_ia: null,
         };
+
         const created = await staysModule.create(payload);
         if (created) {
           staysAfter = [created, ...staysAfter];
-          setVisualStep('photos', 'in_progress');
-          setHotelPhotos(hotelPhotoUrls(created.nome ?? '', created.localizacao ?? ''));
-          setPhotoIndex(0);
-          setVisualStep('photos', 'completed');
+          setItemStep(activeItem.id, 'photos', 'in_progress');
+          photos = hotelPhotoUrls(created.nome ?? '', created.localizacao ?? '');
+          setItemStep(activeItem.id, 'photos', 'completed');
 
-          setVisualStep('tips', 'in_progress');
+          setItemStep(activeItem.id, 'tips', 'in_progress');
           const tips = await generateStayTips({
             hotelName: created.nome,
             location: created.localizacao,
@@ -613,28 +685,27 @@ export function ImportReservationDialog() {
             checkOut: created.check_out,
             tripDestination: currentTrip?.destino,
           });
+
           if (tips.data) {
             try {
-              await staysModule.update({
-                id: created.id,
-                updates: tips.data,
-              });
-              staysAfter = [
-                { ...created, ...tips.data },
-                ...staysAfter.filter((item) => item.id !== created.id),
-              ];
-            } catch (enrichError) {
-              console.error('[import][stay_tips_update_failed]', enrichError);
-              setWarnings((prev) => prev.concat('A reserva foi salva, mas as dicas IA não puderam ser persistidas agora.'));
+              await staysModule.update({ id: created.id, updates: tips.data });
+              staysAfter = [{ ...created, ...tips.data }, ...staysAfter.filter((entry) => entry.id !== created.id)];
+            } catch (tipError) {
+              console.error('[import][stay_tips_update_failed]', tipError);
+              setItem(activeItem.id, (item) => ({
+                ...item,
+                warnings: item.warnings.concat('Reserva salva, mas as dicas IA não puderam ser persistidas agora.'),
+              }));
             }
           }
+
           if (tips.fromFallback) {
-            setWarnings((prev) => prev.concat('IA de dicas em fallback: revise manualmente antes da viagem.'));
+            setItem(activeItem.id, (item) => ({
+              ...item,
+              warnings: item.warnings.concat('Dicas de hospedagem em modo fallback; revise antes da viagem.'),
+            }));
           }
-          setVisualStep('tips', 'completed');
-        } else {
-          setVisualStep('photos', 'failed');
-          setVisualStep('tips', 'failed');
+          setItemStep(activeItem.id, 'tips', 'completed');
         }
 
         title = payload.nome || 'Hospedagem importada';
@@ -656,31 +727,38 @@ export function ImportReservationDialog() {
           valor: reviewState.transporte.valor ? Number(reviewState.transporte.valor) : null,
           moeda: reviewState.transporte.moeda || 'BRL',
         };
+
         const created = await transportsModule.create(payload);
-        if (created) {
-          transportsAfter = [created, ...transportsAfter];
-        }
+        if (created) transportsAfter = [created, ...transportsAfter];
+
         title = payload.tipo || payload.operadora || 'Transporte importado';
         subtitle = `${payload.origem || 'Origem'} → ${payload.destino || 'Destino'}`;
         amount = payload.valor ?? null;
         currency = payload.moeda ?? 'BRL';
-        setVisualStep('photos', 'skipped');
-        setVisualStep('tips', 'skipped');
+        setItemStep(activeItem.id, 'photos', 'skipped');
+        setItemStep(activeItem.id, 'tips', 'skipped');
       }
 
-      setStep('review', 'completed');
-      setVisualStep('saving', 'completed');
+      if (reviewState.type === 'restaurante') {
+        const payload: Omit<TablesInsert<'restaurantes'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
+          nome: reviewState.restaurante.nome || 'Restaurante importado',
+          cidade: reviewState.restaurante.cidade || null,
+          tipo: reviewState.restaurante.tipo || null,
+          rating: reviewState.restaurante.rating ? Number(reviewState.restaurante.rating) : null,
+          salvo: true,
+        };
 
-      const stayGaps = calculateStayCoverageGaps(
-        staysAfter,
-        currentTrip?.data_inicio ?? null,
-        currentTrip?.data_fim ?? null,
-      );
-      const transportGaps = calculateTransportCoverageGaps(
-        staysAfter,
-        transportsAfter,
-        flightsAfter,
-      );
+        await restaurantsModule.create(payload);
+        title = payload.nome;
+        subtitle = `${payload.cidade || 'Cidade não informada'} · ${payload.tipo || 'Tipo não informado'}`;
+        setItemStep(activeItem.id, 'photos', 'skipped');
+        setItemStep(activeItem.id, 'tips', 'skipped');
+      }
+
+      setItemStep(activeItem.id, 'saving', 'completed');
+
+      const stayGaps = calculateStayCoverageGaps(staysAfter, currentTrip?.data_inicio ?? null, currentTrip?.data_fim ?? null);
+      const transportGaps = calculateTransportCoverageGaps(staysAfter, transportsAfter, flightsAfter);
 
       const nextSteps: string[] = [];
       if (stayGaps.length > 0) {
@@ -697,7 +775,7 @@ export function ImportReservationDialog() {
         nextSteps.push('Trechos entre cidades cobertos.');
       }
 
-      setSummary({
+      const summary: ImportSummary = {
         type: reviewState.type,
         title,
         subtitle,
@@ -710,218 +788,241 @@ export function ImportReservationDialog() {
         stayGapCount: stayGaps.length,
         transportGapCount: transportGaps.length,
         nextSteps,
-      });
+      };
 
-      setVisualStep('done', 'completed');
-      toast.success('Reserva importada e salva com sucesso.');
+      setItem(activeItem.id, (item) => ({
+        ...item,
+        status: 'saved',
+        summary,
+        hotelPhotos: photos,
+        photoIndex: 0,
+        visualSteps: {
+          ...item.visualSteps,
+          saving: 'completed',
+          done: 'completed',
+        },
+      }));
+
+      toast.success(`${typeLabel(reviewState.type)} salvo com sucesso.`);
     } catch (error) {
       console.error('[import][save_failure]', error);
-      const message = error instanceof Error ? error.message : 'Falha ao salvar reserva revisada.';
-      toast.error(message);
-      setStep('review', 'failed');
-      setVisualStep('saving', 'failed');
-      setVisualStep('done', 'failed');
+      setItem(activeItem.id, (item) => ({
+        ...item,
+        status: 'review',
+        warnings: item.warnings.concat(error instanceof Error ? error.message : 'Falha ao salvar item.'),
+        visualSteps: {
+          ...item.visualSteps,
+          saving: 'failed',
+          done: 'failed',
+        },
+      }));
+      toast.error('Falha ao salvar este item revisado.');
     } finally {
       setIsSaving(false);
     }
   };
 
   const resetDialogState = () => {
-    setFile(null);
-    setWarnings([]);
-    setRawText('');
-    setConfidence(null);
-    setMissingFields([]);
-    setReviewState(null);
-    setIdentifiedType(null);
-    setSummary(null);
-    setHotelPhotos([]);
-    setPhotoIndex(0);
-    setSteps(defaultSteps());
-    setVisualSteps(defaultVisualSteps());
+    setQueue([]);
+    setActiveId(null);
     const fileInput = document.getElementById(fileInputId) as HTMLInputElement | null;
-    if (fileInput) {
-      fileInput.value = '';
-    }
+    if (fileInput) fileInput.value = '';
   };
+
+  const allSaved = queue.length > 0 && queue.every((item) => item.status === 'saved');
 
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) {
-          resetDialogState();
-        }
+        if (!next) resetDialogState();
       }}
     >
       <DialogTrigger asChild>
         <Button aria-label="Abrir importação de reserva">
           <FileUp className="mr-2 h-4 w-4" />
-          Importar reserva
+          Importar reservas
         </Button>
       </DialogTrigger>
-      <DialogContent className="tp-scroll max-h-[92vh] overflow-y-auto border-primary/20 bg-gradient-to-b from-white to-slate-50/90 sm:max-w-4xl" aria-describedby={descriptionId}>
+
+      <DialogContent className="tp-scroll max-h-[92vh] overflow-y-auto border-primary/20 bg-gradient-to-b from-white to-slate-50/90 sm:max-w-5xl" aria-describedby={descriptionId}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <FileUp className="h-4 w-4" />
+              <Sparkles className="h-4 w-4" />
             </span>
-            Importação completa de reserva
+            Importação inteligente de reservas
           </DialogTitle>
           <DialogDescription id={descriptionId}>
-            Upload + OCR + IA + revisão assistida para salvar em voo, hospedagem ou transporte.
+            Envie vários arquivos (voo, hospedagem, transporte ou restaurante). A IA classifica e prepara revisão item a item.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-            <div className="space-y-2">
-              <Label htmlFor={fileInputId}>Arquivo da reserva</Label>
-              <Input
-                id={fileInputId}
-                type="file"
-                accept=".txt,.html,.eml,.pdf,.png,.jpg,.jpeg,.webp"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Formatos aceitos: txt, html, eml, pdf, png, jpg, webp.
-              </p>
-            </div>
-            <div className="flex items-end">
-              <Button onClick={runPipeline} disabled={!canProcess} aria-label="Executar pipeline de importação">
-                {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
-                Executar pipeline
-              </Button>
-            </div>
-          </div>
-
           <Card className="border-primary/15 bg-white/90 shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Analisando sua reserva</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <div className="h-2 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-primary via-violet-500 to-fuchsia-500 transition-all duration-500"
-                    style={{ width: `${visualProgress}%` }}
+            <CardContent className="pt-4">
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                <div className="space-y-2">
+                  <Label htmlFor={fileInputId}>Arquivos da viagem</Label>
+                  <Input
+                    id={fileInputId}
+                    type="file"
+                    multiple
+                    accept=".txt,.html,.eml,.pdf,.png,.jpg,.jpeg,.webp"
+                    onChange={(event) => onSelectFiles(event.target.files)}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Você pode subir vários arquivos ao mesmo tempo. Formatos: txt, html, eml, pdf, png, jpg e webp.
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground">{visualProgress}% concluído</p>
+                <div className="flex items-end">
+                  <Button onClick={runBatch} disabled={!canProcess} aria-label="Analisar arquivos selecionados">
+                    {isProcessingBatch ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
+                    Analisar arquivos
+                  </Button>
+                </div>
               </div>
-              <div className="grid gap-3 md:grid-cols-6">
-                {visualStepsWithLabel.map((step, index) => {
-                  const status = visualSteps[step.key];
-                  const isDone = status === 'completed';
-                  const isActive = status === 'in_progress';
-                  const isFailed = status === 'failed';
-                  return (
-                    <div key={step.key} className="relative flex flex-col items-center gap-2 text-center">
-                      {index < visualStepsWithLabel.length - 1 && (
-                        <span
-                          className={`absolute left-[calc(50%+1rem)] top-4 hidden h-0.5 w-[calc(100%-2rem)] md:block ${
-                            isDone ? 'bg-primary' : 'bg-border'
-                          }`}
-                        />
-                      )}
-                      <div
-                        className={`flex h-8 w-8 items-center justify-center rounded-full border ${
-                          isDone
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : isActive
-                              ? 'border-primary bg-primary/10 text-primary'
-                              : isFailed
-                                ? 'border-amber-500 bg-amber-500/10 text-amber-700'
-                                : 'border-border bg-muted/30 text-muted-foreground'
-                        }`}
-                      >
-                        {isDone ? <Check className="h-4 w-4" /> : isActive ? <Loader2 className="h-4 w-4 animate-spin" /> : <Circle className="h-3 w-3" />}
-                      </div>
-                      <p className="text-xs">{step.label}</p>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="rounded-lg border bg-muted/20 px-3 py-2">
-                <p className="text-xs text-muted-foreground">
-                  Analisando com IA: {file?.name || 'arquivo da reserva'}
-                </p>
-              </div>
-
-              <p className="pt-1 text-xs text-muted-foreground" role="status" aria-live="polite">{pipelineStatusText}</p>
             </CardContent>
           </Card>
 
-          {warnings.length > 0 && (
+          {queue.length > 0 && (
+            <Card className="border-border/50">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Fila de importação</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {queue.map((item) => {
+                    const isActive = item.id === activeId;
+                    return (
+                      <button
+                        type="button"
+                        key={item.id}
+                        onClick={() => setActiveId(item.id)}
+                        className={`rounded-lg border p-3 text-left transition ${isActive ? 'border-primary bg-primary/5' : 'border-border bg-background hover:border-primary/40'}`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="line-clamp-1 text-sm font-medium">{item.file.name}</p>
+                          <Badge variant={queueStatusVariant(item.status)}>{queueStatusLabel(item.status)}</Badge>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {typeLabel(item.identifiedType)} {item.confidence != null ? `· confiança ${Math.round(item.confidence * 100)}%` : ''}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {activeItem && (
+            <Card className="border-primary/15 bg-white/90 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Análise do arquivo selecionado</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="rounded-lg border bg-muted/20 px-3 py-2">
+                  <p className="text-sm font-medium">{activeItem.file.name}</p>
+                  <p className="text-xs text-muted-foreground">{pipelineStatusText}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-primary via-violet-500 to-fuchsia-500 transition-all duration-500"
+                      style={{ width: `${visualProgress}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">{visualProgress}% concluído</p>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-6">
+                  {VISUAL_STEPS.map((step, index) => {
+                    const status = activeItem.visualSteps[step.key];
+                    const isDone = status === 'completed';
+                    const isActive = status === 'in_progress';
+                    const isFailed = status === 'failed';
+                    return (
+                      <div key={step.key} className="relative flex flex-col items-center gap-2 text-center">
+                        {index < VISUAL_STEPS.length - 1 && (
+                          <span
+                            className={`absolute left-[calc(50%+1rem)] top-4 hidden h-0.5 w-[calc(100%-2rem)] md:block ${isDone ? 'bg-primary' : 'bg-border'}`}
+                          />
+                        )}
+                        <div
+                          className={`flex h-8 w-8 items-center justify-center rounded-full border ${
+                            isDone
+                              ? 'border-primary bg-primary text-primary-foreground'
+                              : isActive
+                                ? 'border-primary bg-primary/10 text-primary'
+                                : isFailed
+                                  ? 'border-amber-500 bg-amber-500/10 text-amber-700'
+                                  : 'border-border bg-muted/30 text-muted-foreground'
+                          }`}
+                        >
+                          {isDone ? <Check className="h-4 w-4" /> : isActive ? <Loader2 className="h-4 w-4 animate-spin" /> : <Circle className="h-3 w-3" />}
+                        </div>
+                        <p className="text-xs">{step.label}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {activeItem && activeItem.warnings.length > 0 && (
             <Card className="border-amber-500/40 bg-amber-500/5" role="alert">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Atenção</CardTitle>
+                <CardTitle className="text-sm">Ajustes necessários</CardTitle>
               </CardHeader>
               <CardContent className="space-y-1 text-sm text-muted-foreground">
-                {warnings.map((warning) => (
-                  <p key={warning}>- {toUserWarning(warning)}</p>
+                {activeItem.warnings.map((warning) => (
+                  <p key={`${activeItem.id}-${warning}`}>- {toUserWarning(warning)}</p>
                 ))}
               </CardContent>
             </Card>
           )}
 
-          {reviewState && (
+          {activeItem?.reviewState && (
             <Card className="border-border/50">
               <CardHeader>
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <CardTitle className="text-base">Revisão manual assistida</CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={missingFields.length > 0 ? 'destructive' : 'secondary'}>
-                      Campos para confirmar: {missingFields.length}
-                    </Badge>
-                  </div>
+                  <Badge variant={activeItem.missingFields.length > 0 ? 'destructive' : 'secondary'}>
+                    Campos para confirmar: {activeItem.missingFields.length}
+                  </Badge>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {extractedPreview && (
-                  <div className="rounded-xl border bg-muted/20 p-4">
-                    <p className="text-sm text-muted-foreground">Dados extraídos</p>
-                    <p className="text-lg font-semibold">{extractedPreview.title}</p>
-                    <p className="text-sm text-muted-foreground">{extractedPreview.subtitle}</p>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                      <div className="rounded-lg border bg-background p-2">
-                        <p className="text-[11px] text-muted-foreground">Check-in</p>
-                        <p className="font-medium">{toDateLabel(extractedPreview.checkIn)}</p>
-                      </div>
-                      <div className="rounded-lg border bg-background p-2">
-                        <p className="text-[11px] text-muted-foreground">Check-out</p>
-                        <p className="font-medium">{toDateLabel(extractedPreview.checkOut)}</p>
-                      </div>
-                      <div className="rounded-lg border bg-background p-2">
-                        <p className="text-[11px] text-muted-foreground">Valor</p>
-                        <p className="font-medium">{formatCurrency(extractedPreview.amount, extractedPreview.currency)}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 <div className="space-y-2">
                   <Label>Tipo detectado</Label>
-                  <Select value={reviewState.type} onValueChange={(value: ImportType) => setReviewState((prev) => prev ? { ...prev, type: value } : prev)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                  <Select
+                    value={activeItem.reviewState.type}
+                    onValueChange={(value: ImportType) => updateActiveReview((review) => ({ ...review, type: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="voo">Voo</SelectItem>
                       <SelectItem value="hospedagem">Hospedagem</SelectItem>
                       <SelectItem value="transporte">Transporte</SelectItem>
+                      <SelectItem value="restaurante">Restaurante</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                {reviewState.type === 'voo' && (
+                {activeItem.reviewState.type === 'voo' && (
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <Input placeholder="Número" value={reviewState.voo.numero} onChange={(e) => setReviewState((prev) => prev ? { ...prev, voo: { ...prev.voo, numero: e.target.value } } : prev)} />
-                    <Input placeholder="Companhia" value={reviewState.voo.companhia} onChange={(e) => setReviewState((prev) => prev ? { ...prev, voo: { ...prev.voo, companhia: e.target.value } } : prev)} />
-                    <Input placeholder="Origem" value={reviewState.voo.origem} onChange={(e) => setReviewState((prev) => prev ? { ...prev, voo: { ...prev.voo, origem: e.target.value } } : prev)} />
-                    <Input placeholder="Destino" value={reviewState.voo.destino} onChange={(e) => setReviewState((prev) => prev ? { ...prev, voo: { ...prev.voo, destino: e.target.value } } : prev)} />
-                    <Input type="datetime-local" value={reviewState.voo.data} onChange={(e) => setReviewState((prev) => prev ? { ...prev, voo: { ...prev.voo, data: e.target.value } } : prev)} />
-                    <Select value={reviewState.voo.status} onValueChange={(value: 'confirmado' | 'pendente' | 'cancelado') => setReviewState((prev) => prev ? { ...prev, voo: { ...prev.voo, status: value } } : prev)}>
+                    <Input placeholder="Número do voo" value={activeItem.reviewState.voo.numero} onChange={(e) => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, numero: e.target.value } }))} />
+                    <Input placeholder="Companhia" value={activeItem.reviewState.voo.companhia} onChange={(e) => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, companhia: e.target.value } }))} />
+                    <Input placeholder="Origem" value={activeItem.reviewState.voo.origem} onChange={(e) => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, origem: e.target.value } }))} />
+                    <Input placeholder="Destino" value={activeItem.reviewState.voo.destino} onChange={(e) => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, destino: e.target.value } }))} />
+                    <Input type="datetime-local" value={activeItem.reviewState.voo.data} onChange={(e) => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, data: e.target.value } }))} />
+                    <Select value={activeItem.reviewState.voo.status} onValueChange={(value: 'confirmado' | 'pendente' | 'cancelado') => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, status: value } }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="pendente">Pendente</SelectItem>
@@ -929,18 +1030,18 @@ export function ImportReservationDialog() {
                         <SelectItem value="cancelado">Cancelado</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Input placeholder="Valor" type="number" step="0.01" value={reviewState.voo.valor} onChange={(e) => setReviewState((prev) => prev ? { ...prev, voo: { ...prev.voo, valor: e.target.value } } : prev)} />
-                    <Input placeholder="Moeda" value={reviewState.voo.moeda} onChange={(e) => setReviewState((prev) => prev ? { ...prev, voo: { ...prev.voo, moeda: e.target.value.toUpperCase() } } : prev)} />
+                    <Input placeholder="Valor" type="number" step="0.01" value={activeItem.reviewState.voo.valor} onChange={(e) => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, valor: e.target.value } }))} />
+                    <Input placeholder="Moeda" value={activeItem.reviewState.voo.moeda} onChange={(e) => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, moeda: e.target.value.toUpperCase() } }))} />
                   </div>
                 )}
 
-                {reviewState.type === 'hospedagem' && (
+                {activeItem.reviewState.type === 'hospedagem' && (
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <Input placeholder="Nome" value={reviewState.hospedagem.nome} onChange={(e) => setReviewState((prev) => prev ? { ...prev, hospedagem: { ...prev.hospedagem, nome: e.target.value } } : prev)} />
-                    <Input placeholder="Localização" value={reviewState.hospedagem.localizacao} onChange={(e) => setReviewState((prev) => prev ? { ...prev, hospedagem: { ...prev.hospedagem, localizacao: e.target.value } } : prev)} />
-                    <Input type="date" value={reviewState.hospedagem.check_in} onChange={(e) => setReviewState((prev) => prev ? { ...prev, hospedagem: { ...prev.hospedagem, check_in: e.target.value } } : prev)} />
-                    <Input type="date" value={reviewState.hospedagem.check_out} onChange={(e) => setReviewState((prev) => prev ? { ...prev, hospedagem: { ...prev.hospedagem, check_out: e.target.value } } : prev)} />
-                    <Select value={reviewState.hospedagem.status} onValueChange={(value: 'confirmado' | 'pendente' | 'cancelado') => setReviewState((prev) => prev ? { ...prev, hospedagem: { ...prev.hospedagem, status: value } } : prev)}>
+                    <Input placeholder="Nome da hospedagem" value={activeItem.reviewState.hospedagem.nome} onChange={(e) => updateActiveReview((review) => ({ ...review, hospedagem: { ...review.hospedagem, nome: e.target.value } }))} />
+                    <Input placeholder="Localização" value={activeItem.reviewState.hospedagem.localizacao} onChange={(e) => updateActiveReview((review) => ({ ...review, hospedagem: { ...review.hospedagem, localizacao: e.target.value } }))} />
+                    <Input type="date" value={activeItem.reviewState.hospedagem.check_in} onChange={(e) => updateActiveReview((review) => ({ ...review, hospedagem: { ...review.hospedagem, check_in: e.target.value } }))} />
+                    <Input type="date" value={activeItem.reviewState.hospedagem.check_out} onChange={(e) => updateActiveReview((review) => ({ ...review, hospedagem: { ...review.hospedagem, check_out: e.target.value } }))} />
+                    <Select value={activeItem.reviewState.hospedagem.status} onValueChange={(value: 'confirmado' | 'pendente' | 'cancelado') => updateActiveReview((review) => ({ ...review, hospedagem: { ...review.hospedagem, status: value } }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="pendente">Pendente</SelectItem>
@@ -948,19 +1049,19 @@ export function ImportReservationDialog() {
                         <SelectItem value="cancelado">Cancelado</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Input placeholder="Valor" type="number" step="0.01" value={reviewState.hospedagem.valor} onChange={(e) => setReviewState((prev) => prev ? { ...prev, hospedagem: { ...prev.hospedagem, valor: e.target.value } } : prev)} />
-                    <Input placeholder="Moeda" value={reviewState.hospedagem.moeda} onChange={(e) => setReviewState((prev) => prev ? { ...prev, hospedagem: { ...prev.hospedagem, moeda: e.target.value.toUpperCase() } } : prev)} />
+                    <Input placeholder="Valor" type="number" step="0.01" value={activeItem.reviewState.hospedagem.valor} onChange={(e) => updateActiveReview((review) => ({ ...review, hospedagem: { ...review.hospedagem, valor: e.target.value } }))} />
+                    <Input placeholder="Moeda" value={activeItem.reviewState.hospedagem.moeda} onChange={(e) => updateActiveReview((review) => ({ ...review, hospedagem: { ...review.hospedagem, moeda: e.target.value.toUpperCase() } }))} />
                   </div>
                 )}
 
-                {reviewState.type === 'transporte' && (
+                {activeItem.reviewState.type === 'transporte' && (
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <Input placeholder="Tipo" value={reviewState.transporte.tipo} onChange={(e) => setReviewState((prev) => prev ? { ...prev, transporte: { ...prev.transporte, tipo: e.target.value } } : prev)} />
-                    <Input placeholder="Operadora" value={reviewState.transporte.operadora} onChange={(e) => setReviewState((prev) => prev ? { ...prev, transporte: { ...prev.transporte, operadora: e.target.value } } : prev)} />
-                    <Input placeholder="Origem" value={reviewState.transporte.origem} onChange={(e) => setReviewState((prev) => prev ? { ...prev, transporte: { ...prev.transporte, origem: e.target.value } } : prev)} />
-                    <Input placeholder="Destino" value={reviewState.transporte.destino} onChange={(e) => setReviewState((prev) => prev ? { ...prev, transporte: { ...prev.transporte, destino: e.target.value } } : prev)} />
-                    <Input type="datetime-local" value={reviewState.transporte.data} onChange={(e) => setReviewState((prev) => prev ? { ...prev, transporte: { ...prev.transporte, data: e.target.value } } : prev)} />
-                    <Select value={reviewState.transporte.status} onValueChange={(value: 'confirmado' | 'pendente' | 'cancelado') => setReviewState((prev) => prev ? { ...prev, transporte: { ...prev.transporte, status: value } } : prev)}>
+                    <Input placeholder="Tipo de transporte" value={activeItem.reviewState.transporte.tipo} onChange={(e) => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, tipo: e.target.value } }))} />
+                    <Input placeholder="Operadora" value={activeItem.reviewState.transporte.operadora} onChange={(e) => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, operadora: e.target.value } }))} />
+                    <Input placeholder="Origem" value={activeItem.reviewState.transporte.origem} onChange={(e) => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, origem: e.target.value } }))} />
+                    <Input placeholder="Destino" value={activeItem.reviewState.transporte.destino} onChange={(e) => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, destino: e.target.value } }))} />
+                    <Input type="datetime-local" value={activeItem.reviewState.transporte.data} onChange={(e) => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, data: e.target.value } }))} />
+                    <Select value={activeItem.reviewState.transporte.status} onValueChange={(value: 'confirmado' | 'pendente' | 'cancelado') => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, status: value } }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="pendente">Pendente</SelectItem>
@@ -968,105 +1069,76 @@ export function ImportReservationDialog() {
                         <SelectItem value="cancelado">Cancelado</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Input placeholder="Valor" type="number" step="0.01" value={reviewState.transporte.valor} onChange={(e) => setReviewState((prev) => prev ? { ...prev, transporte: { ...prev.transporte, valor: e.target.value } } : prev)} />
-                    <Input placeholder="Moeda" value={reviewState.transporte.moeda} onChange={(e) => setReviewState((prev) => prev ? { ...prev, transporte: { ...prev.transporte, moeda: e.target.value.toUpperCase() } } : prev)} />
+                    <Input placeholder="Valor" type="number" step="0.01" value={activeItem.reviewState.transporte.valor} onChange={(e) => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, valor: e.target.value } }))} />
+                    <Input placeholder="Moeda" value={activeItem.reviewState.transporte.moeda} onChange={(e) => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, moeda: e.target.value.toUpperCase() } }))} />
                   </div>
                 )}
 
+                {activeItem.reviewState.type === 'restaurante' && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Input placeholder="Nome do restaurante" value={activeItem.reviewState.restaurante.nome} onChange={(e) => updateActiveReview((review) => ({ ...review, restaurante: { ...review.restaurante, nome: e.target.value } }))} />
+                    <Input placeholder="Cidade" value={activeItem.reviewState.restaurante.cidade} onChange={(e) => updateActiveReview((review) => ({ ...review, restaurante: { ...review.restaurante, cidade: e.target.value } }))} />
+                    <Input placeholder="Tipo (ex.: italiano, japonês)" value={activeItem.reviewState.restaurante.tipo} onChange={(e) => updateActiveReview((review) => ({ ...review, restaurante: { ...review.restaurante, tipo: e.target.value } }))} />
+                    <Input placeholder="Rating (0-5)" type="number" step="0.1" min="0" max="5" value={activeItem.reviewState.restaurante.rating} onChange={(e) => updateActiveReview((review) => ({ ...review, restaurante: { ...review.restaurante, rating: e.target.value } }))} />
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
 
-          {summary && (
+          {activeItem?.summary && (
             <Card className="border-emerald-500/30 bg-emerald-500/[0.03]">
               <CardHeader>
                 <CardTitle className="text-base">Importação concluída</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {summary.type === 'hospedagem' && hotelPhotos.length > 0 && (
+                {activeItem.summary.type === 'hospedagem' && activeItem.hotelPhotos.length > 0 && (
                   <div className="overflow-hidden rounded-xl border">
                     <img
-                      src={hotelPhotos[photoIndex]}
-                      alt={summary.title}
+                      src={activeItem.hotelPhotos[activeItem.photoIndex]}
+                      alt={activeItem.summary.title}
                       className="h-48 w-full object-cover"
                       loading="lazy"
                     />
                     <div className="flex items-center justify-between border-t bg-background px-3 py-2 text-xs">
-                      <span>Foto {photoIndex + 1}/{hotelPhotos.length}</span>
+                      <span>Foto {activeItem.photoIndex + 1}/{activeItem.hotelPhotos.length}</span>
                       <div className="flex gap-1">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setPhotoIndex((idx) => (idx === 0 ? hotelPhotos.length - 1 : idx - 1))}
-                        >
-                          Anterior
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setPhotoIndex((idx) => (idx + 1) % hotelPhotos.length)}
-                        >
-                          Próxima
-                        </Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => setItem(activeItem.id, (item) => ({ ...item, photoIndex: item.photoIndex === 0 ? item.hotelPhotos.length - 1 : item.photoIndex - 1 }))}>Anterior</Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => setItem(activeItem.id, (item) => ({ ...item, photoIndex: (item.photoIndex + 1) % item.hotelPhotos.length }))}>Próxima</Button>
                       </div>
                     </div>
                   </div>
                 )}
 
                 <div className="rounded-xl border bg-background p-4">
-                  <p className="text-lg font-semibold">{summary.title}</p>
-                  <p className="text-sm text-muted-foreground">{summary.subtitle}</p>
-                  {summary.type === 'hospedagem' && (
-                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs text-muted-foreground">Check-in</p>
-                        <p className="font-semibold">{toDateLabel(summary.checkIn)}</p>
-                      </div>
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs text-muted-foreground">Check-out</p>
-                        <p className="font-semibold">{toDateLabel(summary.checkOut)}</p>
-                      </div>
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs text-muted-foreground">Noites</p>
-                        <p className="font-semibold">{summary.nights ?? '—'}</p>
-                      </div>
-                    </div>
-                  )}
-                  {summary.amount != null && (
+                  <p className="text-lg font-semibold">{activeItem.summary.title}</p>
+                  <p className="text-sm text-muted-foreground">{activeItem.summary.subtitle}</p>
+                  {activeItem.summary.amount != null && (
                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
                       <div className="rounded-lg border bg-muted/20 p-3">
                         <p className="text-xs text-muted-foreground">Total original</p>
-                        <p className="font-semibold">{formatCurrency(summary.amount, summary.currency)}</p>
+                        <p className="font-semibold">{formatCurrency(activeItem.summary.amount, activeItem.summary.currency)}</p>
                       </div>
                       <div className="rounded-lg border bg-muted/20 p-3">
                         <p className="text-xs text-muted-foreground">Estimado em BRL</p>
-                        <p className="font-semibold">{formatCurrency(summary.estimatedBrl, 'BRL')}</p>
+                        <p className="font-semibold">{formatCurrency(activeItem.summary.estimatedBrl, 'BRL')}</p>
                       </div>
                     </div>
                   )}
                 </div>
+              </CardContent>
+            </Card>
+          )}
 
-                <div className="rounded-xl border bg-background p-4">
-                  <p className="text-sm font-semibold">Próximos passos sugeridos</p>
-                  <div className="mt-2 space-y-2 text-sm">
-                    <p className={`rounded-md border p-2 ${summary.stayGapCount > 0 ? 'border-amber-400 bg-amber-50' : 'border-emerald-400 bg-emerald-50'}`}>
-                      {summary.stayGapCount > 0
-                        ? `${summary.stayGapCount} período(s) sem hospedagem detectado(s).`
-                        : 'Hospedagens cobertas para o período atual.'}
-                    </p>
-                    <p className={`rounded-md border p-2 ${summary.transportGapCount > 0 ? 'border-amber-400 bg-amber-50' : 'border-emerald-400 bg-emerald-50'}`}>
-                      {summary.transportGapCount > 0
-                        ? `${summary.transportGapCount} trecho(s) sem transporte entre cidades.`
-                        : 'Trechos entre cidades estão cobertos.'}
-                    </p>
-                    {summary.nextSteps.map((step) => (
-                      <p key={step} className="rounded-md border border-border/60 bg-muted/20 p-2 text-muted-foreground">
-                        {step}
-                      </p>
-                    ))}
-                  </div>
+          {queue.length > 0 && (
+            <Card className="border-border/50 bg-muted/20">
+              <CardContent className="flex items-center justify-between gap-3 py-3">
+                <div className="text-sm text-muted-foreground">
+                  {queue.filter((item) => item.status === 'saved').length} de {queue.length} arquivo(s) salvos.
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <FileText className="h-4 w-4" />
+                  Salve cada item revisado para concluir a importação em lote.
                 </div>
               </CardContent>
             </Card>
@@ -1075,18 +1147,14 @@ export function ImportReservationDialog() {
 
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)} aria-label="Fechar modal de importação">Fechar</Button>
-          {summary ? (
-            <Button
-              variant="outline"
-              onClick={resetDialogState}
-              aria-label="Iniciar nova importação"
-            >
+          {allSaved ? (
+            <Button variant="outline" onClick={resetDialogState} aria-label="Iniciar nova importação">
               Nova importação
             </Button>
           ) : (
-            <Button onClick={saveReviewed} disabled={!reviewState || isSaving} aria-label="Salvar reserva revisada">
+            <Button onClick={saveActiveReviewed} disabled={!activeItem?.reviewState || isSaving} aria-label="Salvar item revisado">
               {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Salvar reserva revisada
+              Salvar item revisado
             </Button>
           )}
         </DialogFooter>

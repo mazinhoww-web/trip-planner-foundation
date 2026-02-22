@@ -1,7 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { parseFunctionError } from '@/services/errors';
 
-export type ImportType = 'voo' | 'hospedagem' | 'transporte';
+export type ImportType = 'voo' | 'hospedagem' | 'transporte' | 'restaurante';
 
 export type ExtractedReservation = {
   type: ImportType | null;
@@ -36,6 +36,12 @@ export type ExtractedReservation = {
       status: 'confirmado' | 'pendente' | 'cancelado' | null;
       valor: number | null;
       moeda: string | null;
+    } | null;
+    restaurante: {
+      nome: string | null;
+      cidade: string | null;
+      tipo: string | null;
+      rating: number | null;
     } | null;
   };
 };
