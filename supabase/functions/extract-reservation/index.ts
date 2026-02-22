@@ -5,7 +5,7 @@ import { consumeRateLimit, requireAuthenticatedUser } from '../_shared/security.
 const PROMPT = `Analise este documento de reserva de viagem e extraia somente dados comprovados pelo conteudo.
 
 Regras:
-1) Classifique em: voo, hospedagem ou transporte.
+1) Classifique em: voo, hospedagem, transporte ou restaurante.
 2) Se nao houver evidencia para um campo, retorne null.
 3) Datas no formato YYYY-MM-DD quando possivel.
 4) Horarios no formato HH:MM quando possivel.
@@ -14,7 +14,7 @@ Regras:
 
 Retorne SOMENTE JSON no formato:
 {
-  "type": "voo|hospedagem|transporte|null",
+  "type": "voo|hospedagem|transporte|restaurante|null",
   "confidence": 0.0,
   "missingFields": ["campo1", "campo2"],
   "data": {
@@ -46,6 +46,12 @@ Retorne SOMENTE JSON no formato:
       "status": null,
       "valor": null,
       "moeda": null
+    },
+    "restaurante": {
+      "nome": null,
+      "cidade": null,
+      "tipo": null,
+      "rating": null
     }
   }
 }`;
@@ -54,7 +60,7 @@ const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const LIMIT_PER_HOUR = 20;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
-const allowedType = new Set(['voo', 'hospedagem', 'transporte']);
+const allowedType = new Set(['voo', 'hospedagem', 'transporte', 'restaurante']);
 const allowedStatus = new Set(['confirmado', 'pendente', 'cancelado']);
 
 function strOrNull(value: unknown) {
@@ -180,6 +186,7 @@ Deno.serve(async (req) => {
     const voo = (data.voo ?? {}) as Record<string, unknown>;
     const hospedagem = (data.hospedagem ?? {}) as Record<string, unknown>;
     const transporte = (data.transporte ?? {}) as Record<string, unknown>;
+    const restaurante = (data.restaurante ?? {}) as Record<string, unknown>;
 
     const normalized = {
       type,
@@ -214,6 +221,12 @@ Deno.serve(async (req) => {
           status: sanitizeStatus(transporte.status),
           valor: numOrNull(transporte.valor),
           moeda: strOrNull(transporte.moeda),
+        },
+        restaurante: {
+          nome: strOrNull(restaurante.nome),
+          cidade: strOrNull(restaurante.cidade),
+          tipo: strOrNull(restaurante.tipo),
+          rating: numOrNull(restaurante.rating),
         },
       },
     };

@@ -3,13 +3,25 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { ImportProgressCard } from '@/components/import/ImportProgressCard';
+import { ImportQueuePanel } from '@/components/import/ImportQueuePanel';
+import { ImportResultSummary } from '@/components/import/ImportResultSummary';
+import { ImportReviewFormByType } from '@/components/import/ImportReviewFormByType';
+import {
+  defaultVisualSteps,
+  ImportSummary,
+  ImportQueueItem,
+  QueueStatus,
+  ReviewState,
+  StepStatus,
+  VISUAL_STEPS,
+  VisualStepKey,
+} from '@/components/import/import-types';
 import { TablesInsert } from '@/integrations/supabase/types';
 import { useAuth } from '@/hooks/useAuth';
 import { useTrip } from '@/hooks/useTrip';
-import { useModuleData } from '@/hooks/useModuleData';
+import { useDocuments, useFlights, useRestaurants, useStays, useTransports } from '@/hooks/useTripModules';
 import { generateStayTips } from '@/services/ai';
 import { calculateStayCoverageGaps, calculateTransportCoverageGaps } from '@/services/tripInsights';
 import {
@@ -21,100 +33,8 @@ import {
   tryExtractNativeText,
   uploadImportFile,
 } from '@/services/importPipeline';
-import { FileUp, Loader2, WandSparkles, Check, Circle, FileText, Sparkles } from 'lucide-react';
+import { FileUp, Loader2, WandSparkles, FileText, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-
-type StepStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
-type QueueStatus = 'pending' | 'processing' | 'review' | 'saving' | 'saved' | 'failed';
-type VisualStepKey = 'read' | 'identified' | 'saving' | 'photos' | 'tips' | 'done';
-
-type ReviewState = {
-  type: ImportType;
-  voo: {
-    numero: string;
-    companhia: string;
-    origem: string;
-    destino: string;
-    data: string;
-    status: 'confirmado' | 'pendente' | 'cancelado';
-    valor: string;
-    moeda: string;
-  };
-  hospedagem: {
-    nome: string;
-    localizacao: string;
-    check_in: string;
-    check_out: string;
-    status: 'confirmado' | 'pendente' | 'cancelado';
-    valor: string;
-    moeda: string;
-  };
-  transporte: {
-    tipo: string;
-    operadora: string;
-    origem: string;
-    destino: string;
-    data: string;
-    status: 'confirmado' | 'pendente' | 'cancelado';
-    valor: string;
-    moeda: string;
-  };
-  restaurante: {
-    nome: string;
-    cidade: string;
-    tipo: string;
-    rating: string;
-  };
-};
-
-type ImportSummary = {
-  type: ImportType;
-  title: string;
-  subtitle: string;
-  amount: number | null;
-  currency: string;
-  estimatedBrl: number | null;
-  checkIn: string | null;
-  checkOut: string | null;
-  nights: number | null;
-  stayGapCount: number;
-  transportGapCount: number;
-  nextSteps: string[];
-};
-
-type ImportQueueItem = {
-  id: string;
-  file: File;
-  status: QueueStatus;
-  visualSteps: Record<VisualStepKey, StepStatus>;
-  warnings: string[];
-  confidence: number | null;
-  missingFields: string[];
-  identifiedType: ImportType | null;
-  reviewState: ReviewState | null;
-  rawText: string;
-  summary: ImportSummary | null;
-  hotelPhotos: string[];
-  photoIndex: number;
-};
-
-const VISUAL_STEPS: { key: VisualStepKey; label: string }[] = [
-  { key: 'read', label: 'Lendo documento' },
-  { key: 'identified', label: 'Tipo detectado' },
-  { key: 'saving', label: 'Salvando dados' },
-  { key: 'photos', label: 'Buscando fotos' },
-  { key: 'tips', label: 'Gerando dicas' },
-  { key: 'done', label: 'Concluído' },
-];
-
-const defaultVisualSteps = (): Record<VisualStepKey, StepStatus> => ({
-  read: 'pending',
-  identified: 'pending',
-  saving: 'pending',
-  photos: 'pending',
-  tips: 'pending',
-  done: 'pending',
-});
 
 function toDateInput(value?: string | null) {
   if (!value) return '';
@@ -422,11 +342,11 @@ export function ImportReservationDialog() {
   const { user } = useAuth();
   const { currentTrip, currentTripId } = useTrip();
 
-  const documentsModule = useModuleData('documentos');
-  const flightsModule = useModuleData('voos');
-  const staysModule = useModuleData('hospedagens');
-  const transportsModule = useModuleData('transportes');
-  const restaurantsModule = useModuleData('restaurantes');
+  const documentsModule = useDocuments();
+  const flightsModule = useFlights();
+  const staysModule = useStays();
+  const transportsModule = useTransports();
+  const restaurantsModule = useRestaurants();
 
   const [open, setOpen] = useState(false);
   const [queue, setQueue] = useState<ImportQueueItem[]>([]);
@@ -886,92 +806,20 @@ export function ImportReservationDialog() {
             </CardContent>
           </Card>
 
-          {queue.length > 0 && (
-            <Card className="border-border/50">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Fila de importação</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-2 md:grid-cols-2">
-                  {queue.map((item) => {
-                    const isActive = item.id === activeId;
-                    return (
-                      <button
-                        type="button"
-                        key={item.id}
-                        onClick={() => setActiveId(item.id)}
-                        className={`rounded-lg border p-3 text-left transition ${isActive ? 'border-primary bg-primary/5' : 'border-border bg-background hover:border-primary/40'}`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="line-clamp-1 text-sm font-medium">{item.file.name}</p>
-                          <Badge variant={queueStatusVariant(item.status)}>{queueStatusLabel(item.status)}</Badge>
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {typeLabel(item.identifiedType)} {item.confidence != null ? `· confiança ${Math.round(item.confidence * 100)}%` : ''}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          <ImportQueuePanel
+            queue={queue}
+            activeId={activeId}
+            onSelect={setActiveId}
+            typeLabel={typeLabel}
+            queueStatusLabel={queueStatusLabel}
+            queueStatusVariant={queueStatusVariant}
+          />
 
-          {activeItem && (
-            <Card className="border-primary/15 bg-white/90 shadow-sm">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Análise do arquivo selecionado</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="rounded-lg border bg-muted/20 px-3 py-2">
-                  <p className="text-sm font-medium">{activeItem.file.name}</p>
-                  <p className="text-xs text-muted-foreground">{pipelineStatusText}</p>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="h-2 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-primary via-violet-500 to-fuchsia-500 transition-all duration-500"
-                      style={{ width: `${visualProgress}%` }}
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground">{visualProgress}% concluído</p>
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-6">
-                  {VISUAL_STEPS.map((step, index) => {
-                    const status = activeItem.visualSteps[step.key];
-                    const isDone = status === 'completed';
-                    const isActive = status === 'in_progress';
-                    const isFailed = status === 'failed';
-                    return (
-                      <div key={step.key} className="relative flex flex-col items-center gap-2 text-center">
-                        {index < VISUAL_STEPS.length - 1 && (
-                          <span
-                            className={`absolute left-[calc(50%+1rem)] top-4 hidden h-0.5 w-[calc(100%-2rem)] md:block ${isDone ? 'bg-primary' : 'bg-border'}`}
-                          />
-                        )}
-                        <div
-                          className={`flex h-8 w-8 items-center justify-center rounded-full border ${
-                            isDone
-                              ? 'border-primary bg-primary text-primary-foreground'
-                              : isActive
-                                ? 'border-primary bg-primary/10 text-primary'
-                                : isFailed
-                                  ? 'border-amber-500 bg-amber-500/10 text-amber-700'
-                                  : 'border-border bg-muted/30 text-muted-foreground'
-                          }`}
-                        >
-                          {isDone ? <Check className="h-4 w-4" /> : isActive ? <Loader2 className="h-4 w-4 animate-spin" /> : <Circle className="h-3 w-3" />}
-                        </div>
-                        <p className="text-xs">{step.label}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          <ImportProgressCard
+            activeItem={activeItem}
+            visualProgress={visualProgress}
+            pipelineStatusText={pipelineStatusText}
+          />
 
           {activeItem && activeItem.warnings.length > 0 && (
             <Card className="border-amber-500/40 bg-amber-500/5" role="alert">
@@ -987,147 +835,20 @@ export function ImportReservationDialog() {
           )}
 
           {activeItem?.reviewState && (
-            <Card className="border-border/50">
-              <CardHeader>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <CardTitle className="text-base">Revisão manual assistida</CardTitle>
-                  <Badge variant={activeItem.missingFields.length > 0 ? 'destructive' : 'secondary'}>
-                    Campos para confirmar: {activeItem.missingFields.length}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Tipo detectado</Label>
-                  <Select
-                    value={activeItem.reviewState.type}
-                    onValueChange={(value: ImportType) => updateActiveReview((review) => ({ ...review, type: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="voo">Voo</SelectItem>
-                      <SelectItem value="hospedagem">Hospedagem</SelectItem>
-                      <SelectItem value="transporte">Transporte</SelectItem>
-                      <SelectItem value="restaurante">Restaurante</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {activeItem.reviewState.type === 'voo' && (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Input placeholder="Número do voo" value={activeItem.reviewState.voo.numero} onChange={(e) => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, numero: e.target.value } }))} />
-                    <Input placeholder="Companhia" value={activeItem.reviewState.voo.companhia} onChange={(e) => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, companhia: e.target.value } }))} />
-                    <Input placeholder="Origem" value={activeItem.reviewState.voo.origem} onChange={(e) => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, origem: e.target.value } }))} />
-                    <Input placeholder="Destino" value={activeItem.reviewState.voo.destino} onChange={(e) => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, destino: e.target.value } }))} />
-                    <Input type="datetime-local" value={activeItem.reviewState.voo.data} onChange={(e) => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, data: e.target.value } }))} />
-                    <Select value={activeItem.reviewState.voo.status} onValueChange={(value: 'confirmado' | 'pendente' | 'cancelado') => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, status: value } }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pendente">Pendente</SelectItem>
-                        <SelectItem value="confirmado">Confirmado</SelectItem>
-                        <SelectItem value="cancelado">Cancelado</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Input placeholder="Valor" type="number" step="0.01" value={activeItem.reviewState.voo.valor} onChange={(e) => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, valor: e.target.value } }))} />
-                    <Input placeholder="Moeda" value={activeItem.reviewState.voo.moeda} onChange={(e) => updateActiveReview((review) => ({ ...review, voo: { ...review.voo, moeda: e.target.value.toUpperCase() } }))} />
-                  </div>
-                )}
-
-                {activeItem.reviewState.type === 'hospedagem' && (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Input placeholder="Nome da hospedagem" value={activeItem.reviewState.hospedagem.nome} onChange={(e) => updateActiveReview((review) => ({ ...review, hospedagem: { ...review.hospedagem, nome: e.target.value } }))} />
-                    <Input placeholder="Localização" value={activeItem.reviewState.hospedagem.localizacao} onChange={(e) => updateActiveReview((review) => ({ ...review, hospedagem: { ...review.hospedagem, localizacao: e.target.value } }))} />
-                    <Input type="date" value={activeItem.reviewState.hospedagem.check_in} onChange={(e) => updateActiveReview((review) => ({ ...review, hospedagem: { ...review.hospedagem, check_in: e.target.value } }))} />
-                    <Input type="date" value={activeItem.reviewState.hospedagem.check_out} onChange={(e) => updateActiveReview((review) => ({ ...review, hospedagem: { ...review.hospedagem, check_out: e.target.value } }))} />
-                    <Select value={activeItem.reviewState.hospedagem.status} onValueChange={(value: 'confirmado' | 'pendente' | 'cancelado') => updateActiveReview((review) => ({ ...review, hospedagem: { ...review.hospedagem, status: value } }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pendente">Pendente</SelectItem>
-                        <SelectItem value="confirmado">Confirmado</SelectItem>
-                        <SelectItem value="cancelado">Cancelado</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Input placeholder="Valor" type="number" step="0.01" value={activeItem.reviewState.hospedagem.valor} onChange={(e) => updateActiveReview((review) => ({ ...review, hospedagem: { ...review.hospedagem, valor: e.target.value } }))} />
-                    <Input placeholder="Moeda" value={activeItem.reviewState.hospedagem.moeda} onChange={(e) => updateActiveReview((review) => ({ ...review, hospedagem: { ...review.hospedagem, moeda: e.target.value.toUpperCase() } }))} />
-                  </div>
-                )}
-
-                {activeItem.reviewState.type === 'transporte' && (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Input placeholder="Tipo de transporte" value={activeItem.reviewState.transporte.tipo} onChange={(e) => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, tipo: e.target.value } }))} />
-                    <Input placeholder="Operadora" value={activeItem.reviewState.transporte.operadora} onChange={(e) => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, operadora: e.target.value } }))} />
-                    <Input placeholder="Origem" value={activeItem.reviewState.transporte.origem} onChange={(e) => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, origem: e.target.value } }))} />
-                    <Input placeholder="Destino" value={activeItem.reviewState.transporte.destino} onChange={(e) => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, destino: e.target.value } }))} />
-                    <Input type="datetime-local" value={activeItem.reviewState.transporte.data} onChange={(e) => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, data: e.target.value } }))} />
-                    <Select value={activeItem.reviewState.transporte.status} onValueChange={(value: 'confirmado' | 'pendente' | 'cancelado') => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, status: value } }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pendente">Pendente</SelectItem>
-                        <SelectItem value="confirmado">Confirmado</SelectItem>
-                        <SelectItem value="cancelado">Cancelado</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Input placeholder="Valor" type="number" step="0.01" value={activeItem.reviewState.transporte.valor} onChange={(e) => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, valor: e.target.value } }))} />
-                    <Input placeholder="Moeda" value={activeItem.reviewState.transporte.moeda} onChange={(e) => updateActiveReview((review) => ({ ...review, transporte: { ...review.transporte, moeda: e.target.value.toUpperCase() } }))} />
-                  </div>
-                )}
-
-                {activeItem.reviewState.type === 'restaurante' && (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Input placeholder="Nome do restaurante" value={activeItem.reviewState.restaurante.nome} onChange={(e) => updateActiveReview((review) => ({ ...review, restaurante: { ...review.restaurante, nome: e.target.value } }))} />
-                    <Input placeholder="Cidade" value={activeItem.reviewState.restaurante.cidade} onChange={(e) => updateActiveReview((review) => ({ ...review, restaurante: { ...review.restaurante, cidade: e.target.value } }))} />
-                    <Input placeholder="Tipo (ex.: italiano, japonês)" value={activeItem.reviewState.restaurante.tipo} onChange={(e) => updateActiveReview((review) => ({ ...review, restaurante: { ...review.restaurante, tipo: e.target.value } }))} />
-                    <Input placeholder="Rating (0-5)" type="number" step="0.1" min="0" max="5" value={activeItem.reviewState.restaurante.rating} onChange={(e) => updateActiveReview((review) => ({ ...review, restaurante: { ...review.restaurante, rating: e.target.value } }))} />
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <ImportReviewFormByType
+              reviewState={activeItem.reviewState}
+              missingFieldsCount={activeItem.missingFields.length}
+              onChange={updateActiveReview}
+            />
           )}
 
           {activeItem?.summary && (
-            <Card className="border-emerald-500/30 bg-emerald-500/[0.03]">
-              <CardHeader>
-                <CardTitle className="text-base">Importação concluída</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {activeItem.summary.type === 'hospedagem' && activeItem.hotelPhotos.length > 0 && (
-                  <div className="overflow-hidden rounded-xl border">
-                    <img
-                      src={activeItem.hotelPhotos[activeItem.photoIndex]}
-                      alt={activeItem.summary.title}
-                      className="h-48 w-full object-cover"
-                      loading="lazy"
-                    />
-                    <div className="flex items-center justify-between border-t bg-background px-3 py-2 text-xs">
-                      <span>Foto {activeItem.photoIndex + 1}/{activeItem.hotelPhotos.length}</span>
-                      <div className="flex gap-1">
-                        <Button type="button" size="sm" variant="outline" onClick={() => setItem(activeItem.id, (item) => ({ ...item, photoIndex: item.photoIndex === 0 ? item.hotelPhotos.length - 1 : item.photoIndex - 1 }))}>Anterior</Button>
-                        <Button type="button" size="sm" variant="outline" onClick={() => setItem(activeItem.id, (item) => ({ ...item, photoIndex: (item.photoIndex + 1) % item.hotelPhotos.length }))}>Próxima</Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="rounded-xl border bg-background p-4">
-                  <p className="text-lg font-semibold">{activeItem.summary.title}</p>
-                  <p className="text-sm text-muted-foreground">{activeItem.summary.subtitle}</p>
-                  {activeItem.summary.amount != null && (
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs text-muted-foreground">Total original</p>
-                        <p className="font-semibold">{formatCurrency(activeItem.summary.amount, activeItem.summary.currency)}</p>
-                      </div>
-                      <div className="rounded-lg border bg-muted/20 p-3">
-                        <p className="text-xs text-muted-foreground">Estimado em BRL</p>
-                        <p className="font-semibold">{formatCurrency(activeItem.summary.estimatedBrl, 'BRL')}</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+            <ImportResultSummary
+              activeItem={activeItem}
+              formatCurrency={formatCurrency}
+              onPrevPhoto={() => setItem(activeItem.id, (item) => ({ ...item, photoIndex: item.photoIndex === 0 ? item.hotelPhotos.length - 1 : item.photoIndex - 1 }))}
+              onNextPhoto={() => setItem(activeItem.id, (item) => ({ ...item, photoIndex: (item.photoIndex + 1) % item.hotelPhotos.length }))}
+            />
           )}
 
           {queue.length > 0 && (
