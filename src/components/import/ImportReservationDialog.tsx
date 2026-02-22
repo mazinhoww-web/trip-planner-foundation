@@ -21,7 +21,7 @@ import {
   tryExtractNativeText,
   uploadImportFile,
 } from '@/services/importPipeline';
-import { CheckCircle2, FileUp, Loader2, TriangleAlert, WandSparkles, Check, Circle } from 'lucide-react';
+import { FileUp, Loader2, WandSparkles, Check, Circle } from 'lucide-react';
 import { toast } from 'sonner';
 
 type StepStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
@@ -155,6 +155,72 @@ function inferTypeFromData(extracted: ExtractedReservation): ImportType {
   return ordered[0][0];
 }
 
+function detectTypeFromText(raw: string, fileName: string): ImportType {
+  const bag = `${raw} ${fileName}`.toLowerCase();
+  if (/\b(latam|flight|boarding|voo|aeroporto|pnr|iata)\b/.test(bag) || /\bla\d{3,}[a-z0-9]*\b/i.test(bag)) {
+    return 'voo';
+  }
+  if (/\b(airbnb|hotel|hospedagem|booking|check-in|check out|checkout|reserva)\b/.test(bag)) {
+    return 'hospedagem';
+  }
+  return 'transporte';
+}
+
+function inferFallbackExtraction(raw: string, fileName: string, tripDestination?: string | null): ExtractedReservation {
+  const type = detectTypeFromText(raw, fileName);
+  const amountMatch = raw.match(/(R\$|USD|EUR|CHF)\s*([0-9][0-9.,]*)/i);
+  const amount = amountMatch ? Number((amountMatch[2] || '').replace(/\./g, '').replace(',', '.')) : null;
+  const currency = amountMatch?.[1]?.toUpperCase().replace('$', '') ?? null;
+
+  const flightNumber = (raw.match(/\b([A-Z]{2}\d{3,}[A-Z0-9]*)\b/) || fileName.match(/\b([A-Z]{2}\d{3,}[A-Z0-9]*)\b/i))?.[1] ?? null;
+  const airline =
+    /\blatam\b/i.test(raw) || /\blatam\b/i.test(fileName) ? 'LATAM' :
+      /\bgol\b/i.test(raw) || /\bgol\b/i.test(fileName) ? 'GOL' :
+        /\bazul\b/i.test(raw) || /\bazul\b/i.test(fileName) ? 'AZUL' : null;
+
+  const placeGuess =
+    /\bairbnb\b/i.test(raw) || /\bairbnb\b/i.test(fileName)
+      ? 'Hospedagem Airbnb'
+      : fileName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').trim();
+
+  return {
+    type,
+    confidence: 0.35,
+    missingFields: ['review_manual_requerida'],
+    data: {
+      voo: type === 'voo' ? {
+        numero: flightNumber,
+        companhia: airline,
+        origem: null,
+        destino: null,
+        data: null,
+        status: 'pendente',
+        valor: Number.isFinite(amount as number) ? amount : null,
+        moeda: currency || 'BRL',
+      } : null,
+      hospedagem: type === 'hospedagem' ? {
+        nome: placeGuess || 'Hospedagem',
+        localizacao: tripDestination ?? null,
+        check_in: null,
+        check_out: null,
+        status: 'pendente',
+        valor: Number.isFinite(amount as number) ? amount : null,
+        moeda: currency || 'BRL',
+      } : null,
+      transporte: type === 'transporte' ? {
+        tipo: 'Transporte',
+        operadora: null,
+        origem: null,
+        destino: null,
+        data: null,
+        status: 'pendente',
+        valor: Number.isFinite(amount as number) ? amount : null,
+        moeda: currency || 'BRL',
+      } : null,
+    },
+  };
+}
+
 function toReviewState(extracted: ExtractedReservation): ReviewState {
   const defaultType: ImportType = extracted.type ?? inferTypeFromData(extracted);
   return {
@@ -247,14 +313,6 @@ function diffNights(checkIn?: string | null, checkOut?: string | null) {
   return Number.isFinite(diff) && diff > 0 ? diff : null;
 }
 
-function stepStatusLabel(status: StepStatus) {
-  if (status === 'pending') return 'Pendente';
-  if (status === 'in_progress') return 'Em andamento';
-  if (status === 'completed') return 'Concluído';
-  if (status === 'failed') return 'Falhou';
-  return 'Não necessário';
-}
-
 function toUserWarning(text: string) {
   const lower = text.toLowerCase();
   if (lower.includes('bucket de storage')) {
@@ -269,11 +327,13 @@ function toUserWarning(text: string) {
   if (lower.includes('extração ia')) {
     return 'A identificação automática ficou incompleta. Revise os dados antes de salvar.';
   }
+  if (lower.includes('edge function') || lower.includes('failed to send a request')) {
+    return 'A análise automática não respondeu agora. Preenchemos um rascunho para você revisar e salvar.';
+  }
   return text;
 }
 
 export function ImportReservationDialog() {
-  const showTechnicalDetails = import.meta.env.VITE_SHOW_IMPORT_DEBUG === 'true';
   const { user } = useAuth();
   const { currentTrip, currentTripId } = useTrip();
 
@@ -455,28 +515,20 @@ export function ImportReservationDialog() {
         } catch (extractError) {
           console.error('[import][extract_failure]', { file: file.name, error: extractError });
           const message = extractError instanceof Error ? extractError.message : 'Falha na extração IA.';
+          const fallback = inferFallbackExtraction(extractedText || '', file.name, currentTrip?.destino);
           setWarnings((prev) => prev.concat(`${message} Fluxo segue em revisão assistida.`));
           setStep('extract', 'failed');
-          setVisualStep('identified', 'failed');
-          setIdentifiedType('hospedagem');
-          setReviewState({
-            type: 'hospedagem',
-            voo: { numero: '', companhia: '', origem: '', destino: '', data: '', status: 'pendente', valor: '', moeda: 'BRL' },
-            hospedagem: { nome: '', localizacao: currentTrip?.destino ?? '', check_in: '', check_out: '', status: 'pendente', valor: '', moeda: 'BRL' },
-            transporte: { tipo: '', operadora: '', origem: '', destino: '', data: '', status: 'pendente', valor: '', moeda: 'BRL' },
-          });
+          setVisualStep('identified', 'completed');
+          setIdentifiedType(fallback.type);
+          setReviewState(toReviewState(fallback));
         }
       } else {
-        setWarnings((prev) => prev.concat('Sem texto suficiente para IA. Preencha os campos manualmente.'));
+        const fallback = inferFallbackExtraction('', file.name, currentTrip?.destino);
+        setWarnings((prev) => prev.concat('Sem texto suficiente para IA. Preenchemos um rascunho para revisão manual.'));
         setStep('extract', 'failed');
-        setVisualStep('identified', 'failed');
-        setIdentifiedType('hospedagem');
-        setReviewState({
-          type: 'hospedagem',
-          voo: { numero: '', companhia: '', origem: '', destino: '', data: '', status: 'pendente', valor: '', moeda: 'BRL' },
-          hospedagem: { nome: '', localizacao: currentTrip?.destino ?? '', check_in: '', check_out: '', status: 'pendente', valor: '', moeda: 'BRL' },
-          transporte: { tipo: '', operadora: '', origem: '', destino: '', data: '', status: 'pendente', valor: '', moeda: 'BRL' },
-        });
+        setVisualStep('identified', 'completed');
+        setIdentifiedType(fallback.type);
+        setReviewState(toReviewState(fallback));
       }
 
       setStep('review', 'in_progress');
@@ -798,27 +850,6 @@ export function ImportReservationDialog() {
                 </p>
               </div>
 
-              {showTechnicalDetails && (
-                <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Debug técnico</p>
-                  {PIPELINE_STEPS.map((step) => {
-                    const status = steps[step.key];
-                    return (
-                      <div key={step.key} className="flex items-center justify-between">
-                        <span className="text-xs text-muted-foreground">{step.label}</span>
-                        <div className="flex items-center gap-2">
-                          {status === 'in_progress' && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
-                          {status === 'completed' && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />}
-                          {status === 'failed' && <TriangleAlert className="h-3.5 w-3.5 text-amber-600" />}
-                          {status === 'skipped' && <Badge variant="secondary" className="text-[10px]">Não necessário</Badge>}
-                          <Badge variant={status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px]">{stepStatusLabel(status)}</Badge>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
               <p className="pt-1 text-xs text-muted-foreground" role="status" aria-live="polite">{pipelineStatusText}</p>
             </CardContent>
           </Card>
@@ -842,7 +873,6 @@ export function ImportReservationDialog() {
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <CardTitle className="text-base">Revisão manual assistida</CardTitle>
                   <div className="flex items-center gap-2">
-                    {showTechnicalDetails && <Badge variant="secondary">Confiança IA: {confidence != null ? `${Math.round(confidence * 100)}%` : 'N/A'}</Badge>}
                     <Badge variant={missingFields.length > 0 ? 'destructive' : 'secondary'}>
                       Campos para confirmar: {missingFields.length}
                     </Badge>
@@ -943,15 +973,6 @@ export function ImportReservationDialog() {
                   </div>
                 )}
 
-                {showTechnicalDetails && rawText && (
-                  <div className="space-y-2">
-                    <Label>Texto extraído (resumo)</Label>
-                    <div className="max-h-40 overflow-y-auto rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
-                      {rawText.slice(0, 1500)}
-                      {rawText.length > 1500 ? '...' : ''}
-                    </div>
-                  </div>
-                )}
               </CardContent>
             </Card>
           )}
