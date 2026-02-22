@@ -55,6 +55,24 @@ function extensionFromFile(file: File) {
   return file.name.split('.').pop()?.toLowerCase() ?? '';
 }
 
+type UploadImportResult = {
+  path: string | null;
+  ext: string;
+  uploaded: boolean;
+  warning: string | null;
+};
+
+function normalizeStorageErrorMessage(raw: string) {
+  const text = raw.toLowerCase();
+  if (text.includes('bucket') && (text.includes('not found') || text.includes('does not exist'))) {
+    return 'Bucket de storage "imports" não encontrado.';
+  }
+  if (text.includes('permission') || text.includes('not authorized') || text.includes('row-level security')) {
+    return 'Sem permissão para salvar no storage.';
+  }
+  return raw || 'Falha ao armazenar arquivo original.';
+}
+
 export async function uploadImportFile(file: File, userId: string, tripId: string) {
   const ext = extensionFromFile(file);
   const path = `${userId}/${tripId}/${Date.now()}_${sanitizeFileName(file.name)}`;
@@ -66,10 +84,20 @@ export async function uploadImportFile(file: File, userId: string, tripId: strin
   });
 
   if (error) {
-    throw new Error(error.message || 'Falha ao armazenar arquivo original.');
+    return {
+      path: null,
+      ext,
+      uploaded: false,
+      warning: normalizeStorageErrorMessage(error.message || ''),
+    } satisfies UploadImportResult;
   }
 
-  return { path, ext };
+  return {
+    path,
+    ext,
+    uploaded: true,
+    warning: null,
+  } satisfies UploadImportResult;
 }
 
 function stripHtml(raw: string) {

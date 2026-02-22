@@ -247,6 +247,14 @@ function diffNights(checkIn?: string | null, checkOut?: string | null) {
   return Number.isFinite(diff) && diff > 0 ? diff : null;
 }
 
+function stepStatusLabel(status: StepStatus) {
+  if (status === 'pending') return 'Pendente';
+  if (status === 'in_progress') return 'Em andamento';
+  if (status === 'completed') return 'Concluído';
+  if (status === 'failed') return 'Falhou';
+  return 'Não necessário';
+}
+
 export function ImportReservationDialog() {
   const { user } = useAuth();
   const { currentTrip, currentTripId } = useTrip();
@@ -280,6 +288,12 @@ export function ImportReservationDialog() {
     const identifiedLabel = identifyLabel(identifiedType ?? reviewState?.type ?? null);
     return VISUAL_STEPS.map((step) => (step.key === 'identified' ? { ...step, label: identifiedLabel } : step));
   }, [identifiedType, reviewState?.type]);
+
+  const visualProgress = useMemo(() => {
+    const total = VISUAL_STEPS.length;
+    const done = VISUAL_STEPS.reduce((count, step) => count + (visualSteps[step.key] === 'completed' ? 1 : 0), 0);
+    return Math.round((done / total) * 100);
+  }, [visualSteps]);
 
   const extractedPreview = useMemo(() => {
     if (!reviewState) return null;
@@ -360,15 +374,29 @@ export function ImportReservationDialog() {
     try {
       setStep('upload', 'in_progress');
       const upload = await uploadImportFile(file, user.id, currentTripId);
-      setStep('upload', 'completed');
+      if (upload.uploaded) {
+        setStep('upload', 'completed');
+      } else {
+        setStep('upload', 'failed');
+        if (upload.warning) {
+          setWarnings((prev) => prev.concat(`${upload.warning} O fluxo seguirá sem anexar o arquivo original.`));
+        }
+      }
 
       setStep('metadata', 'in_progress');
-      await documentsModule.create({
-        nome: file.name,
-        tipo: `importacao/${upload.ext}`,
-        arquivo_url: upload.path,
-      } as Omit<TablesInsert<'documentos'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'>);
-      setStep('metadata', 'completed');
+      try {
+        await documentsModule.create({
+          nome: file.name,
+          tipo: `importacao/${upload.ext}`,
+          arquivo_url: upload.path ?? null,
+        } as Omit<TablesInsert<'documentos'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'>);
+        setStep('metadata', 'completed');
+      } catch (metadataError) {
+        console.error('[import][metadata_failure]', { file: file.name, error: metadataError });
+        setStep('metadata', 'failed');
+        const message = metadataError instanceof Error ? metadataError.message : 'Falha ao registrar metadados.';
+        setWarnings((prev) => prev.concat(`${message} O processamento continuará normalmente.`));
+      }
 
       setStep('native', 'in_progress');
       const native = await tryExtractNativeText(file);
@@ -663,9 +691,14 @@ export function ImportReservationDialog() {
           Importar reserva
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl" aria-describedby={descriptionId}>
+      <DialogContent className="tp-scroll max-h-[92vh] overflow-y-auto border-primary/20 bg-gradient-to-b from-white to-slate-50/90 sm:max-w-4xl" aria-describedby={descriptionId}>
         <DialogHeader>
-          <DialogTitle>Importação completa de reserva</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <FileUp className="h-4 w-4" />
+            </span>
+            Importação completa de reserva
+          </DialogTitle>
           <DialogDescription id={descriptionId}>
             Upload + OCR + IA + revisão assistida para salvar em voo, hospedagem ou transporte.
           </DialogDescription>
@@ -693,11 +726,20 @@ export function ImportReservationDialog() {
             </div>
           </div>
 
-          <Card className="border-border/50">
+          <Card className="border-primary/15 bg-white/90 shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Importando...</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <div className="h-2 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-primary via-violet-500 to-fuchsia-500 transition-all duration-500"
+                    style={{ width: `${visualProgress}%` }}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">{visualProgress}% concluído</p>
+              </div>
               <div className="grid gap-3 md:grid-cols-6">
                 {visualStepsWithLabel.map((step, index) => {
                   const status = visualSteps[step.key];
@@ -738,7 +780,7 @@ export function ImportReservationDialog() {
                 </p>
               </div>
 
-              <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+              <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
                 {PIPELINE_STEPS.map((step) => {
                   const status = steps[step.key];
                   return (
@@ -750,7 +792,7 @@ export function ImportReservationDialog() {
                         {status === 'failed' && <TriangleAlert className="h-3.5 w-3.5 text-amber-600" />}
                         {status === 'pending' && <CircleDashed className="h-3.5 w-3.5 text-muted-foreground" />}
                         {status === 'skipped' && <Badge variant="secondary" className="text-[10px]">Não necessário</Badge>}
-                        <Badge variant={status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px]">{status}</Badge>
+                        <Badge variant={status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px]">{stepStatusLabel(status)}</Badge>
                       </div>
                     </div>
                   );

@@ -1137,7 +1137,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b border-border bg-card">
+      <header className="sticky top-0 z-20 border-b border-border/70 bg-card/85 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
@@ -1243,7 +1243,7 @@ export default function Dashboard() {
 
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
               {statCards.map((card) => (
-                <Card key={card.key} className="border-border/50 transition-shadow hover:shadow-md">
+                <Card key={card.key} className="border-border/60 bg-white/90 transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground">{card.label}</CardTitle>
                     <card.icon className="h-4 w-4 text-muted-foreground" />
@@ -1258,7 +1258,7 @@ export default function Dashboard() {
             </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-8">
-              <TabsList className="grid h-auto w-full grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-9">
+              <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-2xl border border-border/70 bg-white/90 p-2 shadow-sm sm:grid-cols-4 xl:grid-cols-9">
                 <TabsTrigger value="visao">Dashboard</TabsTrigger>
                 <TabsTrigger value="voos">Voos</TabsTrigger>
                 <TabsTrigger value="hospedagens">Hospedagens</TabsTrigger>
