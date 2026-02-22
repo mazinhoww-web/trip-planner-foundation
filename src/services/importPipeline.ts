@@ -5,7 +5,11 @@ export type ImportType = 'voo' | 'hospedagem' | 'transporte' | 'restaurante';
 
 export type ExtractedReservation = {
   type: ImportType | null;
+  scope?: 'trip_related' | 'outside_scope';
   confidence: number;
+  type_confidence?: number;
+  field_confidence?: Record<string, number>;
+  extraction_quality?: 'high' | 'medium' | 'low';
   missingFields: string[];
   data: {
     voo: {
@@ -228,12 +232,16 @@ export async function runOcrDocument(file: File) {
   const text = typeof data?.data?.text === 'string' ? data.data.text.trim() : '';
   const method = typeof data?.data?.method === 'string' ? data.data.method : 'unknown';
   const warnings = Array.isArray(data?.data?.warnings) ? data.data.warnings : [];
+  const qualityMetrics =
+    data?.data?.qualityMetrics && typeof data.data.qualityMetrics === 'object'
+      ? data.data.qualityMetrics
+      : null;
 
   if (!text) {
     throw new Error('OCR sem texto útil extraído.');
   }
 
-  return { text, method, warnings };
+  return { text, method, warnings, qualityMetrics };
 }
 
 export async function extractReservationStructured(text: string, fileName: string) {

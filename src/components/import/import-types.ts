@@ -1,8 +1,9 @@
 import { ImportType } from '@/services/importPipeline';
 
 export type StepStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
-export type QueueStatus = 'pending' | 'processing' | 'review' | 'saving' | 'saved' | 'failed';
+export type QueueStatus = 'pending' | 'processing' | 'auto_extracted' | 'needs_confirmation' | 'saving' | 'saved' | 'failed';
 export type VisualStepKey = 'read' | 'identified' | 'saving' | 'photos' | 'tips' | 'done';
+export type ImportScope = 'trip_related' | 'outside_scope';
 
 export type ReviewState = {
   type: ImportType;
@@ -44,7 +45,7 @@ export type ReviewState = {
 };
 
 export type ImportSummary = {
-  type: ImportType;
+  type: ImportType | 'documento';
   title: string;
   subtitle: string;
   amount: number | null;
@@ -63,15 +64,20 @@ export type ImportQueueItem = {
   file: File;
   status: QueueStatus;
   visualSteps: Record<VisualStepKey, StepStatus>;
+  scope: ImportScope;
   warnings: string[];
   confidence: number | null;
+  typeConfidence: number | null;
+  extractionQuality: 'high' | 'medium' | 'low';
   missingFields: string[];
   identifiedType: ImportType | null;
+  needsUserConfirmation: boolean;
   reviewState: ReviewState | null;
   rawText: string;
   summary: ImportSummary | null;
   hotelPhotos: string[];
   photoIndex: number;
+  documentId: string | null;
 };
 
 export const VISUAL_STEPS: { key: VisualStepKey; label: string }[] = [

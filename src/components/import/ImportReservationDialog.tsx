@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,8 +8,10 @@ import { ImportProgressCard } from '@/components/import/ImportProgressCard';
 import { ImportQueuePanel } from '@/components/import/ImportQueuePanel';
 import { ImportResultSummary } from '@/components/import/ImportResultSummary';
 import { ImportReviewFormByType } from '@/components/import/ImportReviewFormByType';
+import { ImportConfirmationCard } from '@/components/import/ImportConfirmationCard';
 import {
   defaultVisualSteps,
+  ImportScope,
   ImportSummary,
   ImportQueueItem,
   QueueStatus,
@@ -116,11 +118,69 @@ function resolveImportType(extracted: ExtractedReservation, rawText: string, fil
   return bestType;
 }
 
+function resolveImportScope(extracted: ExtractedReservation, rawText: string, fileName: string): ImportScope {
+  if (extracted.scope === 'outside_scope') return 'outside_scope';
+  if (extracted.scope === 'trip_related') return 'trip_related';
+
+  const bag = `${rawText} ${fileName}`.toLowerCase();
+  const hasTravelSignal =
+    /\b(voo|flight|aeroporto|airport|pnr|iata|itiner[áa]rio|airbnb|hotel|booking|check-in|check out|checkout|transporte|trem|bus|restaurante|trip)\b/.test(bag) ||
+    /\b(latam|gol|azul|lufthansa|booking\.com|airbnb)\b/.test(bag);
+
+  return hasTravelSignal ? 'trip_related' : 'outside_scope';
+}
+
 function inferFallbackExtraction(raw: string, fileName: string, tripDestination?: string | null): ExtractedReservation {
   const type = detectTypeFromText(raw, fileName);
   const amountMatch = raw.match(/(R\$|USD|EUR|CHF|GBP)\s*([0-9][0-9.,]*)/i);
-  const amount = amountMatch ? Number((amountMatch[2] || '').replace(/\./g, '').replace(',', '.')) : null;
+  const parseAmount = (value: string) => {
+    const sanitized = value.replace(/[^0-9,.\-]/g, '').trim();
+    if (!sanitized) return null;
+    const hasDot = sanitized.includes('.');
+    const hasComma = sanitized.includes(',');
+    let normalized = sanitized;
+
+    if (hasDot && hasComma) {
+      const lastDot = sanitized.lastIndexOf('.');
+      const lastComma = sanitized.lastIndexOf(',');
+      normalized = lastComma > lastDot ? sanitized.replace(/\./g, '').replace(',', '.') : sanitized.replace(/,/g, '');
+    } else if (hasComma) {
+      normalized = sanitized.replace(',', '.');
+    }
+
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const amount = amountMatch ? parseAmount(amountMatch[2] || '') : null;
   const currency = amountMatch?.[1]?.toUpperCase().replace('$', '') ?? null;
+  const rawOneLine = raw.replace(/\s+/g, ' ');
+
+  const airportRouteMatch = rawOneLine.match(/\b([A-Z]{3})\s*(?:-|->|→|\/)\s*([A-Z]{3})\b/);
+  const airportLabelMatch = rawOneLine.match(/(?:origem|from)\s*[:\-]?\s*([A-Z]{3}).*?(?:destino|to)\s*[:\-]?\s*([A-Z]{3})/i);
+  const airports = rawOneLine.match(/\b[A-Z]{3}\b/g) || [];
+  const origem = airportRouteMatch?.[1] || airportLabelMatch?.[1] || airports[0] || null;
+  const destino = airportRouteMatch?.[2] || airportLabelMatch?.[2] || airports[1] || null;
+
+  const dateIsoMatch = rawOneLine.match(/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/);
+  const dateBrMatch = rawOneLine.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](20\d{2})\b/);
+  const inferredDate = dateIsoMatch
+    ? `${dateIsoMatch[1]}-${dateIsoMatch[2].padStart(2, '0')}-${dateIsoMatch[3].padStart(2, '0')}`
+    : dateBrMatch
+      ? `${dateBrMatch[3]}-${dateBrMatch[2].padStart(2, '0')}-${dateBrMatch[1].padStart(2, '0')}`
+      : null;
+
+  const checkInMatch = rawOneLine.match(/(?:check[\s-]?in|entrada)\s*[:\-]?\s*([0-9]{1,2}[\/.\-][0-9]{1,2}[\/.\-](?:20[0-9]{2}|[0-9]{2})|20[0-9]{2}[\/.\-][0-9]{1,2}[\/.\-][0-9]{1,2})/i);
+  const checkOutMatch = rawOneLine.match(/(?:check[\s-]?out|sa[ií]da)\s*[:\-]?\s*([0-9]{1,2}[\/.\-][0-9]{1,2}[\/.\-](?:20[0-9]{2}|[0-9]{2})|20[0-9]{2}[\/.\-][0-9]{1,2}[\/.\-][0-9]{1,2})/i);
+  const normalizeDate = (value?: string | null) => {
+    if (!value) return null;
+    const iso = value.match(/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/);
+    if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+    const br = value.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](20\d{2})\b/);
+    if (br) return `${br[3]}-${br[2].padStart(2, '0')}-${br[1].padStart(2, '0')}`;
+    return null;
+  };
+  const checkIn = normalizeDate(checkInMatch?.[1] ?? null);
+  const checkOut = normalizeDate(checkOutMatch?.[1] ?? null);
 
   const flightNumber = (raw.match(/\b([A-Z]{2}\d{3,}[A-Z0-9]*)\b/) || fileName.match(/\b([A-Z]{2}\d{3,}[A-Z0-9]*)\b/i))?.[1] ?? null;
   const airline =
@@ -136,7 +196,11 @@ function inferFallbackExtraction(raw: string, fileName: string, tripDestination?
 
   return {
     type,
+    scope: 'trip_related',
     confidence: 0.4,
+    type_confidence: 0.45,
+    field_confidence: {},
+    extraction_quality: raw.trim().length > 80 ? 'medium' : 'low',
     missingFields: ['review_manual_requerida'],
     data: {
       voo:
@@ -144,9 +208,9 @@ function inferFallbackExtraction(raw: string, fileName: string, tripDestination?
           ? {
               numero: flightNumber,
               companhia: airline,
-              origem: null,
-              destino: null,
-              data: null,
+              origem,
+              destino,
+              data: inferredDate,
               status: 'pendente',
               valor: Number.isFinite(amount as number) ? amount : null,
               moeda: currency || 'BRL',
@@ -157,8 +221,8 @@ function inferFallbackExtraction(raw: string, fileName: string, tripDestination?
           ? {
               nome: cleanedName || 'Hospedagem',
               localizacao: tripDestination ?? null,
-              check_in: null,
-              check_out: null,
+              check_in: checkIn,
+              check_out: checkOut,
               status: 'pendente',
               valor: Number.isFinite(amount as number) ? amount : null,
               moeda: currency || 'BRL',
@@ -296,19 +360,23 @@ function toUserWarning(text: string) {
   if (lower.includes('ocr')) {
     return 'A leitura automática ficou incompleta. Revise os campos antes de salvar.';
   }
+  if (lower.includes('baixa qualidade')) {
+    return 'O texto foi extraído com baixa qualidade. Confira os principais dados antes de confirmar.';
+  }
   if (lower.includes('extração') || lower.includes('edge function') || lower.includes('failed to send a request')) {
-    return 'A IA não respondeu com dados suficientes agora. Preenchemos um rascunho para revisão.';
+    return 'A IA não respondeu com dados suficientes agora. Preenchemos um rascunho para sua confirmação final.';
   }
   if (lower.includes('metadados')) {
     return 'O registro do anexo não foi concluído, mas você ainda pode salvar a reserva.';
   }
-  return 'Alguns dados exigem revisão manual antes de salvar.';
+  return 'Alguns dados exigem confirmação antes de salvar.';
 }
 
 function queueStatusLabel(status: QueueStatus) {
   if (status === 'pending') return 'Aguardando';
   if (status === 'processing') return 'Analisando';
-  if (status === 'review') return 'Revisar';
+  if (status === 'auto_extracted') return 'Extraído';
+  if (status === 'needs_confirmation') return 'Confirmar';
   if (status === 'saving') return 'Salvando';
   if (status === 'saved') return 'Salvo';
   return 'Falha';
@@ -317,6 +385,7 @@ function queueStatusLabel(status: QueueStatus) {
 function queueStatusVariant(status: QueueStatus): 'secondary' | 'default' | 'destructive' {
   if (status === 'saved') return 'default';
   if (status === 'failed') return 'destructive';
+  if (status === 'needs_confirmation') return 'default';
   return 'secondary';
 }
 
@@ -326,15 +395,20 @@ function makeQueueItem(file: File): ImportQueueItem {
     file,
     status: 'pending',
     visualSteps: defaultVisualSteps(),
+    scope: 'trip_related',
     warnings: [],
     confidence: null,
+    typeConfidence: null,
+    extractionQuality: 'low',
     missingFields: [],
     identifiedType: null,
+    needsUserConfirmation: true,
     reviewState: null,
     rawText: '',
     summary: null,
     hotelPhotos: [],
     photoIndex: 0,
+    documentId: null,
   };
 }
 
@@ -353,12 +427,17 @@ export function ImportReservationDialog() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isProcessingBatch, setIsProcessingBatch] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showAdvancedEditor, setShowAdvancedEditor] = useState(false);
   const descriptionId = useId();
   const fileInputId = useId();
 
   const activeItem = useMemo(() => queue.find((item) => item.id === activeId) ?? null, [queue, activeId]);
 
   const canProcess = queue.length > 0 && !!user && !!currentTripId && !isProcessingBatch;
+
+  useEffect(() => {
+    setShowAdvancedEditor(false);
+  }, [activeId]);
 
   const visualProgress = useMemo(() => {
     if (!activeItem) return 0;
@@ -370,10 +449,11 @@ export function ImportReservationDialog() {
   const pipelineStatusText = useMemo(() => {
     if (!activeItem) return 'Selecione os arquivos e clique em “Analisar arquivos”.';
     if (activeItem.status === 'processing') return `Analisando ${activeItem.file.name}...`;
+    if (activeItem.status === 'auto_extracted') return 'Dados extraídos automaticamente.';
+    if (activeItem.status === 'needs_confirmation') return 'Revise o resumo rápido e confirme para salvar.';
     if (activeItem.status === 'saving') return 'Salvando no módulo correto...';
     if (activeItem.status === 'saved') return 'Arquivo salvo com sucesso.';
     if (activeItem.status === 'failed') return 'Não foi possível concluir este arquivo. Você pode tentar novamente.';
-    if (activeItem.status === 'review') return 'Revise os campos e salve no módulo detectado.';
     return 'Pronto para iniciar análise.';
   }, [activeItem]);
 
@@ -409,15 +489,20 @@ export function ImportReservationDialog() {
     setItem(itemId, (current) => ({
       ...current,
       status: 'processing',
+      scope: 'trip_related',
       warnings: [],
       confidence: null,
+      typeConfidence: null,
+      extractionQuality: 'low',
       missingFields: [],
       identifiedType: null,
+      needsUserConfirmation: true,
       reviewState: null,
       rawText: '',
       summary: null,
       hotelPhotos: [],
       photoIndex: 0,
+      documentId: null,
       visualSteps: { ...defaultVisualSteps(), read: 'in_progress' },
     }));
 
@@ -430,11 +515,14 @@ export function ImportReservationDialog() {
       }
 
       try {
-        await documentsModule.create({
+        const createdDocument = await documentsModule.create({
           nome: file.name,
           tipo: `importacao/${upload.ext}`,
           arquivo_url: upload.path ?? null,
         } as Omit<TablesInsert<'documentos'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'>);
+        if (createdDocument?.id) {
+          setItem(itemId, (current) => ({ ...current, documentId: createdDocument.id }));
+        }
       } catch (metadataError) {
         console.error('[import][metadata_failure]', { file: file.name, error: metadataError });
         localWarnings.push('Falha ao registrar metadados do anexo.');
@@ -448,6 +536,9 @@ export function ImportReservationDialog() {
           const ocr = await runOcrDocument(file);
           extractedText = ocr.text ?? '';
           localWarnings.push(...ocr.warnings);
+          if (ocr.qualityMetrics && ocr.qualityMetrics.text_length < 80) {
+            localWarnings.push('Texto extraído com baixa qualidade.');
+          }
         } catch (ocrError) {
           console.error('[import][ocr_failure]', { file: file.name, error: ocrError });
           localWarnings.push(ocrError instanceof Error ? ocrError.message : 'OCR não disponível no momento.');
@@ -471,16 +562,24 @@ export function ImportReservationDialog() {
         extracted = inferFallbackExtraction(extractedText, file.name, currentTrip?.destino);
       }
 
+      const resolvedScope = resolveImportScope(extracted, extractedText, file.name);
       const resolvedType = resolveImportType(extracted, extractedText, file.name);
-      const review = toReviewState(extracted, resolvedType);
+      const review = resolvedScope === 'trip_related' ? toReviewState(extracted, resolvedType) : null;
+      const quality = extracted.extraction_quality ?? (extractedText.length > 500 ? 'high' : extractedText.length > 120 ? 'medium' : 'low');
+      const typeConfidence = extracted.type_confidence ?? extracted.confidence ?? 0;
+      const needsUserConfirmation = true;
 
       setItem(itemId, (current) => ({
         ...current,
-        status: 'review',
+        status: 'auto_extracted',
+        scope: resolvedScope,
         warnings: localWarnings,
         confidence: extracted.confidence,
+        typeConfidence,
+        extractionQuality: quality,
         missingFields: extracted.missingFields ?? [],
-        identifiedType: resolvedType,
+        identifiedType: resolvedScope === 'trip_related' ? resolvedType : null,
+        needsUserConfirmation,
         reviewState: review,
         rawText: extractedText,
         visualSteps: {
@@ -492,6 +591,11 @@ export function ImportReservationDialog() {
           tips: 'pending',
           done: 'pending',
         },
+      }));
+
+      setItem(itemId, (current) => ({
+        ...current,
+        status: needsUserConfirmation ? 'needs_confirmation' : current.status,
       }));
     } catch (error) {
       console.error('[import][pipeline_fatal]', { file: file.name, error });
@@ -520,7 +624,7 @@ export function ImportReservationDialog() {
     }
 
     setIsProcessingBatch(false);
-    toast.success('Análise concluída. Revise e salve cada item.');
+    toast.success('Análise concluída. Confirme cada arquivo para finalizar o salvamento.');
   };
 
   const updateActiveReview = (updater: (review: ReviewState) => ReviewState) => {
@@ -532,7 +636,8 @@ export function ImportReservationDialog() {
   };
 
   const saveActiveReviewed = async () => {
-    if (!activeItem?.reviewState) return;
+    if (!activeItem) return;
+    if (activeItem.scope === 'trip_related' && !activeItem.reviewState) return;
 
     const reviewState = activeItem.reviewState;
     setIsSaving(true);
@@ -552,7 +657,25 @@ export function ImportReservationDialog() {
       let checkOut: string | null = null;
       let photos: string[] = [];
 
-      if (reviewState.type === 'voo') {
+      if (activeItem.scope === 'outside_scope') {
+        if (activeItem.documentId) {
+          try {
+            await documentsModule.update({
+              id: activeItem.documentId,
+              updates: {
+                tipo: 'fora_escopo',
+              },
+            });
+          } catch (docUpdateError) {
+            console.error('[import][outside_scope_document_update_failed]', docUpdateError);
+          }
+        }
+
+        title = activeItem.file.name;
+        subtitle = 'Arquivo salvo apenas em Documentos (fora de escopo da viagem).';
+        setItemStep(activeItem.id, 'photos', 'skipped');
+        setItemStep(activeItem.id, 'tips', 'skipped');
+      } else if (reviewState?.type === 'voo') {
         const payload: Omit<TablesInsert<'voos'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
           numero: reviewState.voo.numero || null,
           companhia: reviewState.voo.companhia || null,
@@ -574,7 +697,7 @@ export function ImportReservationDialog() {
         setItemStep(activeItem.id, 'tips', 'skipped');
       }
 
-      if (reviewState.type === 'hospedagem') {
+      if (reviewState?.type === 'hospedagem') {
         const payload: Omit<TablesInsert<'hospedagens'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
           nome: reviewState.hospedagem.nome || null,
           localizacao: reviewState.hospedagem.localizacao || null,
@@ -636,7 +759,7 @@ export function ImportReservationDialog() {
         checkOut = payload.check_out ?? null;
       }
 
-      if (reviewState.type === 'transporte') {
+      if (reviewState?.type === 'transporte') {
         const payload: Omit<TablesInsert<'transportes'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
           tipo: reviewState.transporte.tipo || null,
           operadora: reviewState.transporte.operadora || null,
@@ -659,7 +782,7 @@ export function ImportReservationDialog() {
         setItemStep(activeItem.id, 'tips', 'skipped');
       }
 
-      if (reviewState.type === 'restaurante') {
+      if (reviewState?.type === 'restaurante') {
         const payload: Omit<TablesInsert<'restaurantes'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
           nome: reviewState.restaurante.nome || 'Restaurante importado',
           cidade: reviewState.restaurante.cidade || null,
@@ -696,7 +819,7 @@ export function ImportReservationDialog() {
       }
 
       const summary: ImportSummary = {
-        type: reviewState.type,
+        type: activeItem.scope === 'outside_scope' ? 'documento' : reviewState?.type ?? activeItem.identifiedType ?? 'transporte',
         title,
         subtitle,
         amount,
@@ -723,12 +846,16 @@ export function ImportReservationDialog() {
         },
       }));
 
-      toast.success(`${typeLabel(reviewState.type)} salvo com sucesso.`);
+      toast.success(
+        activeItem.scope === 'outside_scope'
+          ? 'Arquivo salvo em documentos como fora de escopo.'
+          : `${typeLabel(reviewState?.type)} salvo com sucesso.`,
+      );
     } catch (error) {
       console.error('[import][save_failure]', error);
       setItem(activeItem.id, (item) => ({
         ...item,
-        status: 'review',
+        status: 'needs_confirmation',
         warnings: item.warnings.concat(error instanceof Error ? error.message : 'Falha ao salvar item.'),
         visualSteps: {
           ...item.visualSteps,
@@ -736,7 +863,7 @@ export function ImportReservationDialog() {
           done: 'failed',
         },
       }));
-      toast.error('Falha ao salvar este item revisado.');
+      toast.error('Falha ao confirmar e salvar este item.');
     } finally {
       setIsSaving(false);
     }
@@ -775,7 +902,7 @@ export function ImportReservationDialog() {
             Importação inteligente de reservas
           </DialogTitle>
           <DialogDescription id={descriptionId}>
-            Envie vários arquivos (voo, hospedagem, transporte ou restaurante). A IA classifica e prepara revisão item a item.
+            Envie vários arquivos (voo, hospedagem, transporte ou restaurante). A IA classifica e prepara confirmação final item a item.
           </DialogDescription>
         </DialogHeader>
 
@@ -834,7 +961,19 @@ export function ImportReservationDialog() {
             </Card>
           )}
 
-          {activeItem?.reviewState && (
+          {activeItem && activeItem.status !== 'saved' && (
+            <ImportConfirmationCard
+              activeItem={activeItem}
+              isSaving={isSaving}
+              showAdvancedEditor={showAdvancedEditor}
+              onConfirm={saveActiveReviewed}
+              onToggleEditor={() => setShowAdvancedEditor((prev) => !prev)}
+              typeLabel={typeLabel}
+              formatCurrency={formatCurrency}
+            />
+          )}
+
+          {activeItem?.reviewState && showAdvancedEditor && (
             <ImportReviewFormByType
               reviewState={activeItem.reviewState}
               missingFieldsCount={activeItem.missingFields.length}
@@ -859,7 +998,7 @@ export function ImportReservationDialog() {
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <FileText className="h-4 w-4" />
-                  Salve cada item revisado para concluir a importação em lote.
+                  Confirme cada item para concluir a importação em lote.
                 </div>
               </CardContent>
             </Card>
@@ -868,14 +1007,9 @@ export function ImportReservationDialog() {
 
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)} aria-label="Fechar modal de importação">Fechar</Button>
-          {allSaved ? (
+          {allSaved && (
             <Button variant="outline" onClick={resetDialogState} aria-label="Iniciar nova importação">
               Nova importação
-            </Button>
-          ) : (
-            <Button onClick={saveActiveReviewed} disabled={!activeItem?.reviewState || isSaving} aria-label="Salvar item revisado">
-              {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Salvar item revisado
             </Button>
           )}
         </DialogFooter>

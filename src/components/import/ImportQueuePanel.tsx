@@ -43,7 +43,8 @@ export function ImportQueuePanel({
                   <Badge variant={queueStatusVariant(item.status)}>{queueStatusLabel(item.status)}</Badge>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {typeLabel(item.identifiedType)} {item.confidence != null ? `· confiança ${Math.round(item.confidence * 100)}%` : ''}
+                  {item.scope === 'outside_scope' ? 'Fora de escopo' : typeLabel(item.identifiedType)}{' '}
+                  {item.typeConfidence != null ? `· confiança ${Math.round(item.typeConfidence * 100)}%` : ''}
                 </p>
               </button>
             );

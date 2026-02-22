@@ -148,6 +148,9 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
     local sample_name="$1"
     local sample_text="$2"
     local expected_type="$3"
+    local expected_field_1="$4"
+    local expected_field_2="$5"
+    local expected_field_3="$6"
     local body="$tmp_dir/ext-${expected_type}.b"
 
     code="$(http_code POST "$SUPABASE_URL/functions/v1/extract-reservation" "$tmp_dir/ext-${expected_type}.h" "$body" \
@@ -158,7 +161,15 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
 
     if [ "$code" = "200" ]; then
       if grep -q "\"type\":\"$expected_type\"" "$body"; then
-        pass "extract-reservation classifica $expected_type corretamente"
+        local fields_found=0
+        grep -q "$expected_field_1" "$body" && fields_found=$((fields_found + 1))
+        grep -q "$expected_field_2" "$body" && fields_found=$((fields_found + 1))
+        grep -q "$expected_field_3" "$body" && fields_found=$((fields_found + 1))
+        if [ "$fields_found" -ge 2 ]; then
+          pass "extract-reservation classifica $expected_type e retorna campos úteis ($fields_found/3)"
+        else
+          warn "extract-reservation classifica $expected_type mas com poucos campos úteis ($fields_found/3)"
+        fi
       else
         warn "extract-reservation respondeu 200 mas sem type=$expected_type"
       fi
@@ -169,9 +180,44 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
     fi
   }
 
-  run_extract_type_check "latam-comprovante.pdf" "LATAM LA3303 São Paulo para Florianópolis voo confirmado" "voo"
-  run_extract_type_check "airbnb-recibo.pdf" "Airbnb recibo check-in 2026-04-03 checkout 2026-04-05 Grindelwald" "hospedagem"
-  run_extract_type_check "reserva-restaurante.pdf" "Reserva de restaurante para 2 pessoas no Weisses Rössli em Zurich" "restaurante"
+  run_extract_type_check \
+    "latam-comprovante.pdf" \
+    "LATAM LA3303 origem GRU destino FLN data 2026-04-02 valor R$ 1200" \
+    "voo" \
+    "\"origem\":\"GRU\"" \
+    "\"destino\":\"FLN\"" \
+    "\"numero\":\"LA3303\""
+  run_extract_type_check \
+    "airbnb-recibo.pdf" \
+    "Airbnb recibo check-in 2026-04-03 checkout 2026-04-05 Grindelwald valor CHF 1226.80" \
+    "hospedagem" \
+    "\"check_in\":\"2026-04-03\"" \
+    "\"check_out\":\"2026-04-05\"" \
+    "\"moeda\":\"CHF\""
+  run_extract_type_check \
+    "reserva-restaurante.pdf" \
+    "Reserva de restaurante para 2 pessoas no Weisses Rössli em Zurich" \
+    "restaurante" \
+    "\"nome\":" \
+    "\"cidade\":" \
+    "\"tipo\":"
+
+  code="$(http_code POST "$SUPABASE_URL/functions/v1/extract-reservation" "$tmp_dir/ext-outscope.h" "$tmp_dir/ext-outscope.b" \
+    -H "apikey: $SUPABASE_ANON_KEY" \
+    -H "Authorization: Bearer $TEST_USER_JWT" \
+    -H "Content-Type: application/json" \
+    --data '{"fileName":"fatura-energia.pdf","text":"Conta de energia residencial vencimento 10/02/2026 consumo mensal"}')"
+  if [ "$code" = "200" ]; then
+    if grep -q "\"scope\":\"outside_scope\"" "$tmp_dir/ext-outscope.b"; then
+      pass "extract-reservation marca fora de escopo corretamente"
+    else
+      warn "extract-reservation não marcou outside_scope no cenário não-viagem"
+    fi
+  elif [[ "$code" =~ ^(429|502)$ ]]; then
+    warn "extract-reservation indisponível para validação de outside_scope ($code)"
+  else
+    fail "extract-reservation falhou no cenário outside_scope ($code)"
+  fi
 
   # CRUD mínimo autenticado (opcional com TEST_TRIP_ID)
   if [ -n "${TEST_TRIP_ID:-}" ] && [ -n "${TEST_USER_ID:-}" ]; then

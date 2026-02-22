@@ -59,6 +59,24 @@ function extractPdfNativeText(base64: string) {
   }
 }
 
+function qualityMetricsFromText(text: string) {
+  const normalized = text || '';
+  const lines = normalized.split(/\n+/).filter((line) => line.trim().length > 0);
+  const digits = normalized.replace(/[^0-9]/g, '').length;
+  const letters = normalized.replace(/[^A-Za-zÀ-ÿ]/g, '').length;
+  const airportMatches = normalized.match(/\b[A-Z]{3}\b/g) || [];
+  const checkinTokens = /(check[\s-]?in|check[\s-]?out|checkin|checkout|entrada|sa[ií]da)/i.test(normalized);
+
+  return {
+    text_length: normalized.length,
+    line_count: lines.length,
+    digit_ratio: normalized.length > 0 ? Number((digits / normalized.length).toFixed(4)) : 0,
+    has_airport_codes: airportMatches.length >= 2,
+    has_checkin_tokens: checkinTokens,
+    has_structured_density: letters > 80 && digits > 10 && lines.length >= 3,
+  };
+}
+
 async function runOcrSpace(base64: string, mimeType: string | null) {
   const apiKey = Deno.env.get('OCR_SPACE_API_KEY');
   if (!apiKey) {
@@ -173,30 +191,64 @@ Deno.serve(async (req) => {
 
     const ext = extFromName(fileName);
     const warnings: string[] = [];
+    const nativePdfText = (ext === 'pdf' || mimeType === 'application/pdf') ? extractPdfNativeText(fileBase64) : '';
+    const nativeMetrics = nativePdfText ? qualityMetricsFromText(nativePdfText) : null;
+
+    if (nativePdfText && nativeMetrics?.has_structured_density) {
+      console.info('[ocr-document]', requestId, 'success', {
+        userId: auth.userId,
+        method: 'native_pdf_preferred',
+        remaining: rate.remaining,
+        qualityMetrics: nativeMetrics,
+      });
+      return successResponse({
+        text: nativePdfText,
+        method: 'native_pdf_preferred',
+        warnings,
+        qualityMetrics: nativeMetrics,
+      });
+    }
 
     const ocrResult = await runOcrSpace(fileBase64, mimeType);
     if (!ocrResult.error && ocrResult.text) {
-      console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: 'ocr_space', remaining: rate.remaining });
-      return successResponse({ text: ocrResult.text, method: 'ocr_space', warnings });
+      const metrics = qualityMetricsFromText(ocrResult.text);
+      console.info('[ocr-document]', requestId, 'success', {
+        userId: auth.userId,
+        method: 'ocr_space',
+        remaining: rate.remaining,
+        qualityMetrics: metrics,
+      });
+      return successResponse({ text: ocrResult.text, method: 'ocr_space', warnings, qualityMetrics: metrics });
     }
 
     warnings.push(ocrResult.error || 'OCR.space indisponível.');
     console.error('[ocr-document]', requestId, 'ocr_space_failure', ocrResult.error);
 
-    if (ext === 'pdf' || mimeType === 'application/pdf') {
-      const nativePdfText = extractPdfNativeText(fileBase64);
-      if (nativePdfText) {
+    if (nativePdfText) {
+      const metrics = qualityMetricsFromText(nativePdfText);
+      if (metrics.text_length > 24) {
         warnings.push('OCR provider falhou. Texto nativo de PDF usado como fallback.');
-        console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: 'native_pdf_fallback', remaining: rate.remaining });
-        return successResponse({ text: nativePdfText, method: 'native_pdf_fallback', warnings });
+        console.info('[ocr-document]', requestId, 'success', {
+          userId: auth.userId,
+          method: 'native_pdf_fallback',
+          remaining: rate.remaining,
+          qualityMetrics: metrics,
+        });
+        return successResponse({ text: nativePdfText, method: 'native_pdf_fallback', warnings, qualityMetrics: metrics });
       }
     }
 
     if (['png', 'jpg', 'jpeg', 'webp'].includes(ext) || (mimeType || '').startsWith('image/')) {
       const vision = await runOpenAiVision(fileBase64, mimeType);
       if (!vision.error && vision.text) {
-        console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: 'openai_vision', remaining: rate.remaining });
-        return successResponse({ text: vision.text, method: 'openai_vision', warnings });
+        const metrics = qualityMetricsFromText(vision.text);
+        console.info('[ocr-document]', requestId, 'success', {
+          userId: auth.userId,
+          method: 'openai_vision',
+          remaining: rate.remaining,
+          qualityMetrics: metrics,
+        });
+        return successResponse({ text: vision.text, method: 'openai_vision', warnings, qualityMetrics: metrics });
       }
 
       warnings.push(vision.error || 'OpenAI vision indisponível.');
