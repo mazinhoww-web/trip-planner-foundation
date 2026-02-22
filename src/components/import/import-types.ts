@@ -1,4 +1,4 @@
-import { ImportType } from '@/services/importPipeline';
+import { ArceeExtractionPayload, ImportType } from '@/services/importPipeline';
 
 export type StepStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
 export type QueueStatus = 'pending' | 'processing' | 'auto_extracted' | 'needs_confirmation' | 'saving' | 'saved' | 'failed';
@@ -8,33 +8,64 @@ export type ImportScope = 'trip_related' | 'outside_scope';
 export type ReviewState = {
   type: ImportType;
   voo: {
+    nome_exibicao: string;
+    provedor: string;
+    codigo_reserva: string;
+    passageiro_hospede: string;
     numero: string;
     companhia: string;
     origem: string;
     destino: string;
-    data: string;
+    data_inicio: string;
+    hora_inicio: string;
+    data_fim: string;
+    hora_fim: string;
     status: 'confirmado' | 'pendente' | 'cancelado';
     valor: string;
     moeda: string;
+    metodo_pagamento: string;
+    pontos_utilizados: string;
   };
   hospedagem: {
+    nome_exibicao: string;
+    provedor: string;
+    codigo_reserva: string;
+    passageiro_hospede: string;
     nome: string;
     localizacao: string;
     check_in: string;
+    hora_inicio: string;
     check_out: string;
+    hora_fim: string;
     status: 'confirmado' | 'pendente' | 'cancelado';
     valor: string;
     moeda: string;
+    metodo_pagamento: string;
+    pontos_utilizados: string;
+    dica_viagem: string;
+    como_chegar: string;
+    atracoes_proximas: string;
+    restaurantes_proximos: string;
+    dica_ia: string;
   };
   transporte: {
+    nome_exibicao: string;
+    provedor: string;
+    codigo_reserva: string;
+    passageiro_hospede: string;
     tipo: string;
     operadora: string;
     origem: string;
     destino: string;
-    data: string;
+    data_inicio: string;
+    hora_inicio: string;
+    data_fim: string;
+    hora_fim: string;
     status: 'confirmado' | 'pendente' | 'cancelado';
     valor: string;
     moeda: string;
+    metodo_pagamento: string;
+    pontos_utilizados: string;
   };
   restaurante: {
     nome: string;
@@ -75,6 +106,7 @@ export type ImportQueueItem = {
   reviewState: ReviewState | null;
   rawText: string;
   summary: ImportSummary | null;
+  canonical: ArceeExtractionPayload | null;
   hotelPhotos: string[];
   photoIndex: number;
   documentId: string | null;

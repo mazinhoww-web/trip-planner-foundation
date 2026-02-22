@@ -3,6 +3,38 @@ import { parseFunctionError } from '@/services/errors';
 
 export type ImportType = 'voo' | 'hospedagem' | 'transporte' | 'restaurante';
 
+export type ArceeExtractionPayload = {
+  metadata: {
+    tipo: 'Voo' | 'Hospedagem' | 'Transporte' | 'Restaurante' | null;
+    confianca: number;
+    status: 'Pendente' | 'Confirmado' | 'Cancelado' | null;
+  };
+  dados_principais: {
+    nome_exibicao: string | null;
+    provedor: string | null;
+    codigo_reserva: string | null;
+    passageiro_hospede: string | null;
+    data_inicio: string | null;
+    hora_inicio: string | null;
+    data_fim: string | null;
+    hora_fim: string | null;
+    origem: string | null;
+    destino: string | null;
+  };
+  financeiro: {
+    valor_total: number | null;
+    moeda: string | null;
+    metodo: string | null;
+    pontos_utilizados: number | null;
+  };
+  enriquecimento_ia: {
+    dica_viagem: string | null;
+    como_chegar: string | null;
+    atracoes_proximas: string | null;
+    restaurantes_proximos: string | null;
+  };
+};
+
 export type ExtractedReservation = {
   type: ImportType | null;
   scope?: 'trip_related' | 'outside_scope';
@@ -11,6 +43,7 @@ export type ExtractedReservation = {
   field_confidence?: Record<string, number>;
   extraction_quality?: 'high' | 'medium' | 'low';
   missingFields: string[];
+  canonical?: ArceeExtractionPayload;
   data: {
     voo: {
       numero: string | null;

@@ -2,235 +2,180 @@ import { corsHeaders } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/http.ts';
 import { consumeRateLimit, requireAuthenticatedUser } from '../_shared/security.ts';
 
-const PROMPT = `Analise este documento de reserva de viagem e extraia somente dados comprovados pelo conteudo.
-
-Regras:
-1) Classifique em: voo, hospedagem, transporte ou restaurante.
-1.1) Se o arquivo nao for sobre viagem, classifique scope=outside_scope e type=null.
-2) Se nao houver evidencia para um campo, retorne null.
-3) Datas no formato YYYY-MM-DD quando possivel.
-4) Horarios no formato HH:MM quando possivel.
-5) Nao escreva explicacoes fora do objeto de resposta.
-6) Nao invente numeros de reserva, valores ou enderecos.
-
-Retorne SOMENTE JSON no formato:
-{
-  "type": "voo|hospedagem|transporte|restaurante|null",
-  "scope": "trip_related|outside_scope",
-  "confidence": 0.0,
-  "type_confidence": 0.0,
-  "field_confidence": {
-    "voo.origem_destino": 0.0,
-    "voo.data": 0.0,
-    "hospedagem.checkin_checkout": 0.0
-  },
-  "extraction_quality": "high|medium|low",
-  "missingFields": ["campo1", "campo2"],
-  "data": {
-    "voo": {
-      "numero": null,
-      "companhia": null,
-      "origem": null,
-      "destino": null,
-      "data": null,
-      "status": null,
-      "valor": null,
-      "moeda": null
-    },
-    "hospedagem": {
-      "nome": null,
-      "localizacao": null,
-      "check_in": null,
-      "check_out": null,
-      "status": null,
-      "valor": null,
-      "moeda": null
-    },
-    "transporte": {
-      "tipo": null,
-      "operadora": null,
-      "origem": null,
-      "destino": null,
-      "data": null,
-      "status": null,
-      "valor": null,
-      "moeda": null
-    },
-    "restaurante": {
-      "nome": null,
-      "cidade": null,
-      "tipo": null,
-      "rating": null
-    }
-  }
-}`;
-
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const TEXT_MODEL = 'arcee-ai/trinity-large-preview:free';
 const LIMIT_PER_HOUR = 20;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
-const allowedType = new Set(['voo', 'hospedagem', 'transporte', 'restaurante']);
-const allowedStatus = new Set(['confirmado', 'pendente', 'cancelado']);
-const allowedScope = new Set(['trip_related', 'outside_scope']);
-const allowedExtractionQuality = new Set(['high', 'medium', 'low']);
+const SYSTEM_PROMPT = `Role: Você é o motor de inteligência do "Trip Planner Foundation". Sua função é processar texto bruto de OCR de documentos de viagem e retornar um JSON estruturado.
 
-function strOrNull(value: unknown) {
+Diretrizes obrigatórias:
+- Normalização de Datas: retorne no formato ISO YYYY-MM-DD.
+- Normalização Monetária: use números com duas casas decimais para valor_total.
+- Tratamento de Ausência: se impossível determinar, use null. Nunca invente dados.
+- Gere enriquecimento_ia curto e útil quando o destino for identificável.
+- Se o documento não fizer sentido para planejamento de viagem, retorne metadata.tipo = null.
+
+Responda SOMENTE JSON válido no schema abaixo:
+{
+  "metadata": {
+    "tipo": "Voo | Hospedagem | Transporte | Restaurante | null",
+    "confianca": "0-100",
+    "status": "Pendente"
+  },
+  "dados_principais": {
+    "nome_exibicao": "string|null",
+    "provedor": "string|null",
+    "codigo_reserva": "string|null",
+    "passageiro_hospede": "string|null",
+    "data_inicio": "YYYY-MM-DD|null",
+    "hora_inicio": "HH:MM|null",
+    "data_fim": "YYYY-MM-DD|null",
+    "hora_fim": "HH:MM|null",
+    "origem": "string|null",
+    "destino": "string|null"
+  },
+  "financeiro": {
+    "valor_total": 0.00,
+    "moeda": "BRL | USD | EUR | CHF | GBP | null",
+    "metodo": "string|null",
+    "pontos_utilizados": 0
+  },
+  "enriquecimento_ia": {
+    "dica_viagem": "string|null",
+    "como_chegar": "string|null",
+    "atracoes_proximas": "string|null",
+    "restaurantes_proximos": "string|null"
+  }
+}`;
+
+type CanonicalPayload = {
+  metadata: {
+    tipo: 'Voo' | 'Hospedagem' | 'Transporte' | 'Restaurante' | null;
+    confianca: number;
+    status: 'Pendente' | 'Confirmado' | 'Cancelado' | null;
+  };
+  dados_principais: {
+    nome_exibicao: string | null;
+    provedor: string | null;
+    codigo_reserva: string | null;
+    passageiro_hospede: string | null;
+    data_inicio: string | null;
+    hora_inicio: string | null;
+    data_fim: string | null;
+    hora_fim: string | null;
+    origem: string | null;
+    destino: string | null;
+  };
+  financeiro: {
+    valor_total: number | null;
+    moeda: string | null;
+    metodo: string | null;
+    pontos_utilizados: number | null;
+  };
+  enriquecimento_ia: {
+    dica_viagem: string | null;
+    como_chegar: string | null;
+    atracoes_proximas: string | null;
+    restaurantes_proximos: string | null;
+  };
+};
+
+const allowedTipo = new Set(['voo', 'hospedagem', 'transporte', 'restaurante']);
+
+function strOrNull(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim();
   return normalized || null;
 }
 
-function numOrNull(value: unknown) {
+function numOrNull(value: unknown): number | null {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   if (typeof value === 'string') {
-    const sanitized = value.replace(/[^0-9,.\-]/g, '').trim();
+    const sanitized = value.replace(/[^0-9,.-]/g, '').trim();
     if (!sanitized) return null;
     const hasDot = sanitized.includes('.');
     const hasComma = sanitized.includes(',');
     let normalized = sanitized;
-
     if (hasDot && hasComma) {
       const lastDot = sanitized.lastIndexOf('.');
       const lastComma = sanitized.lastIndexOf(',');
-      if (lastComma > lastDot) {
-        normalized = sanitized.replace(/\./g, '').replace(',', '.');
-      } else {
-        normalized = sanitized.replace(/,/g, '');
-      }
+      normalized = lastComma > lastDot ? sanitized.replace(/\./g, '').replace(',', '.') : sanitized.replace(/,/g, '');
     } else if (hasComma) {
       normalized = sanitized.replace(',', '.');
-    } else {
-      normalized = sanitized;
     }
-
     const parsed = Number(normalized);
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
 }
 
-function sanitizeStatus(value: unknown) {
-  const v = strOrNull(value);
-  if (!v || !allowedStatus.has(v)) return null;
-  return v;
-}
-
-function normalizeDateLike(value: unknown) {
+function normalizeDateLike(value: unknown): string | null {
   const raw = strOrNull(value);
   if (!raw) return null;
 
   const iso = raw.match(/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/);
   if (iso) {
-    const y = iso[1];
-    const m = iso[2].padStart(2, '0');
-    const d = iso[3].padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
   }
 
   const br = raw.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](20\d{2})\b/);
   if (br) {
-    const d = br[1].padStart(2, '0');
-    const m = br[2].padStart(2, '0');
-    const y = br[3];
-    return `${y}-${m}-${d}`;
-  }
-
-  const parsed = new Date(raw);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toISOString().slice(0, 10);
+    return `${br[3]}-${br[2].padStart(2, '0')}-${br[1].padStart(2, '0')}`;
   }
 
   return null;
 }
 
-function clampConfidence(value: unknown) {
-  const raw = typeof value === 'number' ? value : Number(value ?? 0);
-  if (!Number.isFinite(raw)) return 0;
-  return Math.max(0, Math.min(1, raw));
+function normalizeTimeLike(value: unknown): string | null {
+  const raw = strOrNull(value);
+  if (!raw) return null;
+  const match = raw.match(/\b([01]\d|2[0-3])[:h]([0-5]\d)\b/i);
+  if (!match) return null;
+  return `${match[1]}:${match[2]}`;
 }
 
-function safeConfidenceMap(value: unknown) {
-  if (!value || typeof value !== 'object') return {};
-  const entries = Object.entries(value as Record<string, unknown>)
-    .map(([key, raw]) => [key, clampConfidence(raw)] as const)
-    .filter(([key]) => !!key.trim());
-  return Object.fromEntries(entries);
+function normalizeMoney(value: unknown): number | null {
+  const parsed = numOrNull(value);
+  if (parsed == null) return null;
+  return Number(parsed.toFixed(2));
 }
 
-function inferAirportCodes(text: string) {
-  const normalized = text.replace(/\s+/g, ' ');
-  const withArrow = normalized.match(/\b([A-Z]{3})\s*(?:-|->|→|\/)\s*([A-Z]{3})\b/);
-  if (withArrow) {
-    return { origem: withArrow[1], destino: withArrow[2] };
-  }
-
-  const labeled = normalized.match(/(?:origem|from)\s*[:\-]?\s*([A-Z]{3}).*?(?:destino|to)\s*[:\-]?\s*([A-Z]{3})/i);
-  if (labeled) {
-    return { origem: labeled[1].toUpperCase(), destino: labeled[2].toUpperCase() };
-  }
-
-  const all = normalized.match(/\b[A-Z]{3}\b/g) || [];
-  if (all.length >= 2) {
-    return { origem: all[0], destino: all[1] };
-  }
-
-  return { origem: null, destino: null };
+function normalizeConfidence0to100(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number(value ?? 0);
+  if (!Number.isFinite(parsed)) return 0;
+  if (parsed <= 1) return Math.max(0, Math.min(100, Math.round(parsed * 100)));
+  return Math.max(0, Math.min(100, Math.round(parsed)));
 }
 
-function inferFlightDate(text: string) {
-  const iso = text.match(/\b(20\d{2}[-\/.]\d{1,2}[-\/.]\d{1,2})\b/);
-  if (iso) return normalizeDateLike(iso[1]);
+function confidenceToUnit(value: number): number {
+  return Math.max(0, Math.min(1, Number((value / 100).toFixed(4))));
+}
 
-  const br = text.match(/\b(\d{1,2}[-\/.]\d{1,2}[-\/.]20\d{2})\b/);
-  if (br) return normalizeDateLike(br[1]);
-
+function normalizeTipo(raw: unknown): CanonicalPayload['metadata']['tipo'] {
+  const value = strOrNull(raw);
+  if (!value) return null;
+  const normalized = value.toLowerCase();
+  if (normalized === 'voo') return 'Voo';
+  if (normalized === 'hospedagem') return 'Hospedagem';
+  if (normalized === 'transporte') return 'Transporte';
+  if (normalized === 'restaurante') return 'Restaurante';
   return null;
 }
 
-function inferStayDates(text: string) {
-  const checkInMatch = text.match(/(?:check[\s-]?in|entrada)\s*[:\-]?\s*([0-9]{1,2}[\/.\-][0-9]{1,2}[\/.\-](?:20[0-9]{2}|[0-9]{2})|20[0-9]{2}[\/.\-][0-9]{1,2}[\/.\-][0-9]{1,2})/i);
-  const checkOutMatch = text.match(/(?:check[\s-]?out|sa[ií]da)\s*[:\-]?\s*([0-9]{1,2}[\/.\-][0-9]{1,2}[\/.\-](?:20[0-9]{2}|[0-9]{2})|20[0-9]{2}[\/.\-][0-9]{1,2}[\/.\-][0-9]{1,2})/i);
-  return {
-    check_in: normalizeDateLike(checkInMatch?.[1] ?? null),
-    check_out: normalizeDateLike(checkOutMatch?.[1] ?? null),
-  };
+function normalizeStatus(raw: unknown): CanonicalPayload['metadata']['status'] {
+  const value = strOrNull(raw);
+  if (!value) return 'Pendente';
+  const normalized = value.toLowerCase();
+  if (normalized === 'confirmado') return 'Confirmado';
+  if (normalized === 'cancelado') return 'Cancelado';
+  return 'Pendente';
 }
 
-function inferMoney(text: string) {
-  const hit = text.match(/(?:R\$|USD|EUR|CHF|GBP|\$)\s*([0-9][0-9.,]*)/i);
-  if (!hit) return { valor: null, moeda: null };
-
-  const valor = numOrNull(hit[1]);
-  const moedaHit = text.match(/\b(R\$|USD|EUR|CHF|GBP)\b/i);
-  const moeda = moedaHit?.[1]?.toUpperCase()?.replace('$', '') ?? (text.includes('R$') ? 'BRL' : null);
-  return {
-    valor: Number.isFinite(valor) ? valor : null,
-    moeda,
-  };
-}
-
-function inferScopeAndTypeHints(text: string, fileName: string) {
-  const bag = `${text} ${fileName}`.toLowerCase();
-  const travel =
-    /\b(voo|flight|airbnb|hotel|hospedagem|check-in|check-out|airport|aeroporto|pnr|iata|itiner[áa]rio|reserva|booking|trip)\b/.test(bag) ||
-    /\b(latam|gol|azul|air france|lufthansa|booking\.com|airbnb)\b/.test(bag);
-
-  if (!travel) {
-    return { scope: 'outside_scope' as const, forcedType: null };
-  }
-
-  if (/\b(latam|gol|azul|flight|boarding|pnr|iata|ticket|itiner[áa]rio)\b/.test(bag)) {
-    return { scope: 'trip_related' as const, forcedType: 'voo' as const };
-  }
-  if (/\b(airbnb|hotel|hospedagem|booking|check-in|checkout|check out|pousada)\b/.test(bag)) {
-    return { scope: 'trip_related' as const, forcedType: 'hospedagem' as const };
-  }
-  if (/\b(restaurante|restaurant|reserva de mesa|opentable)\b/.test(bag)) {
-    return { scope: 'trip_related' as const, forcedType: 'restaurante' as const };
-  }
-
-  return { scope: 'trip_related' as const, forcedType: null };
+function mapTipoToLegacy(tipo: CanonicalPayload['metadata']['tipo']) {
+  if (!tipo) return null;
+  const lower = tipo.toLowerCase();
+  return allowedTipo.has(lower) ? (lower as 'voo' | 'hospedagem' | 'transporte' | 'restaurante') : null;
 }
 
 function extractJson(content: string) {
@@ -243,6 +188,248 @@ function extractJson(content: string) {
   } catch {
     return null;
   }
+}
+
+function inferScopeAndTypeHints(text: string, fileName: string) {
+  const bag = `${text} ${fileName}`.toLowerCase();
+  const travelSignal =
+    /\b(voo|flight|airbnb|hotel|hospedagem|check-in|check-out|airport|aeroporto|pnr|iata|itiner[áa]rio|booking|trip|restaurante)\b/.test(bag) ||
+    /\b(latam|gol|azul|air france|lufthansa|booking\.com|airbnb)\b/.test(bag);
+
+  if (!travelSignal) return { scope: 'outside_scope' as const, forcedType: null };
+
+  if (/\b(latam|gol|azul|flight|boarding|pnr|iata|ticket|itiner[áa]rio)\b/.test(bag)) {
+    return { scope: 'trip_related' as const, forcedType: 'Voo' as const };
+  }
+  if (/\b(airbnb|hotel|hospedagem|booking|check-in|checkout|check out|pousada)\b/.test(bag)) {
+    return { scope: 'trip_related' as const, forcedType: 'Hospedagem' as const };
+  }
+  if (/\b(restaurante|restaurant|reserva de mesa|opentable)\b/.test(bag)) {
+    return { scope: 'trip_related' as const, forcedType: 'Restaurante' as const };
+  }
+
+  return { scope: 'trip_related' as const, forcedType: null };
+}
+
+function inferAirportCodes(text: string) {
+  const normalized = text.replace(/\s+/g, ' ');
+  const withArrow = normalized.match(/\b([A-Z]{3})\s*(?:-|->|→|\/)\s*([A-Z]{3})\b/);
+  if (withArrow) return { origem: withArrow[1], destino: withArrow[2] };
+
+  const labeled = normalized.match(/(?:origem|from)\s*[:\-]?\s*([A-Z]{3}).*?(?:destino|to)\s*[:\-]?\s*([A-Z]{3})/i);
+  if (labeled) return { origem: labeled[1].toUpperCase(), destino: labeled[2].toUpperCase() };
+
+  const all = normalized.match(/\b[A-Z]{3}\b/g) || [];
+  if (all.length >= 2) return { origem: all[0], destino: all[1] };
+
+  return { origem: null, destino: null };
+}
+
+function inferFlightCode(text: string, fileName: string) {
+  const pnr = text.match(/\b([A-Z0-9]{6})\b/);
+  const flight = text.match(/\b([A-Z]{2}\d{3,4}[A-Z0-9]*)\b/);
+  const fromFile = fileName.match(/\b([A-Z]{2}\d{3,4}[A-Z0-9]*)\b/i);
+  return {
+    codigo_reserva: pnr?.[1] ?? null,
+    numero_voo: flight?.[1] ?? fromFile?.[1] ?? null,
+  };
+}
+
+function inferDates(text: string) {
+  const iso = text.match(/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/);
+  const br = text.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](20\d{2})\b/);
+  const checkIn = text.match(/(?:check[\s-]?in|entrada)\s*[:\-]?\s*([0-9]{1,2}[\/.\-][0-9]{1,2}[\/.\-](?:20[0-9]{2}|[0-9]{2})|20[0-9]{2}[\/.\-][0-9]{1,2}[\/.\-][0-9]{1,2})/i);
+  const checkOut = text.match(/(?:check[\s-]?out|sa[ií]da)\s*[:\-]?\s*([0-9]{1,2}[\/.\-][0-9]{1,2}[\/.\-](?:20[0-9]{2}|[0-9]{2})|20[0-9]{2}[\/.\-][0-9]{1,2}[\/.\-][0-9]{1,2})/i);
+
+  return {
+    generic: normalizeDateLike(iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : br ? `${br[1]}-${br[2]}-${br[3]}` : null),
+    checkIn: normalizeDateLike(checkIn?.[1] ?? null),
+    checkOut: normalizeDateLike(checkOut?.[1] ?? null),
+  };
+}
+
+function inferTime(text: string) {
+  const match = text.match(/\b([01]\d|2[0-3])[:h]([0-5]\d)\b/);
+  return match ? `${match[1]}:${match[2]}` : null;
+}
+
+function inferMoney(text: string) {
+  const hit = text.match(/(?:R\$|USD|EUR|CHF|GBP|\$)\s*([0-9][0-9.,]*)/i);
+  const value = normalizeMoney(hit?.[1] ?? null);
+  const symbol = text.match(/\b(R\$|USD|EUR|CHF|GBP)\b/i)?.[1]?.toUpperCase() ?? null;
+  const moeda = symbol?.replace('$', '') ?? (text.includes('R$') ? 'BRL' : null);
+  return { valor_total: value, moeda };
+}
+
+function normalizeCanonical(raw: Record<string, unknown>, text: string, fileName: string) {
+  const metadataRaw = (raw.metadata ?? {}) as Record<string, unknown>;
+  const dadosRaw = (raw.dados_principais ?? {}) as Record<string, unknown>;
+  const financeiroRaw = (raw.financeiro ?? {}) as Record<string, unknown>;
+  const enrichRaw = (raw.enriquecimento_ia ?? {}) as Record<string, unknown>;
+
+  const hints = inferScopeAndTypeHints(text, fileName);
+
+  const canonical: CanonicalPayload = {
+    metadata: {
+      tipo: normalizeTipo(metadataRaw.tipo) ?? hints.forcedType,
+      confianca: normalizeConfidence0to100(metadataRaw.confianca),
+      status: normalizeStatus(metadataRaw.status),
+    },
+    dados_principais: {
+      nome_exibicao: strOrNull(dadosRaw.nome_exibicao),
+      provedor: strOrNull(dadosRaw.provedor),
+      codigo_reserva: strOrNull(dadosRaw.codigo_reserva),
+      passageiro_hospede: strOrNull(dadosRaw.passageiro_hospede),
+      data_inicio: normalizeDateLike(dadosRaw.data_inicio),
+      hora_inicio: normalizeTimeLike(dadosRaw.hora_inicio),
+      data_fim: normalizeDateLike(dadosRaw.data_fim),
+      hora_fim: normalizeTimeLike(dadosRaw.hora_fim),
+      origem: strOrNull(dadosRaw.origem),
+      destino: strOrNull(dadosRaw.destino),
+    },
+    financeiro: {
+      valor_total: normalizeMoney(financeiroRaw.valor_total),
+      moeda: strOrNull(financeiroRaw.moeda)?.toUpperCase() ?? null,
+      metodo: strOrNull(financeiroRaw.metodo),
+      pontos_utilizados: numOrNull(financeiroRaw.pontos_utilizados),
+    },
+    enriquecimento_ia: {
+      dica_viagem: strOrNull(enrichRaw.dica_viagem),
+      como_chegar: strOrNull(enrichRaw.como_chegar),
+      atracoes_proximas: strOrNull(enrichRaw.atracoes_proximas),
+      restaurantes_proximos: strOrNull(enrichRaw.restaurantes_proximos),
+    },
+  };
+
+  const scope = canonical.metadata.tipo ? hints.scope : 'outside_scope';
+
+  if (scope === 'trip_related') {
+    const airports = inferAirportCodes(text);
+    const dates = inferDates(text);
+    const firstTime = inferTime(text);
+    const money = inferMoney(text);
+    const flight = inferFlightCode(text, fileName);
+
+    canonical.dados_principais.origem = canonical.dados_principais.origem ?? airports.origem;
+    canonical.dados_principais.destino = canonical.dados_principais.destino ?? airports.destino;
+    canonical.dados_principais.data_inicio = canonical.dados_principais.data_inicio ?? (canonical.metadata.tipo === 'Hospedagem' ? dates.checkIn : dates.generic);
+    canonical.dados_principais.data_fim = canonical.dados_principais.data_fim ?? (canonical.metadata.tipo === 'Hospedagem' ? dates.checkOut : null);
+    canonical.dados_principais.hora_inicio = canonical.dados_principais.hora_inicio ?? firstTime;
+
+    if (canonical.metadata.tipo === 'Voo') {
+      canonical.dados_principais.codigo_reserva = canonical.dados_principais.codigo_reserva ?? flight.codigo_reserva;
+      canonical.dados_principais.nome_exibicao = canonical.dados_principais.nome_exibicao ?? flight.numero_voo;
+    }
+
+    canonical.financeiro.valor_total = canonical.financeiro.valor_total ?? money.valor_total;
+    canonical.financeiro.moeda = canonical.financeiro.moeda ?? money.moeda;
+  }
+
+  return { canonical, scope };
+}
+
+function missingFromCanonical(payload: CanonicalPayload, scope: 'trip_related' | 'outside_scope') {
+  if (scope === 'outside_scope') return [] as string[];
+  const tipo = payload.metadata.tipo;
+  const missing: string[] = [];
+  const d = payload.dados_principais;
+
+  if (!tipo) {
+    missing.push('metadata.tipo');
+    return missing;
+  }
+
+  if (tipo === 'Voo') {
+    if (!d.origem) missing.push('voo.origem');
+    if (!d.destino) missing.push('voo.destino');
+    if (!d.data_inicio) missing.push('voo.data_inicio');
+    if (!d.codigo_reserva && !d.nome_exibicao) missing.push('voo.identificador');
+  }
+
+  if (tipo === 'Hospedagem') {
+    if (!d.nome_exibicao) missing.push('hospedagem.nome_exibicao');
+    if (!d.data_inicio) missing.push('hospedagem.data_inicio');
+    if (!d.data_fim) missing.push('hospedagem.data_fim');
+    if (!payload.financeiro.valor_total) missing.push('hospedagem.valor_total');
+  }
+
+  if (tipo === 'Transporte') {
+    if (!d.origem) missing.push('transporte.origem');
+    if (!d.destino) missing.push('transporte.destino');
+    if (!d.data_inicio) missing.push('transporte.data_inicio');
+  }
+
+  if (tipo === 'Restaurante') {
+    if (!d.nome_exibicao) missing.push('restaurante.nome');
+    if (!d.destino) missing.push('restaurante.cidade');
+  }
+
+  return missing;
+}
+
+function toLegacyData(payload: CanonicalPayload) {
+  const tipo = mapTipoToLegacy(payload.metadata.tipo);
+  const status = payload.metadata.status?.toLowerCase();
+  const normalizedStatus = status === 'confirmado' || status === 'cancelado' ? status : 'pendente';
+
+  return {
+    voo:
+      tipo === 'voo'
+        ? {
+            numero: payload.dados_principais.nome_exibicao,
+            companhia: payload.dados_principais.provedor,
+            origem: payload.dados_principais.origem,
+            destino: payload.dados_principais.destino,
+            data: payload.dados_principais.data_inicio,
+            status: normalizedStatus,
+            valor: payload.financeiro.valor_total,
+            moeda: payload.financeiro.moeda,
+          }
+        : null,
+    hospedagem:
+      tipo === 'hospedagem'
+        ? {
+            nome: payload.dados_principais.nome_exibicao,
+            localizacao: payload.dados_principais.destino,
+            check_in: payload.dados_principais.data_inicio,
+            check_out: payload.dados_principais.data_fim,
+            status: normalizedStatus,
+            valor: payload.financeiro.valor_total,
+            moeda: payload.financeiro.moeda,
+          }
+        : null,
+    transporte:
+      tipo === 'transporte'
+        ? {
+            tipo: payload.dados_principais.nome_exibicao,
+            operadora: payload.dados_principais.provedor,
+            origem: payload.dados_principais.origem,
+            destino: payload.dados_principais.destino,
+            data: payload.dados_principais.data_inicio,
+            status: normalizedStatus,
+            valor: payload.financeiro.valor_total,
+            moeda: payload.financeiro.moeda,
+          }
+        : null,
+    restaurante:
+      tipo === 'restaurante'
+        ? {
+            nome: payload.dados_principais.nome_exibicao,
+            cidade: payload.dados_principais.destino,
+            tipo: payload.dados_principais.provedor,
+            rating: null,
+          }
+        : null,
+  };
+}
+
+function fieldConfidenceMap(payload: CanonicalPayload) {
+  const d = payload.dados_principais;
+  return {
+    'voo.origem_destino': d.origem && d.destino ? 0.9 : 0.4,
+    'voo.data': d.data_inicio ? 0.85 : 0.3,
+    'hospedagem.checkin_checkout': d.data_inicio && d.data_fim ? 0.9 : 0.35,
+  };
 }
 
 Deno.serve(async (req) => {
@@ -273,7 +460,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const text = typeof body?.text === 'string' ? body.text.slice(0, 20000) : '';
+    const text = typeof body?.text === 'string' ? body.text.slice(0, 22000) : '';
     const fileName = typeof body?.fileName === 'string' ? body.fileName : 'arquivo';
 
     if (!text.trim()) {
@@ -290,13 +477,13 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         model: TEXT_MODEL,
-        temperature: 0.1,
-        max_tokens: 900,
+        temperature: 0.05,
+        max_tokens: 1300,
         messages: [
-          { role: 'system', content: PROMPT },
+          { role: 'system', content: SYSTEM_PROMPT },
           {
             role: 'user',
-            content: `Arquivo: ${fileName}\n\nConteudo:\n${text}`,
+            content: `Arquivo: ${fileName}\n\nTexto OCR:\n${text}`,
           },
         ],
       }),
@@ -312,122 +499,52 @@ Deno.serve(async (req) => {
     const content = aiJson?.choices?.[0]?.message?.content;
     const usage = aiJson?.usage ?? null;
     const reasoningTokens = aiJson?.usage?.reasoning_tokens ?? aiJson?.usage?.reasoningTokens ?? null;
+
     if (typeof content !== 'string') {
       return errorResponse(requestId, 'UPSTREAM_ERROR', 'Resposta IA vazia.', 502);
     }
 
     const parsed = extractJson(content);
     if (!parsed) {
-      console.error('[extract-reservation]', requestId, 'invalid_json', content.slice(0, 200));
+      console.error('[extract-reservation]', requestId, 'invalid_json', content.slice(0, 240));
       return errorResponse(requestId, 'UPSTREAM_ERROR', 'Formato inválido na extração IA.', 502);
     }
 
-    const typeRaw = strOrNull(parsed.type);
-    const type = typeRaw && allowedType.has(typeRaw) ? typeRaw : null;
+    const { canonical, scope } = normalizeCanonical(parsed, text, fileName);
+    const tipoLegacy = mapTipoToLegacy(canonical.metadata.tipo);
+    const missingFields = missingFromCanonical(canonical, scope);
+    const typeConfidence = confidenceToUnit(canonical.metadata.confianca);
+    const extractionQuality: 'high' | 'medium' | 'low' =
+      canonical.metadata.confianca >= 75 ? 'high' : canonical.metadata.confianca >= 55 ? 'medium' : 'low';
 
-    const confidence = clampConfidence(parsed.confidence);
-    const typeConfidence = clampConfidence(parsed.type_confidence ?? parsed.confidence);
-    const fieldConfidence = safeConfidenceMap(parsed.field_confidence);
-    const extractionQualityRaw = strOrNull(parsed.extraction_quality);
-    const extractionQuality =
-      extractionQualityRaw && allowedExtractionQuality.has(extractionQualityRaw) ? extractionQualityRaw : 'medium';
-    const scopeRaw = strOrNull(parsed.scope);
-    const heuristic = inferScopeAndTypeHints(text, fileName);
-    const scope =
-      scopeRaw && allowedScope.has(scopeRaw)
-        ? scopeRaw
-        : heuristic.scope;
-
-    const missingFields = Array.isArray(parsed.missingFields)
-      ? parsed.missingFields.map((item) => strOrNull(item)).filter((item): item is string => !!item)
-      : [];
-
-    const data = (parsed.data ?? {}) as Record<string, unknown>;
-    const voo = (data.voo ?? {}) as Record<string, unknown>;
-    const hospedagem = (data.hospedagem ?? {}) as Record<string, unknown>;
-    const transporte = (data.transporte ?? {}) as Record<string, unknown>;
-    const restaurante = (data.restaurante ?? {}) as Record<string, unknown>;
-
-    const normalized = {
-      type: scope === 'outside_scope' ? null : (type ?? heuristic.forcedType),
+    const responsePayload = {
+      metadata: canonical.metadata,
+      dados_principais: canonical.dados_principais,
+      financeiro: canonical.financeiro,
+      enriquecimento_ia: canonical.enriquecimento_ia,
+      type: scope === 'outside_scope' ? null : tipoLegacy,
       scope,
-      confidence,
+      confidence: typeConfidence,
       type_confidence: typeConfidence,
-      field_confidence: fieldConfidence,
+      field_confidence: fieldConfidenceMap(canonical),
       extraction_quality: extractionQuality,
       missingFields,
-      data: {
-        voo: {
-          numero: strOrNull(voo.numero),
-          companhia: strOrNull(voo.companhia),
-          origem: strOrNull(voo.origem),
-          destino: strOrNull(voo.destino),
-          data: normalizeDateLike(voo.data),
-          status: sanitizeStatus(voo.status),
-          valor: numOrNull(voo.valor),
-          moeda: strOrNull(voo.moeda),
-        },
-        hospedagem: {
-          nome: strOrNull(hospedagem.nome),
-          localizacao: strOrNull(hospedagem.localizacao),
-          check_in: normalizeDateLike(hospedagem.check_in),
-          check_out: normalizeDateLike(hospedagem.check_out),
-          status: sanitizeStatus(hospedagem.status),
-          valor: numOrNull(hospedagem.valor),
-          moeda: strOrNull(hospedagem.moeda),
-        },
-        transporte: {
-          tipo: strOrNull(transporte.tipo),
-          operadora: strOrNull(transporte.operadora),
-          origem: strOrNull(transporte.origem),
-          destino: strOrNull(transporte.destino),
-          data: strOrNull(transporte.data),
-          status: sanitizeStatus(transporte.status),
-          valor: numOrNull(transporte.valor),
-          moeda: strOrNull(transporte.moeda),
-        },
-        restaurante: {
-          nome: strOrNull(restaurante.nome),
-          cidade: strOrNull(restaurante.cidade),
-          tipo: strOrNull(restaurante.tipo),
-          rating: numOrNull(restaurante.rating),
-        },
-      },
+      data: toLegacyData(canonical),
+      canonical,
     };
-
-    if (normalized.scope !== 'outside_scope') {
-      const airports = inferAirportCodes(text);
-      const flightDate = inferFlightDate(text);
-      const stayDates = inferStayDates(text);
-      const money = inferMoney(text);
-
-      if (normalized.type === 'voo' && normalized.data.voo) {
-        normalized.data.voo.origem = normalized.data.voo.origem ?? airports.origem;
-        normalized.data.voo.destino = normalized.data.voo.destino ?? airports.destino;
-        normalized.data.voo.data = normalized.data.voo.data ?? flightDate;
-        normalized.data.voo.valor = normalized.data.voo.valor ?? money.valor;
-        normalized.data.voo.moeda = normalized.data.voo.moeda ?? money.moeda;
-      }
-
-      if (normalized.type === 'hospedagem' && normalized.data.hospedagem) {
-        normalized.data.hospedagem.check_in = normalized.data.hospedagem.check_in ?? stayDates.check_in;
-        normalized.data.hospedagem.check_out = normalized.data.hospedagem.check_out ?? stayDates.check_out;
-        normalized.data.hospedagem.valor = normalized.data.hospedagem.valor ?? money.valor;
-        normalized.data.hospedagem.moeda = normalized.data.hospedagem.moeda ?? money.moeda;
-      }
-    }
 
     console.info('[extract-reservation]', requestId, 'success', {
       userId: auth.userId,
       remaining: rate.remaining,
-      usage,
+      tipo: canonical.metadata.tipo,
+      scope,
+      confianca: canonical.metadata.confianca,
+      missing_count: missingFields.length,
       reasoningTokens,
-      type: normalized.type,
-      scope: normalized.scope,
-      confidence: normalized.confidence,
+      usage,
     });
 
-    return successResponse(normalized);
+    return successResponse(responsePayload);
   } catch (error) {
     console.error('[extract-reservation]', requestId, 'unexpected_error', error);
     return errorResponse(requestId, 'INTERNAL_ERROR', 'Erro inesperado na extração.', 500);

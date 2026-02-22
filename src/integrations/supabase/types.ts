@@ -106,8 +106,14 @@ export type Database = {
         Row: {
           arquivo_url: string | null
           created_at: string
+          extracao_confianca: number | null
+          extracao_payload: Json | null
+          extracao_scope: string | null
+          extracao_tipo: string | null
           id: string
+          importado: boolean
           nome: string
+          origem_importacao: string | null
           tipo: string | null
           updated_at: string
           user_id: string
@@ -116,8 +122,14 @@ export type Database = {
         Insert: {
           arquivo_url?: string | null
           created_at?: string
+          extracao_confianca?: number | null
+          extracao_payload?: Json | null
+          extracao_scope?: string | null
+          extracao_tipo?: string | null
           id?: string
+          importado?: boolean
           nome: string
+          origem_importacao?: string | null
           tipo?: string | null
           updated_at?: string
           user_id: string
@@ -126,8 +138,14 @@ export type Database = {
         Update: {
           arquivo_url?: string | null
           created_at?: string
+          extracao_confianca?: number | null
+          extracao_payload?: Json | null
+          extracao_scope?: string | null
+          extracao_tipo?: string | null
           id?: string
+          importado?: boolean
           nome?: string
+          origem_importacao?: string | null
           tipo?: string | null
           updated_at?: string
           user_id?: string
@@ -148,14 +166,22 @@ export type Database = {
           atracoes_proximas: string | null
           check_in: string | null
           check_out: string | null
+          codigo_reserva: string | null
           como_chegar: string | null
           created_at: string
           dica_ia: string | null
           dica_viagem: string | null
+          hora_fim: string | null
+          hora_inicio: string | null
           id: string
           localizacao: string | null
+          metodo_pagamento: string | null
           moeda: string | null
           nome: string | null
+          nome_exibicao: string | null
+          passageiro_hospede: string | null
+          pontos_utilizados: number | null
+          provedor: string | null
           restaurantes_proximos: string | null
           status: Database["public"]["Enums"]["reserva_status"]
           updated_at: string
@@ -167,14 +193,22 @@ export type Database = {
           atracoes_proximas?: string | null
           check_in?: string | null
           check_out?: string | null
+          codigo_reserva?: string | null
           como_chegar?: string | null
           created_at?: string
           dica_ia?: string | null
           dica_viagem?: string | null
+          hora_fim?: string | null
+          hora_inicio?: string | null
           id?: string
           localizacao?: string | null
+          metodo_pagamento?: string | null
           moeda?: string | null
           nome?: string | null
+          nome_exibicao?: string | null
+          passageiro_hospede?: string | null
+          pontos_utilizados?: number | null
+          provedor?: string | null
           restaurantes_proximos?: string | null
           status?: Database["public"]["Enums"]["reserva_status"]
           updated_at?: string
@@ -186,14 +220,22 @@ export type Database = {
           atracoes_proximas?: string | null
           check_in?: string | null
           check_out?: string | null
+          codigo_reserva?: string | null
           como_chegar?: string | null
           created_at?: string
           dica_ia?: string | null
           dica_viagem?: string | null
+          hora_fim?: string | null
+          hora_inicio?: string | null
           id?: string
           localizacao?: string | null
+          metodo_pagamento?: string | null
           moeda?: string | null
           nome?: string | null
+          nome_exibicao?: string | null
+          passageiro_hospede?: string | null
+          pontos_utilizados?: number | null
+          provedor?: string | null
           restaurantes_proximos?: string | null
           status?: Database["public"]["Enums"]["reserva_status"]
           updated_at?: string
@@ -508,14 +550,22 @@ export type Database = {
       }
       voos: {
         Row: {
+          codigo_reserva: string | null
           companhia: string | null
           created_at: string
           data: string | null
           destino: string | null
+          hora_fim: string | null
+          hora_inicio: string | null
           id: string
+          metodo_pagamento: string | null
           moeda: string | null
+          nome_exibicao: string | null
           numero: string | null
           origem: string | null
+          passageiro_hospede: string | null
+          pontos_utilizados: number | null
+          provedor: string | null
           status: Database["public"]["Enums"]["reserva_status"]
           updated_at: string
           user_id: string
@@ -523,14 +573,22 @@ export type Database = {
           viagem_id: string
         }
         Insert: {
+          codigo_reserva?: string | null
           companhia?: string | null
           created_at?: string
           data?: string | null
           destino?: string | null
+          hora_fim?: string | null
+          hora_inicio?: string | null
           id?: string
+          metodo_pagamento?: string | null
           moeda?: string | null
+          nome_exibicao?: string | null
           numero?: string | null
           origem?: string | null
+          passageiro_hospede?: string | null
+          pontos_utilizados?: number | null
+          provedor?: string | null
           status?: Database["public"]["Enums"]["reserva_status"]
           updated_at?: string
           user_id: string
@@ -538,14 +596,22 @@ export type Database = {
           viagem_id: string
         }
         Update: {
+          codigo_reserva?: string | null
           companhia?: string | null
           created_at?: string
           data?: string | null
           destino?: string | null
+          hora_fim?: string | null
+          hora_inicio?: string | null
           id?: string
+          metodo_pagamento?: string | null
           moeda?: string | null
+          nome_exibicao?: string | null
           numero?: string | null
           origem?: string | null
+          passageiro_hospede?: string | null
+          pontos_utilizados?: number | null
+          provedor?: string | null
           status?: Database["public"]["Enums"]["reserva_status"]
           updated_at?: string
           user_id?: string

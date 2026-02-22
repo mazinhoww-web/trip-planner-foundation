@@ -41,6 +41,16 @@ export function ImportConfirmationCard({
 
   const review = activeItem.reviewState;
   const scopeOutside = activeItem.scope === 'outside_scope';
+  const flightDateLabel = review?.voo.data_inicio ? `${review.voo.data_inicio}${review.voo.hora_inicio ? ` ${review.voo.hora_inicio}` : ''}` : 'Data não identificada';
+  const stayDateLabel = review?.hospedagem.check_in
+    ? `${review.hospedagem.check_in}${review.hospedagem.hora_inicio ? ` ${review.hospedagem.hora_inicio}` : ''}`
+    : 'Check-in ?';
+  const stayEndDateLabel = review?.hospedagem.check_out
+    ? `${review.hospedagem.check_out}${review.hospedagem.hora_fim ? ` ${review.hospedagem.hora_fim}` : ''}`
+    : 'Check-out ?';
+  const transportDateLabel = review?.transporte.data_inicio
+    ? `${review.transporte.data_inicio}${review.transporte.hora_inicio ? ` ${review.transporte.hora_inicio}` : ''}`
+    : 'Data não identificada';
 
   return (
     <Card className="border-primary/30 bg-primary/5">
@@ -64,25 +74,25 @@ export function ImportConfirmationCard({
           </div>
         ) : review?.type === 'voo' ? (
           <div className="rounded-lg border bg-background p-3 text-sm">
-            <p className="font-semibold">{review.voo.numero || 'Voo sem número'} · {review.voo.companhia || 'Companhia não identificada'}</p>
+            <p className="font-semibold">{review.voo.nome_exibicao || review.voo.numero || 'Voo sem número'} · {review.voo.companhia || review.voo.provedor || 'Companhia não identificada'}</p>
             <p className="text-muted-foreground">{review.voo.origem || 'Origem'} → {review.voo.destino || 'Destino'}</p>
-            <p className="text-muted-foreground">{review.voo.data || 'Data não identificada'}</p>
+            <p className="text-muted-foreground">{flightDateLabel}</p>
             <p className="mt-1 font-medium">{formatCurrency(review.voo.valor ? Number(review.voo.valor) : null, review.voo.moeda || 'BRL')}</p>
           </div>
         ) : review?.type === 'hospedagem' ? (
           <div className="rounded-lg border bg-background p-3 text-sm">
-            <p className="font-semibold">{review.hospedagem.nome || 'Hospedagem sem nome'}</p>
+            <p className="font-semibold">{review.hospedagem.nome || review.hospedagem.nome_exibicao || 'Hospedagem sem nome'}</p>
             <p className="text-muted-foreground">{review.hospedagem.localizacao || 'Local não identificado'}</p>
             <p className="text-muted-foreground">
-              {review.hospedagem.check_in || 'Check-in ?'} até {review.hospedagem.check_out || 'Check-out ?'}
+              {stayDateLabel} até {stayEndDateLabel}
             </p>
             <p className="mt-1 font-medium">{formatCurrency(review.hospedagem.valor ? Number(review.hospedagem.valor) : null, review.hospedagem.moeda || 'BRL')}</p>
           </div>
         ) : review?.type === 'transporte' ? (
           <div className="rounded-lg border bg-background p-3 text-sm">
-            <p className="font-semibold">{review.transporte.tipo || 'Transporte'}</p>
+            <p className="font-semibold">{review.transporte.nome_exibicao || review.transporte.tipo || 'Transporte'}</p>
             <p className="text-muted-foreground">{review.transporte.origem || 'Origem'} → {review.transporte.destino || 'Destino'}</p>
-            <p className="text-muted-foreground">{review.transporte.data || 'Data não identificada'}</p>
+            <p className="text-muted-foreground">{transportDateLabel}</p>
             <p className="mt-1 font-medium">{formatCurrency(review.transporte.valor ? Number(review.transporte.valor) : null, review.transporte.moeda || 'BRL')}</p>
           </div>
         ) : review?.type === 'restaurante' ? (

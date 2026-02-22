@@ -27,6 +27,7 @@ import { useDocuments, useFlights, useRestaurants, useStays, useTransports } fro
 import { generateStayTips } from '@/services/ai';
 import { calculateStayCoverageGaps, calculateTransportCoverageGaps } from '@/services/tripInsights';
 import {
+  ArceeExtractionPayload,
   ExtractedReservation,
   ImportType,
   extractReservationStructured,
@@ -51,6 +52,30 @@ function toDateTimeInput(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   return date.toISOString().slice(0, 16);
+}
+
+function toTimeInput(value?: string | null) {
+  if (!value) return '';
+  const match = value.match(/^([01]\d|2[0-3]):([0-5]\d)/);
+  if (match) return `${match[1]}:${match[2]}`;
+  return '';
+}
+
+function toIsoDateTime(date?: string | null, time?: string | null) {
+  const normalizedDate = toDateInput(date);
+  if (!normalizedDate) return null;
+  const normalizedTime = toTimeInput(time) || '00:00';
+  return new Date(`${normalizedDate}T${normalizedTime}:00`).toISOString();
+}
+
+function mapCanonicalTypeToImportType(tipo?: string | null): ImportType | null {
+  if (!tipo) return null;
+  const normalized = tipo.toLowerCase();
+  if (normalized === 'voo') return 'voo';
+  if (normalized === 'hospedagem') return 'hospedagem';
+  if (normalized === 'transporte') return 'transporte';
+  if (normalized === 'restaurante') return 'restaurante';
+  return null;
 }
 
 function filledCount(values: Array<string | number | null | undefined>) {
@@ -193,6 +218,38 @@ function inferFallbackExtraction(raw: string, fileName: string, tripDestination?
           : null;
 
   const cleanedName = fileName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').trim();
+  const canonicalType = type === 'voo' ? 'Voo' : type === 'hospedagem' ? 'Hospedagem' : type === 'transporte' ? 'Transporte' : 'Restaurante';
+  const canonical: ArceeExtractionPayload = {
+    metadata: {
+      tipo: canonicalType,
+      confianca: 45,
+      status: 'Pendente',
+    },
+    dados_principais: {
+      nome_exibicao: cleanedName || null,
+      provedor: airline,
+      codigo_reserva: flightNumber && /^[A-Z0-9]{6}$/i.test(flightNumber) ? flightNumber.toUpperCase() : null,
+      passageiro_hospede: null,
+      data_inicio: type === 'hospedagem' ? checkIn : inferredDate,
+      hora_inicio: null,
+      data_fim: type === 'hospedagem' ? checkOut : null,
+      hora_fim: null,
+      origem,
+      destino: type === 'hospedagem' ? tripDestination ?? null : destino,
+    },
+    financeiro: {
+      valor_total: Number.isFinite(amount as number) ? amount : null,
+      moeda: currency || 'BRL',
+      metodo: null,
+      pontos_utilizados: null,
+    },
+    enriquecimento_ia: {
+      dica_viagem: tripDestination ? `Considere horários fora de pico para deslocamentos em ${tripDestination}.` : null,
+      como_chegar: tripDestination ? `Use transporte público ou app de mobilidade até ${tripDestination}.` : null,
+      atracoes_proximas: tripDestination ? `Pesquise atrações centrais e parques em ${tripDestination}.` : null,
+      restaurantes_proximos: tripDestination ? `Experimente culinária local em ${tripDestination}.` : null,
+    },
+  };
 
   return {
     type,
@@ -202,6 +259,7 @@ function inferFallbackExtraction(raw: string, fileName: string, tripDestination?
     field_confidence: {},
     extraction_quality: raw.trim().length > 80 ? 'medium' : 'low',
     missingFields: ['review_manual_requerida'],
+    canonical,
     data: {
       voo:
         type === 'voo'
@@ -255,40 +313,102 @@ function inferFallbackExtraction(raw: string, fileName: string, tripDestination?
 }
 
 function toReviewState(extracted: ExtractedReservation, resolvedType: ImportType): ReviewState {
+  const canonical = extracted.canonical;
+  const tipoFromCanonical = mapCanonicalTypeToImportType(canonical?.metadata?.tipo);
+  const finalType = tipoFromCanonical ?? resolvedType;
+  const startDate = canonical?.dados_principais?.data_inicio ?? null;
+  const endDate = canonical?.dados_principais?.data_fim ?? null;
+  const startTime = canonical?.dados_principais?.hora_inicio ?? null;
+  const endTime = canonical?.dados_principais?.hora_fim ?? null;
+  const provider = canonical?.dados_principais?.provedor ?? '';
+  const displayName = canonical?.dados_principais?.nome_exibicao ?? '';
+  const reservationCode = canonical?.dados_principais?.codigo_reserva ?? '';
+  const guestName = canonical?.dados_principais?.passageiro_hospede ?? '';
+  const paymentMethod = canonical?.financeiro?.metodo ?? '';
+  const pointsUsed = canonical?.financeiro?.pontos_utilizados != null ? String(canonical.financeiro.pontos_utilizados) : '';
+  const financeiroMoeda = canonical?.financeiro?.moeda ?? null;
+  const financeiroValor = canonical?.financeiro?.valor_total;
+
   return {
-    type: resolvedType,
+    type: finalType,
     voo: {
+      nome_exibicao: displayName,
+      provedor: provider,
+      codigo_reserva: reservationCode,
+      passageiro_hospede: guestName,
       numero: extracted.data.voo?.numero ?? '',
-      companhia: extracted.data.voo?.companhia ?? '',
-      origem: extracted.data.voo?.origem ?? '',
-      destino: extracted.data.voo?.destino ?? '',
-      data: toDateTimeInput(extracted.data.voo?.data),
+      companhia: extracted.data.voo?.companhia ?? provider,
+      origem: extracted.data.voo?.origem ?? canonical?.dados_principais?.origem ?? '',
+      destino: extracted.data.voo?.destino ?? canonical?.dados_principais?.destino ?? '',
+      data_inicio: toDateInput(startDate ?? extracted.data.voo?.data ?? null),
+      hora_inicio: toTimeInput(startTime),
+      data_fim: toDateInput(endDate),
+      hora_fim: toTimeInput(endTime),
       status: extracted.data.voo?.status ?? 'pendente',
-      valor: extracted.data.voo?.valor != null ? String(extracted.data.voo.valor) : '',
-      moeda: extracted.data.voo?.moeda ?? 'BRL',
+      valor:
+        extracted.data.voo?.valor != null
+          ? String(extracted.data.voo.valor)
+          : financeiroValor != null
+            ? String(financeiroValor)
+            : '',
+      moeda: extracted.data.voo?.moeda ?? financeiroMoeda ?? 'BRL',
+      metodo_pagamento: paymentMethod,
+      pontos_utilizados: pointsUsed,
     },
     hospedagem: {
-      nome: extracted.data.hospedagem?.nome ?? '',
-      localizacao: extracted.data.hospedagem?.localizacao ?? '',
-      check_in: toDateInput(extracted.data.hospedagem?.check_in),
-      check_out: toDateInput(extracted.data.hospedagem?.check_out),
+      nome_exibicao: displayName,
+      provedor: provider,
+      codigo_reserva: reservationCode,
+      passageiro_hospede: guestName,
+      nome: extracted.data.hospedagem?.nome ?? displayName,
+      localizacao: extracted.data.hospedagem?.localizacao ?? canonical?.dados_principais?.destino ?? '',
+      check_in: toDateInput(startDate ?? extracted.data.hospedagem?.check_in ?? null),
+      hora_inicio: toTimeInput(startTime),
+      check_out: toDateInput(endDate ?? extracted.data.hospedagem?.check_out ?? null),
+      hora_fim: toTimeInput(endTime),
       status: extracted.data.hospedagem?.status ?? 'pendente',
-      valor: extracted.data.hospedagem?.valor != null ? String(extracted.data.hospedagem.valor) : '',
-      moeda: extracted.data.hospedagem?.moeda ?? 'BRL',
+      valor:
+        extracted.data.hospedagem?.valor != null
+          ? String(extracted.data.hospedagem.valor)
+          : financeiroValor != null
+            ? String(financeiroValor)
+            : '',
+      moeda: extracted.data.hospedagem?.moeda ?? financeiroMoeda ?? 'BRL',
+      metodo_pagamento: paymentMethod,
+      pontos_utilizados: pointsUsed,
+      dica_viagem: canonical?.enriquecimento_ia?.dica_viagem ?? '',
+      como_chegar: canonical?.enriquecimento_ia?.como_chegar ?? '',
+      atracoes_proximas: canonical?.enriquecimento_ia?.atracoes_proximas ?? '',
+      restaurantes_proximos: canonical?.enriquecimento_ia?.restaurantes_proximos ?? '',
+      dica_ia: canonical?.enriquecimento_ia?.dica_viagem ?? '',
     },
     transporte: {
-      tipo: extracted.data.transporte?.tipo ?? '',
-      operadora: extracted.data.transporte?.operadora ?? '',
-      origem: extracted.data.transporte?.origem ?? '',
-      destino: extracted.data.transporte?.destino ?? '',
-      data: toDateTimeInput(extracted.data.transporte?.data),
+      nome_exibicao: displayName,
+      provedor: provider,
+      codigo_reserva: reservationCode,
+      passageiro_hospede: guestName,
+      tipo: extracted.data.transporte?.tipo ?? displayName,
+      operadora: extracted.data.transporte?.operadora ?? provider,
+      origem: extracted.data.transporte?.origem ?? canonical?.dados_principais?.origem ?? '',
+      destino: extracted.data.transporte?.destino ?? canonical?.dados_principais?.destino ?? '',
+      data_inicio: toDateInput(startDate ?? extracted.data.transporte?.data ?? null),
+      hora_inicio: toTimeInput(startTime),
+      data_fim: toDateInput(endDate),
+      hora_fim: toTimeInput(endTime),
       status: extracted.data.transporte?.status ?? 'pendente',
-      valor: extracted.data.transporte?.valor != null ? String(extracted.data.transporte.valor) : '',
-      moeda: extracted.data.transporte?.moeda ?? 'BRL',
+      valor:
+        extracted.data.transporte?.valor != null
+          ? String(extracted.data.transporte.valor)
+          : financeiroValor != null
+            ? String(financeiroValor)
+            : '',
+      moeda: extracted.data.transporte?.moeda ?? financeiroMoeda ?? 'BRL',
+      metodo_pagamento: paymentMethod,
+      pontos_utilizados: pointsUsed,
     },
     restaurante: {
-      nome: extracted.data.restaurante?.nome ?? '',
-      cidade: extracted.data.restaurante?.cidade ?? '',
+      nome: extracted.data.restaurante?.nome ?? displayName,
+      cidade: extracted.data.restaurante?.cidade ?? canonical?.dados_principais?.destino ?? '',
       tipo: extracted.data.restaurante?.tipo ?? '',
       rating: extracted.data.restaurante?.rating != null ? String(extracted.data.restaurante.rating) : '',
     },
@@ -406,6 +526,7 @@ function makeQueueItem(file: File): ImportQueueItem {
     reviewState: null,
     rawText: '',
     summary: null,
+    canonical: null,
     hotelPhotos: [],
     photoIndex: 0,
     documentId: null,
@@ -500,6 +621,7 @@ export function ImportReservationDialog() {
       reviewState: null,
       rawText: '',
       summary: null,
+      canonical: null,
       hotelPhotos: [],
       photoIndex: 0,
       documentId: null,
@@ -566,7 +688,10 @@ export function ImportReservationDialog() {
       const resolvedType = resolveImportType(extracted, extractedText, file.name);
       const review = resolvedScope === 'trip_related' ? toReviewState(extracted, resolvedType) : null;
       const quality = extracted.extraction_quality ?? (extractedText.length > 500 ? 'high' : extractedText.length > 120 ? 'medium' : 'low');
-      const typeConfidence = extracted.type_confidence ?? extracted.confidence ?? 0;
+      const typeConfidenceFromCanonical = extracted.canonical?.metadata?.confianca != null
+        ? Math.max(0, Math.min(1, Number(extracted.canonical.metadata.confianca) / 100))
+        : null;
+      const typeConfidence = typeConfidenceFromCanonical ?? extracted.type_confidence ?? extracted.confidence ?? 0;
       const needsUserConfirmation = true;
 
       setItem(itemId, (current) => ({
@@ -581,6 +706,7 @@ export function ImportReservationDialog() {
         identifiedType: resolvedScope === 'trip_related' ? resolvedType : null,
         needsUserConfirmation,
         reviewState: review,
+        canonical: extracted.canonical ?? null,
         rawText: extractedText,
         visualSteps: {
           ...current.visualSteps,
@@ -648,6 +774,10 @@ export function ImportReservationDialog() {
       let flightsAfter = [...flightsModule.data];
       let staysAfter = [...staysModule.data];
       let transportsAfter = [...transportsModule.data];
+      const canonical = activeItem.canonical;
+      const canonicalType = canonical?.metadata?.tipo?.toLowerCase() ?? null;
+      const canonicalConfidence = canonical?.metadata?.confianca ?? null;
+      const extractionScope = activeItem.scope;
 
       let title = 'Reserva importada';
       let subtitle = 'Dados salvos com sucesso';
@@ -664,6 +794,12 @@ export function ImportReservationDialog() {
               id: activeItem.documentId,
               updates: {
                 tipo: 'fora_escopo',
+                extracao_tipo: null,
+                extracao_confianca: canonicalConfidence ?? Math.round((activeItem.typeConfidence ?? activeItem.confidence ?? 0) * 100),
+                extracao_scope: 'outside_scope',
+                extracao_payload: canonical ?? null,
+                origem_importacao: 'arquivo',
+                importado: true,
               },
             });
           } catch (docUpdateError) {
@@ -677,19 +813,27 @@ export function ImportReservationDialog() {
         setItemStep(activeItem.id, 'tips', 'skipped');
       } else if (reviewState?.type === 'voo') {
         const payload: Omit<TablesInsert<'voos'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
+          nome_exibicao: reviewState.voo.nome_exibicao || null,
+          provedor: reviewState.voo.provedor || reviewState.voo.companhia || null,
+          codigo_reserva: reviewState.voo.codigo_reserva || null,
+          passageiro_hospede: reviewState.voo.passageiro_hospede || null,
           numero: reviewState.voo.numero || null,
           companhia: reviewState.voo.companhia || null,
           origem: reviewState.voo.origem || null,
           destino: reviewState.voo.destino || null,
-          data: reviewState.voo.data ? new Date(reviewState.voo.data).toISOString() : null,
+          data: toIsoDateTime(reviewState.voo.data_inicio, reviewState.voo.hora_inicio),
+          hora_inicio: toTimeInput(reviewState.voo.hora_inicio) || null,
+          hora_fim: toTimeInput(reviewState.voo.hora_fim) || null,
           status: reviewState.voo.status,
           valor: reviewState.voo.valor ? Number(reviewState.voo.valor) : null,
           moeda: reviewState.voo.moeda || 'BRL',
+          metodo_pagamento: reviewState.voo.metodo_pagamento || null,
+          pontos_utilizados: reviewState.voo.pontos_utilizados ? Number(reviewState.voo.pontos_utilizados) : null,
         };
         const created = await flightsModule.create(payload);
         if (created) flightsAfter = [created, ...flightsAfter];
 
-        title = payload.numero || payload.companhia || 'Voo importado';
+        title = payload.nome_exibicao || payload.numero || payload.companhia || 'Voo importado';
         subtitle = `${payload.origem || 'Origem'} → ${payload.destino || 'Destino'}`;
         amount = payload.valor ?? null;
         currency = payload.moeda ?? 'BRL';
@@ -698,19 +842,38 @@ export function ImportReservationDialog() {
       }
 
       if (reviewState?.type === 'hospedagem') {
+        const inferredTips = {
+          dica_viagem: reviewState.hospedagem.dica_viagem || canonical?.enriquecimento_ia?.dica_viagem || null,
+          como_chegar: reviewState.hospedagem.como_chegar || canonical?.enriquecimento_ia?.como_chegar || null,
+          atracoes_proximas: reviewState.hospedagem.atracoes_proximas || canonical?.enriquecimento_ia?.atracoes_proximas || null,
+          restaurantes_proximos: reviewState.hospedagem.restaurantes_proximos || canonical?.enriquecimento_ia?.restaurantes_proximos || null,
+          dica_ia:
+            reviewState.hospedagem.dica_ia ||
+            reviewState.hospedagem.dica_viagem ||
+            canonical?.enriquecimento_ia?.dica_viagem ||
+            null,
+        };
         const payload: Omit<TablesInsert<'hospedagens'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
+          nome_exibicao: reviewState.hospedagem.nome_exibicao || null,
+          provedor: reviewState.hospedagem.provedor || null,
+          codigo_reserva: reviewState.hospedagem.codigo_reserva || null,
+          passageiro_hospede: reviewState.hospedagem.passageiro_hospede || null,
           nome: reviewState.hospedagem.nome || null,
           localizacao: reviewState.hospedagem.localizacao || null,
           check_in: reviewState.hospedagem.check_in || null,
           check_out: reviewState.hospedagem.check_out || null,
+          hora_inicio: toTimeInput(reviewState.hospedagem.hora_inicio) || null,
+          hora_fim: toTimeInput(reviewState.hospedagem.hora_fim) || null,
           status: reviewState.hospedagem.status,
           valor: reviewState.hospedagem.valor ? Number(reviewState.hospedagem.valor) : null,
           moeda: reviewState.hospedagem.moeda || 'BRL',
-          dica_viagem: null,
-          como_chegar: null,
-          atracoes_proximas: null,
-          restaurantes_proximos: null,
-          dica_ia: null,
+          metodo_pagamento: reviewState.hospedagem.metodo_pagamento || null,
+          pontos_utilizados: reviewState.hospedagem.pontos_utilizados ? Number(reviewState.hospedagem.pontos_utilizados) : null,
+          dica_viagem: inferredTips.dica_viagem,
+          como_chegar: inferredTips.como_chegar,
+          atracoes_proximas: inferredTips.atracoes_proximas,
+          restaurantes_proximos: inferredTips.restaurantes_proximos,
+          dica_ia: inferredTips.dica_ia,
         };
 
         const created = await staysModule.create(payload);
@@ -721,37 +884,45 @@ export function ImportReservationDialog() {
           setItemStep(activeItem.id, 'photos', 'completed');
 
           setItemStep(activeItem.id, 'tips', 'in_progress');
-          const tips = await generateStayTips({
-            hotelName: created.nome,
-            location: created.localizacao,
-            checkIn: created.check_in,
-            checkOut: created.check_out,
-            tripDestination: currentTrip?.destino,
-          });
+          const hasAnyTip = !!(
+            inferredTips.dica_viagem ||
+            inferredTips.como_chegar ||
+            inferredTips.atracoes_proximas ||
+            inferredTips.restaurantes_proximos
+          );
+          if (!hasAnyTip) {
+            const tips = await generateStayTips({
+              hotelName: created.nome,
+              location: created.localizacao,
+              checkIn: created.check_in,
+              checkOut: created.check_out,
+              tripDestination: currentTrip?.destino,
+            });
 
-          if (tips.data) {
-            try {
-              await staysModule.update({ id: created.id, updates: tips.data });
-              staysAfter = [{ ...created, ...tips.data }, ...staysAfter.filter((entry) => entry.id !== created.id)];
-            } catch (tipError) {
-              console.error('[import][stay_tips_update_failed]', tipError);
+            if (tips.data) {
+              try {
+                await staysModule.update({ id: created.id, updates: tips.data });
+                staysAfter = [{ ...created, ...tips.data }, ...staysAfter.filter((entry) => entry.id !== created.id)];
+              } catch (tipError) {
+                console.error('[import][stay_tips_update_failed]', tipError);
+                setItem(activeItem.id, (item) => ({
+                  ...item,
+                  warnings: item.warnings.concat('Reserva salva, mas as dicas IA não puderam ser persistidas agora.'),
+                }));
+              }
+            }
+
+            if (tips.fromFallback) {
               setItem(activeItem.id, (item) => ({
                 ...item,
-                warnings: item.warnings.concat('Reserva salva, mas as dicas IA não puderam ser persistidas agora.'),
+                warnings: item.warnings.concat('Dicas de hospedagem em modo fallback; revise antes da viagem.'),
               }));
             }
-          }
-
-          if (tips.fromFallback) {
-            setItem(activeItem.id, (item) => ({
-              ...item,
-              warnings: item.warnings.concat('Dicas de hospedagem em modo fallback; revise antes da viagem.'),
-            }));
           }
           setItemStep(activeItem.id, 'tips', 'completed');
         }
 
-        title = payload.nome || 'Hospedagem importada';
+        title = payload.nome_exibicao || payload.nome || 'Hospedagem importada';
         subtitle = `${payload.localizacao || 'Local não informado'} · ${payload.check_in || 'sem check-in'} a ${payload.check_out || 'sem check-out'}`;
         amount = payload.valor ?? null;
         currency = payload.moeda ?? 'BRL';
@@ -765,7 +936,7 @@ export function ImportReservationDialog() {
           operadora: reviewState.transporte.operadora || null,
           origem: reviewState.transporte.origem || null,
           destino: reviewState.transporte.destino || null,
-          data: reviewState.transporte.data ? new Date(reviewState.transporte.data).toISOString() : null,
+          data: toIsoDateTime(reviewState.transporte.data_inicio, reviewState.transporte.hora_inicio),
           status: reviewState.transporte.status,
           valor: reviewState.transporte.valor ? Number(reviewState.transporte.valor) : null,
           moeda: reviewState.transporte.moeda || 'BRL',
@@ -796,6 +967,29 @@ export function ImportReservationDialog() {
         subtitle = `${payload.cidade || 'Cidade não informada'} · ${payload.tipo || 'Tipo não informado'}`;
         setItemStep(activeItem.id, 'photos', 'skipped');
         setItemStep(activeItem.id, 'tips', 'skipped');
+      }
+
+      if (activeItem.documentId) {
+        try {
+          await documentsModule.update({
+            id: activeItem.documentId,
+            updates: {
+              tipo: reviewState?.type ?? activeItem.identifiedType ?? (canonicalType as string | null),
+              extracao_tipo: reviewState?.type ?? activeItem.identifiedType ?? (canonicalType as string | null),
+              extracao_confianca: canonicalConfidence ?? Math.round((activeItem.typeConfidence ?? activeItem.confidence ?? 0) * 100),
+              extracao_scope: extractionScope,
+              extracao_payload: canonical ?? null,
+              origem_importacao: 'arquivo',
+              importado: true,
+            },
+          });
+        } catch (docUpdateError) {
+          console.error('[import][document_update_failed]', docUpdateError);
+          setItem(activeItem.id, (item) => ({
+            ...item,
+            warnings: item.warnings.concat('A reserva foi salva, mas não foi possível atualizar o documento de importação.'),
+          }));
+        }
       }
 
       setItemStep(activeItem.id, 'saving', 'completed');
