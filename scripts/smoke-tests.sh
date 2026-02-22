@@ -142,6 +142,88 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
   else
     fail "extract-reservation autenticado falhou ($code)"
   fi
+
+  # Classificação por tipo (voo/hospedagem/restaurante)
+  run_extract_type_check() {
+    local sample_name="$1"
+    local sample_text="$2"
+    local expected_type="$3"
+    local body="$tmp_dir/ext-${expected_type}.b"
+
+    code="$(http_code POST "$SUPABASE_URL/functions/v1/extract-reservation" "$tmp_dir/ext-${expected_type}.h" "$body" \
+      -H "apikey: $SUPABASE_ANON_KEY" \
+      -H "Authorization: Bearer $TEST_USER_JWT" \
+      -H "Content-Type: application/json" \
+      --data "{\"fileName\":\"$sample_name\",\"text\":\"$sample_text\"}")"
+
+    if [ "$code" = "200" ]; then
+      if grep -q "\"type\":\"$expected_type\"" "$body"; then
+        pass "extract-reservation classifica $expected_type corretamente"
+      else
+        warn "extract-reservation respondeu 200 mas sem type=$expected_type"
+      fi
+    elif [[ "$code" =~ ^(429|502)$ ]]; then
+      warn "extract-reservation indisponível para validação de type=$expected_type ($code)"
+    else
+      fail "extract-reservation falhou no cenário $expected_type ($code)"
+    fi
+  }
+
+  run_extract_type_check "latam-comprovante.pdf" "LATAM LA3303 São Paulo para Florianópolis voo confirmado" "voo"
+  run_extract_type_check "airbnb-recibo.pdf" "Airbnb recibo check-in 2026-04-03 checkout 2026-04-05 Grindelwald" "hospedagem"
+  run_extract_type_check "reserva-restaurante.pdf" "Reserva de restaurante para 2 pessoas no Weisses Rössli em Zurich" "restaurante"
+
+  # CRUD mínimo autenticado (opcional com TEST_TRIP_ID)
+  if [ -n "${TEST_TRIP_ID:-}" ] && [ -n "${TEST_USER_ID:-}" ]; then
+    echo "Executando CRUD básico com TEST_TRIP_ID..."
+
+    create_and_delete_row() {
+      local table="$1"
+      local payload="$2"
+      local create_body="$tmp_dir/create-${table}.b"
+      local created_id=""
+
+      code="$(http_code POST "$SUPABASE_URL/rest/v1/$table" "$tmp_dir/create-${table}.h" "$create_body" \
+        -H "apikey: $SUPABASE_ANON_KEY" \
+        -H "Authorization: Bearer $TEST_USER_JWT" \
+        -H "Content-Type: application/json" \
+        -H "Prefer: return=representation" \
+        --data "$payload")"
+
+      if [ "$code" != "201" ] && [ "$code" != "200" ]; then
+        fail "CRUD create em $table falhou ($code)"
+        return
+      fi
+
+      created_id="$(sed -n 's/.*\"id\":\"\\([^\"]*\\)\".*/\\1/p' "$create_body" | head -n 1)"
+      if [ -z "$created_id" ]; then
+        fail "CRUD create em $table sem id retornado"
+        return
+      fi
+      pass "CRUD create em $table OK"
+
+      code="$(http_code DELETE "$SUPABASE_URL/rest/v1/$table?id=eq.$created_id" "$tmp_dir/delete-${table}.h" "$tmp_dir/delete-${table}.b" \
+        -H "apikey: $SUPABASE_ANON_KEY" \
+        -H "Authorization: Bearer $TEST_USER_JWT")"
+
+      if [ "$code" = "204" ] || [ "$code" = "200" ]; then
+        pass "CRUD delete em $table OK"
+      else
+        fail "CRUD delete em $table falhou ($code)"
+      fi
+    }
+
+    create_and_delete_row "voos" "{\"viagem_id\":\"$TEST_TRIP_ID\",\"numero\":\"SMOKE123\",\"companhia\":\"Smoke\",\"origem\":\"GRU\",\"destino\":\"REC\",\"status\":\"pendente\",\"user_id\":\"$TEST_USER_ID\"}"
+    create_and_delete_row "hospedagens" "{\"viagem_id\":\"$TEST_TRIP_ID\",\"nome\":\"Smoke Hotel\",\"localizacao\":\"São Paulo\",\"status\":\"pendente\",\"user_id\":\"$TEST_USER_ID\"}"
+    create_and_delete_row "transportes" "{\"viagem_id\":\"$TEST_TRIP_ID\",\"tipo\":\"Trem\",\"origem\":\"Zurich\",\"destino\":\"Lucerna\",\"status\":\"pendente\",\"user_id\":\"$TEST_USER_ID\"}"
+    create_and_delete_row "despesas" "{\"viagem_id\":\"$TEST_TRIP_ID\",\"titulo\":\"Smoke expense\",\"valor\":10,\"moeda\":\"BRL\",\"categoria\":\"teste\",\"user_id\":\"$TEST_USER_ID\"}"
+    create_and_delete_row "tarefas" "{\"viagem_id\":\"$TEST_TRIP_ID\",\"titulo\":\"Smoke task\",\"prioridade\":\"media\",\"concluida\":false,\"user_id\":\"$TEST_USER_ID\"}"
+    create_and_delete_row "restaurantes" "{\"viagem_id\":\"$TEST_TRIP_ID\",\"nome\":\"Smoke restaurant\",\"salvo\":true,\"user_id\":\"$TEST_USER_ID\"}"
+  elif [ -n "${TEST_TRIP_ID:-}" ] && [ -z "${TEST_USER_ID:-}" ]; then
+    warn "TEST_USER_ID ausente: CRUD autenticado foi pulado"
+  else
+    warn "TEST_TRIP_ID ausente: CRUD autenticado foi pulado"
+  fi
 else
   warn "TEST_USER_JWT ausente: smoke autenticado foi pulado"
 fi

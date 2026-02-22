@@ -2,6 +2,7 @@ import { Suspense, lazy, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTrip } from '@/hooks/useTrip';
 import { useTripSummary } from '@/hooks/useModuleData';
+import { ConfirmActionButton } from '@/components/common/ConfirmActionButton';
 import {
   useDocuments,
   useExpenses,
@@ -54,6 +55,18 @@ const statCards = [
   { label: 'Bagagem', icon: Package, key: 'bagagem' },
   { label: 'Viajantes', icon: Users, key: 'viajantes' },
   { label: 'Preparativos', icon: Briefcase, key: 'preparativos' },
+];
+
+const DASHBOARD_TABS: Array<{ key: string; label: string; icon: typeof Plane }> = [
+  { key: 'visao', label: 'Dashboard', icon: TrendingUp },
+  { key: 'voos', label: 'Voos', icon: Plane },
+  { key: 'hospedagens', label: 'Hospedagens', icon: Hotel },
+  { key: 'transportes', label: 'Transportes', icon: Bus },
+  { key: 'tarefas', label: 'Tarefas', icon: ListTodo },
+  { key: 'despesas', label: 'Despesas', icon: DollarSign },
+  { key: 'orcamento', label: 'Orçamento', icon: Wallet },
+  { key: 'gastronomia', label: 'Gastronomia', icon: Utensils },
+  { key: 'apoio', label: 'Apoio', icon: Briefcase },
 ];
 
 type ReservaStatus = 'confirmado' | 'pendente' | 'cancelado';
@@ -684,6 +697,14 @@ export default function Dashboard() {
     luggageModule.error ||
     travelersModule.error ||
     prepModule.error;
+  const dashboardError =
+    flightsModule.error ||
+    staysModule.error ||
+    transportsModule.error ||
+    tasksModule.error ||
+    expensesModule.error ||
+    restaurantsModule.error ||
+    supportError;
 
   const openCreateFlight = () => {
     setEditingFlight(null);
@@ -729,7 +750,6 @@ export default function Dashboard() {
   };
 
   const removeFlight = async (id: string) => {
-    if (!window.confirm('Deseja remover este voo?')) return;
     await flightsModule.remove(id);
     if (selectedFlight?.id === id) setFlightDetailOpen(false);
   };
@@ -792,7 +812,6 @@ export default function Dashboard() {
   };
 
   const removeStay = async (id: string) => {
-    if (!window.confirm('Deseja remover esta hospedagem?')) return;
     await staysModule.remove(id);
     if (selectedStay?.id === id) setStayDetailOpen(false);
   };
@@ -938,7 +957,6 @@ export default function Dashboard() {
   };
 
   const removeTransport = async (id: string) => {
-    if (!window.confirm('Deseja remover este transporte?')) return;
     await transportsModule.remove(id);
     if (selectedTransport?.id === id) setTransportDetailOpen(false);
   };
@@ -965,7 +983,6 @@ export default function Dashboard() {
   };
 
   const removeTask = async (id: string) => {
-    if (!window.confirm('Deseja remover esta tarefa?')) return;
     await tasksModule.remove(id);
   };
 
@@ -984,7 +1001,6 @@ export default function Dashboard() {
   };
 
   const removeExpense = async (id: string) => {
-    if (!window.confirm('Deseja remover esta despesa?')) return;
     await expensesModule.remove(id);
   };
 
@@ -1032,7 +1048,6 @@ export default function Dashboard() {
   };
 
   const removeRestaurant = async (id: string) => {
-    if (!window.confirm('Deseja remover este restaurante?')) return;
     await restaurantsModule.remove(id);
   };
 
@@ -1047,7 +1062,6 @@ export default function Dashboard() {
   };
 
   const removeDocument = async (id: string) => {
-    if (!window.confirm('Deseja remover este documento?')) return;
     await documentsModule.remove(id);
   };
 
@@ -1125,7 +1139,6 @@ export default function Dashboard() {
   };
 
   const removeLuggageItem = async (id: string) => {
-    if (!window.confirm('Deseja remover este item de bagagem?')) return;
     await luggageModule.remove(id);
   };
 
@@ -1140,7 +1153,6 @@ export default function Dashboard() {
   };
 
   const removeTraveler = async (id: string) => {
-    if (!window.confirm('Deseja remover este viajante?')) return;
     await travelersModule.remove(id);
   };
 
@@ -1162,7 +1174,6 @@ export default function Dashboard() {
   };
 
   const removePrepItem = async (id: string) => {
-    if (!window.confirm('Deseja remover este preparativo?')) return;
     await prepModule.remove(id);
   };
 
@@ -1178,14 +1189,17 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-20 border-b border-border/70 bg-card/85 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
+    <div className="min-h-screen bg-gradient-to-b from-background via-slate-50/70 to-slate-100/70">
+      <header className="sticky top-0 z-20 border-b border-border/60 bg-white/88 backdrop-blur-lg">
+        <div className="mx-auto flex max-w-[1220px] items-center justify-between px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
               <Plane className="h-5 w-5" />
             </div>
-            <h1 className="text-xl font-bold font-display">TripPlanner</h1>
+            <div>
+              <h1 className="text-xl font-bold font-display leading-none">TripPlanner</h1>
+              <p className="mt-1 text-xs text-muted-foreground">Planejamento inteligente de viagem</p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             {trips.length > 1 && (
@@ -1209,9 +1223,33 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+      <main className="mx-auto max-w-[1220px] px-4 py-8 sm:px-6">
         {currentTrip ? (
-          <>
+          <div className="grid gap-6 xl:grid-cols-[220px_1fr]">
+            <aside className="hidden xl:block">
+              <div className="tp-surface sticky top-[96px] p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Módulos</p>
+                <div className="mt-3 space-y-1">
+                  {DASHBOARD_TABS.map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setActiveTab(tab.key)}
+                      className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition ${
+                        activeTab === tab.key
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+                      }`}
+                    >
+                      <tab.icon className="h-4 w-4" />
+                      <span>{tab.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </aside>
+
+            <section>
             <TripHero
               name={currentTrip.nome}
               status={currentTrip.status}
@@ -1231,18 +1269,31 @@ export default function Dashboard() {
 
             <TripStatsGrid cards={statCards} counts={counts as Record<string, number> | undefined} isLoading={countsLoading} />
 
+            {dashboardError && (
+              <Card className="mt-6 border-rose-500/30 bg-rose-500/5" role="alert" aria-live="polite">
+                <CardContent className="p-4">
+                  <p className="font-medium text-rose-800">Encontramos um problema ao carregar parte dos dados.</p>
+                  <p className="mt-1 text-sm text-rose-700">
+                    Recarregue a página ou use “Reconciliar dados”. Se persistir, faça login novamente.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
             <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-8">
-              <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-2xl border border-border/70 bg-white/90 p-2 shadow-sm sm:grid-cols-4 xl:grid-cols-9">
-                <TabsTrigger value="visao">Dashboard</TabsTrigger>
-                <TabsTrigger value="voos">Voos</TabsTrigger>
-                <TabsTrigger value="hospedagens">Hospedagens</TabsTrigger>
-                <TabsTrigger value="transportes">Transportes</TabsTrigger>
-                <TabsTrigger value="tarefas">Tarefas</TabsTrigger>
-                <TabsTrigger value="despesas">Despesas</TabsTrigger>
-                <TabsTrigger value="orcamento">Orçamento</TabsTrigger>
-                <TabsTrigger value="gastronomia">Gastronomia</TabsTrigger>
-                <TabsTrigger value="apoio">Apoio</TabsTrigger>
-              </TabsList>
+              <div className="overflow-x-auto pb-1 tp-scroll">
+                <TabsList
+                  className="inline-grid min-w-[860px] h-auto grid-cols-9 gap-2 rounded-2xl border border-border/70 bg-white/90 p-2 shadow-sm"
+                  aria-label="Navegação entre módulos da viagem"
+                >
+                  {DASHBOARD_TABS.map((tab) => (
+                    <TabsTrigger key={tab.key} value={tab.key} className="gap-2 rounded-xl">
+                      <tab.icon className="h-4 w-4" />
+                      {tab.label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </div>
 
               <TabsContent value="visao" className="space-y-4">
                 <div className="grid gap-4 lg:grid-cols-3">
@@ -1315,6 +1366,12 @@ export default function Dashboard() {
                     <Suspense fallback={<div className="h-[320px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
                       <TripOpenMap stays={staysModule.data} transports={transportsModule.data} flights={flightsModule.data} />
                     </Suspense>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      <Badge variant="outline" className="border-emerald-400/60 bg-emerald-50 text-emerald-700">Hospedagens</Badge>
+                      <Badge variant="outline" className="border-sky-400/60 bg-sky-50 text-sky-700">Transportes</Badge>
+                      <Badge variant="outline" className="border-indigo-400/60 bg-indigo-50 text-indigo-700">Voos</Badge>
+                      <span className="self-center">Pins numerados mostram ordem de estadias no roteiro.</span>
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -1472,9 +1529,16 @@ export default function Dashboard() {
                                 <Button variant="outline" size="icon" aria-label="Editar voo" onClick={() => openEditFlight(flight)}>
                                   <Pencil className="h-4 w-4" />
                                 </Button>
-                                <Button variant="outline" size="icon" aria-label="Remover voo" onClick={() => removeFlight(flight.id)} disabled={flightsModule.isRemoving}>
+                                <ConfirmActionButton
+                                  ariaLabel="Remover voo"
+                                  title="Remover voo"
+                                  description="Essa ação remove o voo definitivamente desta viagem."
+                                  confirmLabel="Remover"
+                                  disabled={flightsModule.isRemoving}
+                                  onConfirm={() => removeFlight(flight.id)}
+                                >
                                   <Trash2 className="h-4 w-4" />
-                                </Button>
+                                </ConfirmActionButton>
                               </div>
                             </CardContent>
                           </Card>
@@ -1712,9 +1776,16 @@ export default function Dashboard() {
                                   <Button variant="outline" size="icon" aria-label="Editar hospedagem" onClick={() => openEditStay(stay)}>
                                     <Pencil className="h-4 w-4" />
                                   </Button>
-                                  <Button variant="outline" size="icon" aria-label="Remover hospedagem" onClick={() => removeStay(stay.id)} disabled={staysModule.isRemoving}>
+                                  <ConfirmActionButton
+                                    ariaLabel="Remover hospedagem"
+                                    title="Remover hospedagem"
+                                    description="A hospedagem será removida do roteiro e não poderá ser recuperada."
+                                    confirmLabel="Remover"
+                                    disabled={staysModule.isRemoving}
+                                    onConfirm={() => removeStay(stay.id)}
+                                  >
                                     <Trash2 className="h-4 w-4" />
-                                  </Button>
+                                  </ConfirmActionButton>
                                 </div>
                               </div>
                             </CardContent>
@@ -1846,9 +1917,15 @@ export default function Dashboard() {
                                     >
                                       {downloadingDocumentPath === doc.arquivo_url ? 'Baixando...' : 'Baixar'}
                                     </Button>
-                                    <Button variant="outline" size="icon" aria-label="Remover comprovante" onClick={() => removeDocument(doc.id)}>
+                                    <ConfirmActionButton
+                                      ariaLabel="Remover comprovante"
+                                      title="Remover comprovante"
+                                      description="O comprovante será removido da viagem."
+                                      confirmLabel="Remover"
+                                      onConfirm={() => removeDocument(doc.id)}
+                                    >
                                       <Trash2 className="h-4 w-4" />
-                                    </Button>
+                                    </ConfirmActionButton>
                                   </div>
                                 </div>
                               ))}
@@ -2045,9 +2122,16 @@ export default function Dashboard() {
                                   <Button variant="outline" size="icon" aria-label="Editar transporte" onClick={() => openEditTransport(transport)}>
                                     <Pencil className="h-4 w-4" />
                                   </Button>
-                                  <Button variant="outline" size="icon" aria-label="Remover transporte" onClick={() => removeTransport(transport.id)} disabled={transportsModule.isRemoving}>
+                                  <ConfirmActionButton
+                                    ariaLabel="Remover transporte"
+                                    title="Remover transporte"
+                                    description="Esse trecho de transporte será excluído da timeline."
+                                    confirmLabel="Remover"
+                                    disabled={transportsModule.isRemoving}
+                                    onConfirm={() => removeTransport(transport.id)}
+                                  >
                                     <Trash2 className="h-4 w-4" />
-                                  </Button>
+                                  </ConfirmActionButton>
                                 </div>
                               </CardContent>
                             </Card>
@@ -2220,15 +2304,16 @@ export default function Dashboard() {
                                     </>
                                   )}
                                 </Button>
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  aria-label="Remover tarefa"
-                                  onClick={() => removeTask(task.id)}
+                                <ConfirmActionButton
+                                  ariaLabel="Remover tarefa"
+                                  title="Remover tarefa"
+                                  description="Esta tarefa será removida da lista."
+                                  confirmLabel="Remover"
                                   disabled={tasksModule.isRemoving}
+                                  onConfirm={() => removeTask(task.id)}
                                 >
                                   <Trash2 className="h-4 w-4" />
-                                </Button>
+                                </ConfirmActionButton>
                               </div>
                             </CardContent>
                           </Card>
@@ -2315,15 +2400,16 @@ export default function Dashboard() {
                                 </p>
                                 <p className="text-sm font-semibold">{formatCurrency(expense.valor, expense.moeda ?? 'BRL')}</p>
                               </div>
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                aria-label="Remover despesa"
-                                onClick={() => removeExpense(expense.id)}
+                              <ConfirmActionButton
+                                ariaLabel="Remover despesa"
+                                title="Remover despesa"
+                                description="Essa despesa será removida e os totais serão recalculados."
+                                confirmLabel="Remover"
                                 disabled={expensesModule.isRemoving}
+                                onConfirm={() => removeExpense(expense.id)}
                               >
                                 <Trash2 className="h-4 w-4" />
-                              </Button>
+                              </ConfirmActionButton>
                             </CardContent>
                           </Card>
                         ))}
@@ -2503,9 +2589,16 @@ export default function Dashboard() {
                                   <Heart className={`mr-1 h-4 w-4 ${item.salvo ? 'fill-current' : ''}`} />
                                   {item.salvo ? 'Favorito' : 'Favoritar'}
                                 </Button>
-                                <Button variant="outline" size="icon" aria-label="Remover restaurante" onClick={() => removeRestaurant(item.id)} disabled={restaurantsModule.isRemoving}>
+                                <ConfirmActionButton
+                                  ariaLabel="Remover restaurante"
+                                  title="Remover restaurante"
+                                  description="Esse restaurante será removido dos favoritos da viagem."
+                                  confirmLabel="Remover"
+                                  disabled={restaurantsModule.isRemoving}
+                                  onConfirm={() => removeRestaurant(item.id)}
+                                >
                                   <Trash2 className="h-4 w-4" />
-                                </Button>
+                                </ConfirmActionButton>
                               </div>
                             </CardContent>
                           </Card>
@@ -2565,7 +2658,15 @@ export default function Dashboard() {
                                 >
                                   {downloadingDocumentPath === doc.arquivo_url ? 'Baixando...' : 'Baixar'}
                                 </Button>
-                                <Button variant="outline" size="icon" aria-label="Remover documento" onClick={() => removeDocument(doc.id)}><Trash2 className="h-4 w-4" /></Button>
+                                <ConfirmActionButton
+                                  ariaLabel="Remover documento"
+                                  title="Remover documento"
+                                  description="O documento de apoio será removido da viagem."
+                                  confirmLabel="Remover"
+                                  onConfirm={() => removeDocument(doc.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </ConfirmActionButton>
                               </div>
                             </div>
                           ))}
@@ -2591,7 +2692,15 @@ export default function Dashboard() {
                               <span>{item.item} · {item.quantidade}x</span>
                               <div className="flex gap-1">
                                 <Button variant="outline" size="sm" onClick={() => toggleLuggageChecked(item)}>{item.conferido ? 'Desmarcar' : 'Conferir'}</Button>
-                                <Button variant="outline" size="icon" aria-label="Remover item de bagagem" onClick={() => removeLuggageItem(item.id)}><Trash2 className="h-4 w-4" /></Button>
+                                <ConfirmActionButton
+                                  ariaLabel="Remover item de bagagem"
+                                  title="Remover item de bagagem"
+                                  description="Esse item será removido da checklist de bagagem."
+                                  confirmLabel="Remover"
+                                  onConfirm={() => removeLuggageItem(item.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </ConfirmActionButton>
                               </div>
                             </div>
                           ))}
@@ -2616,7 +2725,15 @@ export default function Dashboard() {
                           ) : travelersModule.data.map((traveler) => (
                             <div key={traveler.id} className="flex items-center justify-between rounded border p-2 text-sm">
                               <span>{traveler.nome}</span>
-                              <Button variant="outline" size="icon" aria-label="Remover viajante" onClick={() => removeTraveler(traveler.id)}><Trash2 className="h-4 w-4" /></Button>
+                              <ConfirmActionButton
+                                ariaLabel="Remover viajante"
+                                title="Remover viajante"
+                                description="Esse viajante será removido da lista da viagem."
+                                confirmLabel="Remover"
+                                onConfirm={() => removeTraveler(traveler.id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </ConfirmActionButton>
                             </div>
                           ))}
                         </div>
@@ -2639,7 +2756,15 @@ export default function Dashboard() {
                               <span className={item.concluido ? 'line-through text-muted-foreground' : ''}>{item.titulo}</span>
                               <div className="flex gap-1">
                                 <Button variant="outline" size="sm" onClick={() => togglePrepDone(item)}>{item.concluido ? 'Reabrir' : 'Concluir'}</Button>
-                                <Button variant="outline" size="icon" aria-label="Remover preparativo" onClick={() => removePrepItem(item.id)}><Trash2 className="h-4 w-4" /></Button>
+                                <ConfirmActionButton
+                                  ariaLabel="Remover preparativo"
+                                  title="Remover preparativo"
+                                  description="Este preparativo será removido da checklist."
+                                  confirmLabel="Remover"
+                                  onConfirm={() => removePrepItem(item.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </ConfirmActionButton>
                               </div>
                             </div>
                           ))}
@@ -2650,7 +2775,8 @@ export default function Dashboard() {
                 )}
               </TabsContent>
             </Tabs>
-          </>
+            </section>
+          </div>
         ) : (
           <div className="text-center py-20">
             <p className="text-muted-foreground">Nenhuma viagem encontrada.</p>

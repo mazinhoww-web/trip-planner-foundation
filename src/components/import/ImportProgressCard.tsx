@@ -17,12 +17,12 @@ export function ImportProgressCard({ activeItem, visualProgress, pipelineStatusT
         <CardTitle className="text-base">Análise do arquivo selecionado</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="rounded-lg border bg-muted/20 px-3 py-2">
+        <div className="rounded-lg border bg-muted/20 px-3 py-2" role="status" aria-live="polite">
           <p className="text-sm font-medium">{activeItem.file.name}</p>
           <p className="text-xs text-muted-foreground">{pipelineStatusText}</p>
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-2" aria-label={`Progresso ${visualProgress}%`}>
           <div className="h-2 overflow-hidden rounded-full bg-muted">
             <div
               className="h-full rounded-full bg-gradient-to-r from-primary via-violet-500 to-fuchsia-500 transition-all duration-500"
