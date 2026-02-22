@@ -1,4 +1,6 @@
 import { corsHeaders } from '../_shared/cors.ts';
+import { errorResponse, successResponse } from '../_shared/http.ts';
+import { consumeRateLimit, requireAuthenticatedUser } from '../_shared/security.ts';
 
 const PROMPT = `Analise este documento de reserva de viagem e extraia somente dados comprovados pelo conteudo.
 
@@ -49,6 +51,8 @@ Retorne SOMENTE JSON no formato:
 }`;
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
+const LIMIT_PER_HOUR = 20;
+const ONE_HOUR_MS = 60 * 60 * 1000;
 
 const allowedType = new Set(['voo', 'hospedagem', 'transporte']);
 const allowedStatus = new Set(['confirmado', 'pendente', 'cancelado']);
@@ -95,12 +99,23 @@ Deno.serve(async (req) => {
   const requestId = crypto.randomUUID();
 
   try {
+    const auth = await requireAuthenticatedUser(req);
+    if (auth.error || !auth.userId) {
+      console.error('[extract-reservation]', requestId, 'unauthorized', auth.error);
+      return errorResponse(requestId, 'UNAUTHORIZED', 'Faça login novamente para usar extração.', 401);
+    }
+
+    const rate = consumeRateLimit(auth.userId, 'extract-reservation', LIMIT_PER_HOUR, ONE_HOUR_MS);
+    if (!rate.allowed) {
+      console.error('[extract-reservation]', requestId, 'rate_limited', { userId: auth.userId });
+      return errorResponse(requestId, 'RATE_LIMITED', 'Limite de extrações atingido. Tente novamente mais tarde.', 429, {
+        resetAt: rate.resetAt,
+      });
+    }
+
     const apiKey = Deno.env.get('OPENAI_API_KEY');
     if (!apiKey) {
-      return new Response(JSON.stringify({ error: 'Integração IA não configurada.' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse(requestId, 'MISCONFIGURED', 'Integração IA não configurada.', 500);
     }
 
     const body = await req.json();
@@ -108,10 +123,7 @@ Deno.serve(async (req) => {
     const fileName = typeof body?.fileName === 'string' ? body.fileName : 'arquivo';
 
     if (!text.trim()) {
-      return new Response(JSON.stringify({ error: 'Texto não informado para extração.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse(requestId, 'BAD_REQUEST', 'Texto não informado para extração.', 400);
     }
 
     const aiResponse = await fetch(OPENAI_URL, {
@@ -124,6 +136,7 @@ Deno.serve(async (req) => {
         model: 'gpt-4o-mini',
         temperature: 0.1,
         max_tokens: 900,
+        response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: PROMPT },
           {
@@ -136,29 +149,21 @@ Deno.serve(async (req) => {
 
     if (!aiResponse.ok) {
       const raw = await aiResponse.text();
-      console.error('[extract-reservation]', requestId, 'openai_error', aiResponse.status, raw.slice(0, 300));
-      return new Response(JSON.stringify({ error: 'Falha na extração IA.' }), {
-        status: 502,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      console.error('[extract-reservation]', requestId, 'openai_error', aiResponse.status, raw.slice(0, 240));
+      return errorResponse(requestId, 'UPSTREAM_ERROR', 'Falha na extração IA.', 502);
     }
 
     const aiJson = await aiResponse.json();
     const content = aiJson?.choices?.[0]?.message?.content;
+    const usage = aiJson?.usage ?? null;
     if (typeof content !== 'string') {
-      return new Response(JSON.stringify({ error: 'Resposta IA vazia.' }), {
-        status: 502,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse(requestId, 'UPSTREAM_ERROR', 'Resposta IA vazia.', 502);
     }
 
     const parsed = extractJson(content);
     if (!parsed) {
-      console.error('[extract-reservation]', requestId, 'invalid_json', content.slice(0, 300));
-      return new Response(JSON.stringify({ error: 'Formato inválido na extração IA.' }), {
-        status: 502,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      console.error('[extract-reservation]', requestId, 'invalid_json', content.slice(0, 200));
+      return errorResponse(requestId, 'UPSTREAM_ERROR', 'Formato inválido na extração IA.', 502);
     }
 
     const typeRaw = strOrNull(parsed.type);
@@ -213,15 +218,17 @@ Deno.serve(async (req) => {
       },
     };
 
-    return new Response(JSON.stringify({ data: normalized }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    console.info('[extract-reservation]', requestId, 'success', {
+      userId: auth.userId,
+      remaining: rate.remaining,
+      usage,
+      type: normalized.type,
+      confidence: normalized.confidence,
     });
+
+    return successResponse(normalized);
   } catch (error) {
     console.error('[extract-reservation]', requestId, 'unexpected_error', error);
-    return new Response(JSON.stringify({ error: 'Erro inesperado na extração.' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return errorResponse(requestId, 'INTERNAL_ERROR', 'Erro inesperado na extração.', 500);
   }
 });

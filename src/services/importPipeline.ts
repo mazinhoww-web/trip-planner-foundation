@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { parseFunctionError } from '@/services/errors';
 
 export type ImportType = 'voo' | 'hospedagem' | 'transporte';
 
@@ -80,10 +81,64 @@ function stripHtml(raw: string) {
     .trim();
 }
 
+function decodePdfTextToken(token: string) {
+  return token
+    .replace(/\\([()\\])/g, '$1')
+    .replace(/\\n/g, ' ')
+    .replace(/\\r/g, ' ')
+    .replace(/\\t/g, ' ')
+    .replace(/\\\d{3}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractPdfTextFromRaw(raw: string) {
+  const parts: string[] = [];
+
+  const simpleMatch = /\(([^()]{2,})\)\s*Tj/g;
+  let current: RegExpExecArray | null = null;
+  while ((current = simpleMatch.exec(raw)) !== null) {
+    const chunk = decodePdfTextToken(current[1]);
+    if (chunk) parts.push(chunk);
+  }
+
+  const arrayMatch = /\[(.*?)\]\s*TJ/gs;
+  while ((current = arrayMatch.exec(raw)) !== null) {
+    const inner = current[1];
+    const tokenMatch = /\(([^()]{2,})\)/g;
+    let token: RegExpExecArray | null = null;
+    while ((token = tokenMatch.exec(inner)) !== null) {
+      const chunk = decodePdfTextToken(token[1]);
+      if (chunk) parts.push(chunk);
+    }
+  }
+
+  const text = parts.join(' ').replace(/\s+/g, ' ').trim();
+  return text.length >= 24 ? text : null;
+}
+
+async function tryExtractNativePdfText(file: File) {
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const raw = new TextDecoder('latin1').decode(bytes);
+    return extractPdfTextFromRaw(raw);
+  } catch {
+    return null;
+  }
+}
+
 export async function tryExtractNativeText(file: File) {
   const ext = extensionFromFile(file);
-  if (!['txt', 'html', 'eml'].includes(ext)) {
+  if (!['txt', 'html', 'eml', 'pdf'].includes(ext)) {
     return { text: null as string | null, method: 'none' as const };
+  }
+
+  if (ext === 'pdf') {
+    const text = await tryExtractNativePdfText(file);
+    return {
+      text,
+      method: text ? ('native_pdf' as const) : ('none' as const),
+    };
   }
 
   const raw = await file.text();
@@ -129,7 +184,11 @@ export async function runOcrDocument(file: File) {
   });
 
   if (error) {
-    throw new Error(error.message || 'Falha no OCR.');
+    throw new Error(parseFunctionError(data ?? error, 'Falha no OCR.'));
+  }
+
+  if (data?.error) {
+    throw new Error(parseFunctionError(data, 'Falha no OCR.'));
   }
 
   const text = typeof data?.data?.text === 'string' ? data.data.text.trim() : '';
@@ -152,7 +211,11 @@ export async function extractReservationStructured(text: string, fileName: strin
   });
 
   if (error) {
-    throw new Error(error.message || 'Falha na extração estruturada.');
+    throw new Error(parseFunctionError(data ?? error, 'Falha na extração estruturada.'));
+  }
+
+  if (data?.error) {
+    throw new Error(parseFunctionError(data, 'Falha na extração estruturada.'));
   }
 
   const parsed = data?.data as ExtractedReservation | undefined;

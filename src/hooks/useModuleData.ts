@@ -42,12 +42,23 @@ export function useModuleData<T extends TripScopedTable>(table: T) {
   const query = useQuery({
     queryKey,
     queryFn: async () => {
-      if (!currentTripId) return [];
+      if (!currentTripId || !user) return [];
       const result = await fetchByTrip(table, currentTripId);
       if (result.error) throw new Error(result.error);
-      return result.data ?? [];
+      const rows = result.data ?? [];
+
+      const invalid = rows.find((row) => {
+        const record = row as { user_id?: string; viagem_id?: string };
+        return record.user_id !== user.id || record.viagem_id !== currentTripId;
+      });
+
+      if (invalid) {
+        throw new Error('Falha de isolamento de dados detectada. Recarregue a sessão.');
+      }
+
+      return rows;
     },
-    enabled: !!currentTripId,
+    enabled: !!currentTripId && !!user,
   });
 
   const createMutation = useMutation({

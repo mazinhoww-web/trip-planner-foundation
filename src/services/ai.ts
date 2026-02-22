@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { parseFunctionError } from '@/services/errors';
 
 type StayTipsInput = {
   hotelName?: string | null;
@@ -82,7 +83,11 @@ async function invokeWithSingleRetry<T>(
     });
 
     if (error) {
-      throw new Error(error.message || 'Falha na função remota.');
+      throw new Error(parseFunctionError(data ?? error, 'Falha na função remota.'));
+    }
+
+    if ((data as { error?: unknown } | null)?.error) {
+      throw new Error(parseFunctionError(data, 'Falha na função remota.'));
     }
 
     return data as T;

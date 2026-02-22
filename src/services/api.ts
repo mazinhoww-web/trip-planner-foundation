@@ -49,6 +49,10 @@ export async function fetchByTrip<T extends TripScopedTable>(
   orderBy: string = 'created_at',
   ascending: boolean = false,
 ): Promise<ApiResult<Tables<T>[]>> {
+  if (!viagemId || viagemId === 'current') {
+    return { data: null, error: 'Viagem inválida para leitura.' };
+  }
+
   const { data, error } = await supabase
     .from(table)
     .select('*')
@@ -63,6 +67,11 @@ export async function insertRecord<T extends TripScopedTable>(
   table: T,
   record: Omit<TablesInsert<T>, 'id' | 'created_at' | 'updated_at'>,
 ): Promise<ApiResult<Tables<T>>> {
+  const viagemId = (record as { viagem_id?: string }).viagem_id;
+  if (!viagemId || viagemId === 'current') {
+    return { data: null, error: 'Viagem inválida para gravação.' };
+  }
+
   const { data, error } = await supabase
     .from(table)
     .insert(record as any)

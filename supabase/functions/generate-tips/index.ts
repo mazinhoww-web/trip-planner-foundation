@@ -1,4 +1,6 @@
 import { corsHeaders } from '../_shared/cors.ts';
+import { errorResponse, successResponse } from '../_shared/http.ts';
+import { consumeRateLimit, requireAuthenticatedUser } from '../_shared/security.ts';
 
 type GenerateTipsInput = {
   hotelName?: string | null;
@@ -40,6 +42,8 @@ Regras:
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const MODEL = 'gpt-4o-mini';
+const LIMIT_PER_HOUR = 20;
+const ONE_HOUR_MS = 60 * 60 * 1000;
 
 function truncate(value: string | null | undefined, max = 220) {
   if (!value) return null;
@@ -73,6 +77,18 @@ function sanitizeOutput(value: unknown): GenerateTipsOutput {
   };
 }
 
+function extractJson(content: string) {
+  const start = content.indexOf('{');
+  const end = content.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) return null;
+  const maybe = content.slice(start, end + 1);
+  try {
+    return JSON.parse(maybe) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -81,13 +97,24 @@ Deno.serve(async (req) => {
   const requestId = crypto.randomUUID();
 
   try {
+    const auth = await requireAuthenticatedUser(req);
+    if (auth.error || !auth.userId) {
+      console.error('[generate-tips]', requestId, 'unauthorized', auth.error);
+      return errorResponse(requestId, 'UNAUTHORIZED', 'Faça login novamente para usar dicas de IA.', 401);
+    }
+
+    const rate = consumeRateLimit(auth.userId, 'generate-tips', LIMIT_PER_HOUR, ONE_HOUR_MS);
+    if (!rate.allowed) {
+      console.error('[generate-tips]', requestId, 'rate_limited', { userId: auth.userId });
+      return errorResponse(requestId, 'RATE_LIMITED', 'Limite de uso de IA atingido. Tente novamente mais tarde.', 429, {
+        resetAt: rate.resetAt,
+      });
+    }
+
     const apiKey = Deno.env.get('OPENAI_API_KEY');
     if (!apiKey) {
-      console.error('[generate-tips]', requestId, 'missing OPENAI_API_KEY');
-      return new Response(JSON.stringify({ error: 'Integração de IA não configurada.' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      console.error('[generate-tips]', requestId, 'missing_OPENAI_API_KEY');
+      return errorResponse(requestId, 'MISCONFIGURED', 'Integração de IA não configurada.', 500);
     }
 
     const body = (await req.json()) as GenerateTipsInput;
@@ -99,8 +126,6 @@ Deno.serve(async (req) => {
       tripDestination: truncate(body.tripDestination),
     };
 
-    const promptData = JSON.stringify(payload);
-
     const aiResponse = await fetch(OPENAI_URL, {
       method: 'POST',
       headers: {
@@ -111,55 +136,45 @@ Deno.serve(async (req) => {
         model: MODEL,
         temperature: 0.2,
         max_tokens: 450,
+        response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: PROMPT },
-          { role: 'user', content: `Dados da hospedagem: ${promptData}` },
+          { role: 'user', content: `Dados da hospedagem: ${JSON.stringify(payload)}` },
         ],
       }),
     });
 
     if (!aiResponse.ok) {
       const raw = await aiResponse.text();
-      console.error('[generate-tips]', requestId, 'openai_error', aiResponse.status, raw.slice(0, 300));
-      return new Response(JSON.stringify({ error: 'Falha ao gerar dicas no momento.' }), {
-        status: 502,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      console.error('[generate-tips]', requestId, 'openai_error', aiResponse.status, raw.slice(0, 240));
+      return errorResponse(requestId, 'UPSTREAM_ERROR', 'Falha ao gerar dicas no momento.', 502);
     }
 
     const aiJson = await aiResponse.json();
     const content = aiJson?.choices?.[0]?.message?.content;
+    const usage = aiJson?.usage ?? null;
 
     if (typeof content !== 'string' || !content.trim()) {
       console.error('[generate-tips]', requestId, 'empty_content');
-      return new Response(JSON.stringify({ error: 'Resposta de IA vazia.' }), {
-        status: 502,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse(requestId, 'UPSTREAM_ERROR', 'IA retornou conteúdo vazio.', 502);
     }
 
-    let parsed: unknown = null;
-    try {
-      parsed = JSON.parse(content);
-    } catch (_err) {
-      console.error('[generate-tips]', requestId, 'invalid_json', content.slice(0, 250));
-      return new Response(JSON.stringify({ error: 'Formato inválido retornado pela IA.' }), {
-        status: 502,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    const parsed = extractJson(content);
+    if (!parsed) {
+      console.error('[generate-tips]', requestId, 'invalid_json');
+      return errorResponse(requestId, 'UPSTREAM_ERROR', 'IA retornou formato inválido.', 502);
     }
 
     const data = sanitizeOutput(parsed);
-
-    return new Response(JSON.stringify({ data }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    console.info('[generate-tips]', requestId, 'success', {
+      userId: auth.userId,
+      remaining: rate.remaining,
+      usage,
     });
+
+    return successResponse(data);
   } catch (error) {
     console.error('[generate-tips]', requestId, 'unexpected_error', error);
-    return new Response(JSON.stringify({ error: 'Erro inesperado ao processar IA.' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return errorResponse(requestId, 'INTERNAL_ERROR', 'Erro inesperado ao processar IA.', 500);
   }
 });

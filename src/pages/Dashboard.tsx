@@ -12,12 +12,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Tables, TablesInsert } from '@/integrations/supabase/types';
-import { Plane, Hotel, Bus, ListTodo, DollarSign, LogOut, MapPin, Utensils, Briefcase, Users, FileText, Package, Plus, Pencil, Trash2, Clock3, Route, CheckCircle2, RotateCcw, TrendingUp, TrendingDown, Wallet, RefreshCcw, Heart, CalendarDays } from 'lucide-react';
+import { Plane, Hotel, Bus, ListTodo, DollarSign, LogOut, MapPin, Utensils, Briefcase, Users, FileText, Package, Plus, Pencil, Trash2, Clock3, Route, CheckCircle2, RotateCcw, TrendingUp, TrendingDown, Wallet, RefreshCcw, Heart, CalendarDays, AlertTriangle } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { generateStayTips, suggestRestaurants } from '@/services/ai';
 import { ImportReservationDialog } from '@/components/import/ImportReservationDialog';
+import { TripOpenMap } from '@/components/map/TripOpenMap';
+import { calculateStayCoverageGaps, calculateTransportCoverageGaps } from '@/services/tripInsights';
+import { supabase } from '@/integrations/supabase/client';
 
 const statCards = [
   { label: 'Voos', icon: Plane, key: 'voos' },
@@ -95,6 +98,11 @@ function formatDate(date?: string | null) {
   return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium' }).format(new Date(`${date}T12:00:00`));
 }
 
+function formatDateShort(date?: string | null) {
+  if (!date) return '—';
+  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' }).format(new Date(`${date}T12:00:00`));
+}
+
 function formatCurrency(value?: number | null, currency: string = 'BRL') {
   if (value == null) return 'Valor não informado';
   return new Intl.NumberFormat('pt-BR', {
@@ -102,6 +110,107 @@ function formatCurrency(value?: number | null, currency: string = 'BRL') {
     currency: currency || 'BRL',
     minimumFractionDigits: 2,
   }).format(value);
+}
+
+function normalizeDate(value?: string | null) {
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
+}
+
+function dateDiffInDays(start: string, end: string) {
+  const left = new Date(`${start}T00:00:00Z`).getTime();
+  const right = new Date(`${end}T00:00:00Z`).getTime();
+  return Math.max(0, Math.round((right - left) / (1000 * 60 * 60 * 24)));
+}
+
+function tripCoverImage(destination?: string | null) {
+  const dest = (destination ?? '').toLowerCase();
+  if (dest.includes('suica') || dest.includes('austria') || dest.includes('switz') || dest.includes('alpes')) {
+    return 'https://images.unsplash.com/photo-1508261305438-4dc5f19834f4?auto=format&fit=crop&w=1600&q=80';
+  }
+  if (dest.includes('praia') || dest.includes('ilha')) {
+    return 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1600&q=80';
+  }
+  return 'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?auto=format&fit=crop&w=1600&q=80';
+}
+
+type DayChip = {
+  day: string;
+  label: string;
+  count: number;
+  allConfirmed: boolean;
+};
+
+function buildDayChips<T>(items: T[], getDate: (item: T) => string | null, getStatus: (item: T) => ReservaStatus): DayChip[] {
+  const byDay = new Map<string, { count: number; allConfirmed: boolean }>();
+
+  for (const item of items) {
+    const date = normalizeDate(getDate(item));
+    if (!date) continue;
+
+    const current = byDay.get(date) ?? { count: 0, allConfirmed: true };
+    current.count += 1;
+    if (getStatus(item) !== 'confirmado') {
+      current.allConfirmed = false;
+    }
+    byDay.set(date, current);
+  }
+
+  return Array.from(byDay.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([day, data]) => ({
+      day,
+      label: formatDateShort(day),
+      count: data.count,
+      allConfirmed: data.allConfirmed,
+    }))
+    .slice(0, 6);
+}
+
+function buildTransportInsights(transport: Tables<'transportes'>) {
+  const tips: string[] = [];
+
+  if (transport.tipo?.toLowerCase().includes('trem')) {
+    tips.push('Chegue com 20 minutos de antecedência para embarque tranquilo.');
+    tips.push('Confirme na estação se o trecho possui troca de plataforma/conexão.');
+  } else if (transport.tipo?.toLowerCase().includes('onibus') || transport.tipo?.toLowerCase().includes('bus')) {
+    tips.push('Valide bagagem e ponto de embarque com antecedência.');
+    tips.push('Tenha um plano B para atrasos de trânsito no horário de pico.');
+  } else {
+    tips.push('Revise ponto de encontro e horário de saída com a operadora.');
+  }
+
+  tips.push('Mantenha comprovante digital e offline durante o trajeto.');
+
+  const risk =
+    transport.status === 'confirmado'
+      ? 'Conexão: baixa'
+      : transport.status === 'pendente'
+        ? 'Conexão: moderada'
+        : 'Conexão: cancelada';
+
+  return { tips, risk };
+}
+
+function splitInsightList(value: string | null | undefined, limit: number = 8) {
+  if (!value) return [];
+  return value
+    .split(/\n|;|•/g)
+    .map((item) => item.trim().replace(/^[\-\*]\s*/, ''))
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function stayHighlight(stay: Tables<'hospedagens'>) {
+  return stay.dica_viagem || stay.dica_ia || 'Aproveite tours de trem panorâmico e confirme reservas com antecedência.';
+}
+
+function transportReservationCode(transport: Tables<'transportes'>) {
+  const compact = transport.id.replace(/-/g, '').slice(0, 14).toUpperCase();
+  return compact || 'N/A';
 }
 
 type FlightFormState = {
@@ -297,6 +406,8 @@ export default function Dashboard() {
   const [restaurantForm, setRestaurantForm] = useState<RestaurantFormState>(emptyRestaurant);
   const [supportForms, setSupportForms] = useState<SupportForms>(emptySupportForms);
   const [isReconciling, setIsReconciling] = useState(false);
+  const [openingDocumentPath, setOpeningDocumentPath] = useState<string | null>(null);
+  const [downloadingDocumentPath, setDownloadingDocumentPath] = useState<string | null>(null);
 
   const handleLogout = async () => {
     await signOut();
@@ -427,6 +538,98 @@ export default function Dashboard() {
       .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime())
       .slice(0, 8);
   }, [flightsModule.data, transportsModule.data, staysModule.data]);
+
+  const stayCoverageGaps = useMemo(() => {
+    return calculateStayCoverageGaps(
+      staysModule.data,
+      currentTrip?.data_inicio ?? null,
+      currentTrip?.data_fim ?? null,
+    );
+  }, [currentTrip?.data_fim, currentTrip?.data_inicio, staysModule.data]);
+
+  const transportCoverageGaps = useMemo(() => {
+    return calculateTransportCoverageGaps(staysModule.data, transportsModule.data, flightsModule.data);
+  }, [flightsModule.data, staysModule.data, transportsModule.data]);
+
+  const selectedStayDocuments = useMemo(() => {
+    if (!selectedStay) return [];
+    const tokens = [selectedStay.nome, selectedStay.localizacao]
+      .map((value) => value?.toLowerCase().trim())
+      .filter((value): value is string => !!value);
+    if (tokens.length === 0) return [];
+
+    return documentsModule.data.filter((doc) => {
+      const bag = `${doc.nome} ${doc.arquivo_url || ''}`.toLowerCase();
+      return tokens.some((token) => bag.includes(token));
+    });
+  }, [documentsModule.data, selectedStay]);
+
+  const stayNightsTotal = useMemo(() => {
+    return staysModule.data
+      .filter((stay) => stay.status !== 'cancelado')
+      .reduce((total, stay) => {
+        if (!stay.check_in || !stay.check_out) return total;
+        const start = normalizeDate(stay.check_in);
+        const end = normalizeDate(stay.check_out);
+        if (!start || !end) return total;
+        return total + dateDiffInDays(start, end);
+      }, 0);
+  }, [staysModule.data]);
+
+  const flightDayChips = useMemo(() => {
+    return buildDayChips(flightsFiltered, (flight) => normalizeDate(flight.data), (flight) => flight.status);
+  }, [flightsFiltered]);
+
+  const stayDayChips = useMemo(() => {
+    return buildDayChips(staysFiltered, (stay) => stay.check_in, (stay) => stay.status);
+  }, [staysFiltered]);
+
+  const transportDayChips = useMemo(() => {
+    return buildDayChips(transportFiltered, (transport) => normalizeDate(transport.data), (transport) => transport.status);
+  }, [transportFiltered]);
+
+  const daysUntilTrip = useMemo(() => {
+    const start = normalizeDate(currentTrip?.data_inicio);
+    if (!start) return null;
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    return dateDiffInDays(today, start);
+  }, [currentTrip?.data_inicio]);
+
+  const flightStats = useMemo(() => {
+    const active = flightsFiltered.filter((flight) => flight.status !== 'cancelado');
+    const confirmed = active.filter((flight) => flight.status === 'confirmado').length;
+    const totalCost = active.reduce((sum, flight) => sum + Number(flight.valor ?? 0), 0);
+
+    return {
+      total: flightsFiltered.length,
+      confirmed,
+      totalCost,
+    };
+  }, [flightsFiltered]);
+
+  const stayStats = useMemo(() => {
+    const active = staysFiltered.filter((stay) => stay.status !== 'cancelado');
+    const totalCost = active.reduce((sum, stay) => sum + Number(stay.valor ?? 0), 0);
+    const cities = new Set(active.map((stay) => stay.localizacao?.trim()).filter(Boolean));
+    return {
+      total: staysFiltered.length,
+      active: active.length,
+      totalCost,
+      cities: cities.size,
+    };
+  }, [staysFiltered]);
+
+  const transportStats = useMemo(() => {
+    const active = transportFiltered.filter((transport) => transport.status !== 'cancelado');
+    const confirmed = active.filter((transport) => transport.status === 'confirmado').length;
+    const totalCost = active.reduce((sum, transport) => sum + Number(transport.valor ?? 0), 0);
+    return {
+      total: transportFiltered.length,
+      confirmed,
+      totalCost,
+    };
+  }, [transportFiltered]);
 
   const supportIsLoading =
     documentsModule.isLoading ||
@@ -806,6 +1009,62 @@ export default function Dashboard() {
     await documentsModule.remove(id);
   };
 
+  const resolveDocumentUrl = async (path: string) => {
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+
+    const { data, error } = await supabase.storage.from('imports').createSignedUrl(path, 60 * 15);
+    if (error || !data?.signedUrl) {
+      throw new Error(error?.message || 'Não foi possível abrir o comprovante.');
+    }
+
+    return data.signedUrl;
+  };
+
+  const openSupportDocument = async (path: string | null) => {
+    if (!path) {
+      toast.error('Documento sem caminho disponível.');
+      return;
+    }
+
+    setOpeningDocumentPath(path);
+    try {
+      const url = await resolveDocumentUrl(path);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      console.error('[dashboard][document_open_failure]', { path, error });
+      toast.error(error instanceof Error ? error.message : 'Não foi possível abrir o documento.');
+    } finally {
+      setOpeningDocumentPath((current) => (current === path ? null : current));
+    }
+  };
+
+  const downloadSupportDocument = async (path: string | null, fileName?: string | null) => {
+    if (!path) {
+      toast.error('Documento sem caminho disponível.');
+      return;
+    }
+
+    setDownloadingDocumentPath(path);
+    try {
+      const url = await resolveDocumentUrl(path);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName || 'comprovante';
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error('[dashboard][document_download_failure]', { path, error });
+      toast.error(error instanceof Error ? error.message : 'Não foi possível baixar o documento.');
+    } finally {
+      setDownloadingDocumentPath((current) => (current === path ? null : current));
+    }
+  };
+
   const createLuggageItem = async () => {
     if (!supportForms.bagagemItem.trim()) return;
     await luggageModule.create({
@@ -911,34 +1170,76 @@ export default function Dashboard() {
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
         {currentTrip ? (
           <>
-            <Card className="mb-8 overflow-hidden border-border/50">
-              <div className="bg-gradient-to-r from-primary/10 to-accent/10 p-6 sm:p-8">
-                <div className="flex items-start gap-4">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/20 text-primary">
-                    <MapPin className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-bold font-display">{currentTrip.nome}</h2>
-                    <p className="mt-1 text-muted-foreground">
-                      {currentTrip.destino ?? 'Destino a definir'}
-                      {currentTrip.data_inicio && ` · ${currentTrip.data_inicio}`}
-                      {currentTrip.data_fim && ` a ${currentTrip.data_fim}`}
-                    </p>
-                    <span className="mt-2 inline-block rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary capitalize">
+            <Card className="mb-8 overflow-hidden border-border/60">
+              <div className="relative min-h-[240px]">
+                <img
+                  src={tripCoverImage(currentTrip.destino)}
+                  alt={`Capa da viagem ${currentTrip.nome}`}
+                  className="h-[240px] w-full object-cover"
+                  loading="lazy"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
+
+                <div className="absolute inset-x-0 bottom-0 p-5 text-white sm:p-6">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="rounded-full bg-white/25 px-3 py-1 backdrop-blur">
                       {currentTrip.status.replace('_', ' ')}
                     </span>
+                    {daysUntilTrip != null && (
+                      <span className="rounded-full bg-white/25 px-3 py-1 backdrop-blur">
+                        Em {daysUntilTrip} dias
+                      </span>
+                    )}
                   </div>
+                  <h2 className="mt-2 text-3xl font-bold font-display">{currentTrip.nome}</h2>
+                  <p className="mt-1 text-sm text-white/85">
+                    <MapPin className="mr-1 inline h-4 w-4" />
+                    {currentTrip.destino ?? 'Destino a definir'}
+                    {currentTrip.data_inicio && ` · ${formatDate(currentTrip.data_inicio)}`}
+                    {currentTrip.data_fim && ` - ${formatDate(currentTrip.data_fim)}`}
+                  </p>
                 </div>
               </div>
             </Card>
 
             <div className="mb-6 flex flex-wrap justify-end gap-2">
-              <Button variant="outline" onClick={reconcileFromServer} disabled={isReconciling}>
+              <Button variant="outline" onClick={reconcileFromServer} disabled={isReconciling} aria-label="Reconciliar dados com banco">
                 <RefreshCcw className={`mr-2 h-4 w-4 ${isReconciling ? 'animate-spin' : ''}`} />
                 Reconciliar dados
               </Button>
               <ImportReservationDialog />
             </div>
+
+            {(stayCoverageGaps.length > 0 || transportCoverageGaps.length > 0) && (
+              <Card className="mb-6 border-amber-500/40 bg-amber-500/5">
+                <CardContent className="space-y-3 p-4">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-700" />
+                    <p className="text-sm font-medium text-amber-900">
+                      Gaps detectados no planejamento da viagem
+                    </p>
+                  </div>
+                  {stayCoverageGaps.length > 0 && (
+                    <div className="space-y-1 text-sm text-amber-900/90">
+                      {stayCoverageGaps.slice(0, 3).map((gap) => (
+                        <p key={`stay-gap-${gap.start}-${gap.end}`}>
+                          Hospedagem: {formatDate(gap.start)} até {formatDate(gap.end)} ({gap.nights} noite(s)) sem reserva.
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  {transportCoverageGaps.length > 0 && (
+                    <div className="space-y-1 text-sm text-amber-900/90">
+                      {transportCoverageGaps.slice(0, 3).map((gap) => (
+                        <p key={`transport-gap-${gap.from}-${gap.to}-${gap.referenceDate ?? 'sem-data'}`}>
+                          Transporte: trecho {gap.from} → {gap.to} sem cobertura registrada.
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
               {statCards.map((card) => (
@@ -958,7 +1259,7 @@ export default function Dashboard() {
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-8">
               <TabsList className="grid h-auto w-full grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-9">
-                <TabsTrigger value="visao">Visão</TabsTrigger>
+                <TabsTrigger value="visao">Dashboard</TabsTrigger>
                 <TabsTrigger value="voos">Voos</TabsTrigger>
                 <TabsTrigger value="hospedagens">Hospedagens</TabsTrigger>
                 <TabsTrigger value="transportes">Transportes</TabsTrigger>
@@ -1001,18 +1302,45 @@ export default function Dashboard() {
 
                   <Card className="border-border/50">
                     <CardHeader>
-                      <CardTitle className="text-base">Resumo rápido</CardTitle>
+                      <CardTitle className="text-base">Cobertura da viagem</CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-2 text-sm">
+                    <CardContent className="space-y-3 text-sm">
+                      <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+                        <p className="font-medium text-emerald-700">
+                          {stayCoverageGaps.length === 0 ? 'Hospedagens cobertas' : `${stayCoverageGaps.length} gap(s) de hospedagem`}
+                        </p>
+                        <p className="text-xs text-emerald-700/80">
+                          {stayCoverageGaps.length === 0
+                            ? 'Sem noites descobertas no intervalo atual.'
+                            : 'Revise os períodos sem check-in/check-out registrados.'}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3">
+                        <p className="font-medium text-sky-700">
+                          {transportCoverageGaps.length === 0 ? 'Trocas de cidade cobertas' : `${transportCoverageGaps.length} trecho(s) sem transporte`}
+                        </p>
+                        <p className="text-xs text-sky-700/80">
+                          {transportCoverageGaps.length === 0
+                            ? 'Nenhum deslocamento entre cidades ficou descoberto.'
+                            : 'Adicione voos/transportes para fechar os deslocamentos faltantes.'}
+                        </p>
+                      </div>
                       <p><strong>Restaurantes salvos:</strong> {restaurantsFavorites.length}</p>
                       <p><strong>Documentos:</strong> {documentsModule.data.length}</p>
-                      <p><strong>Itens bagagem:</strong> {luggageModule.data.length}</p>
                       <p><strong>Viajantes:</strong> {travelersModule.data.length}</p>
-                      <p><strong>Preparativos:</strong> {prepModule.data.length}</p>
                       <p><strong>Real x estimado:</strong> {formatCurrency(realTotal)} / {formatCurrency(estimadoTotal)}</p>
                     </CardContent>
                   </Card>
                 </div>
+
+                <Card className="border-border/50">
+                  <CardHeader>
+                    <CardTitle className="text-base">Mapa da viagem (OpenStreetMap)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <TripOpenMap stays={staysModule.data} transports={transportsModule.data} flights={flightsModule.data} />
+                  </CardContent>
+                </Card>
               </TabsContent>
 
               <TabsContent value="voos" className="space-y-4">
@@ -1103,6 +1431,36 @@ export default function Dashboard() {
                       </Select>
                     </div>
 
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-xl border bg-muted/30 p-3">
+                        <p className="text-xs text-muted-foreground">Voos no filtro</p>
+                        <p className="text-lg font-semibold">{flightStats.total}</p>
+                      </div>
+                      <div className="rounded-xl border bg-muted/30 p-3">
+                        <p className="text-xs text-muted-foreground">Confirmados</p>
+                        <p className="text-lg font-semibold">{flightStats.confirmed}</p>
+                      </div>
+                      <div className="rounded-xl border bg-muted/30 p-3">
+                        <p className="text-xs text-muted-foreground">Custo somado</p>
+                        <p className="text-lg font-semibold">{formatCurrency(flightStats.totalCost, 'BRL')}</p>
+                      </div>
+                    </div>
+
+                    {flightDayChips.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {flightDayChips.map((chip) => (
+                          <button
+                            key={chip.day}
+                            type="button"
+                            className={`rounded-2xl border px-3 py-2 text-left ${chip.allConfirmed ? 'border-emerald-400 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`}
+                          >
+                            <p className="text-xs uppercase text-muted-foreground">{chip.label}</p>
+                            <p className="text-sm font-semibold">{chip.count} voo(s)</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
                     {flightsModule.isLoading ? (
                       <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
                         Carregando voos...
@@ -1135,10 +1493,10 @@ export default function Dashboard() {
                               </button>
                               <div className="flex items-center gap-2">
                                 {statusBadge(flight.status)}
-                                <Button variant="outline" size="icon" onClick={() => openEditFlight(flight)}>
+                                <Button variant="outline" size="icon" aria-label="Editar voo" onClick={() => openEditFlight(flight)}>
                                   <Pencil className="h-4 w-4" />
                                 </Button>
-                                <Button variant="outline" size="icon" onClick={() => removeFlight(flight.id)} disabled={flightsModule.isRemoving}>
+                                <Button variant="outline" size="icon" aria-label="Remover voo" onClick={() => removeFlight(flight.id)} disabled={flightsModule.isRemoving}>
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
                               </div>
@@ -1274,6 +1632,57 @@ export default function Dashboard() {
                       </Select>
                     </div>
 
+                    <div className="grid gap-3 sm:grid-cols-4">
+                      <div className="rounded-xl border bg-muted/30 p-3">
+                        <p className="text-xs text-muted-foreground">Hospedagens</p>
+                        <p className="text-lg font-semibold">{stayStats.total}</p>
+                      </div>
+                      <div className="rounded-xl border bg-muted/30 p-3">
+                        <p className="text-xs text-muted-foreground">Noites cobertas</p>
+                        <p className="text-lg font-semibold">{stayNightsTotal}</p>
+                      </div>
+                      <div className="rounded-xl border bg-muted/30 p-3">
+                        <p className="text-xs text-muted-foreground">Cidades</p>
+                        <p className="text-lg font-semibold">{stayStats.cities}</p>
+                      </div>
+                      <div className="rounded-xl border bg-muted/30 p-3">
+                        <p className="text-xs text-muted-foreground">Custo somado</p>
+                        <p className="text-lg font-semibold">{formatCurrency(stayStats.totalCost, 'BRL')}</p>
+                      </div>
+                    </div>
+
+                    {stayDayChips.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {stayDayChips.map((chip) => (
+                          <button
+                            key={chip.day}
+                            type="button"
+                            className={`rounded-2xl border px-3 py-2 text-left ${chip.allConfirmed ? 'border-emerald-400 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`}
+                          >
+                            <p className="text-xs uppercase text-muted-foreground">{chip.label}</p>
+                            <p className="text-sm font-semibold">{chip.count} check-in(s)</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    <TripOpenMap stays={staysFiltered} transports={transportsModule.data} flights={flightsModule.data} height={280} />
+
+                    {(stayCoverageGaps.length > 0 || transportCoverageGaps.length > 0) && (
+                      <div className="rounded-xl border border-amber-400/40 bg-amber-500/5 p-3 text-sm">
+                        {stayCoverageGaps.length > 0 && (
+                          <p className="mb-1 text-amber-900">
+                            {stayCoverageGaps.length} intervalo(s) sem hospedagem: {stayCoverageGaps.slice(0, 2).map((gap) => `${formatDateShort(gap.start)}-${formatDateShort(gap.end)}`).join(', ')}
+                          </p>
+                        )}
+                        {transportCoverageGaps.length > 0 && (
+                          <p className="text-amber-900">
+                            {transportCoverageGaps.length} troca(s) de cidade sem transporte registrado.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     {staysModule.isLoading ? (
                       <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
                         Carregando hospedagens...
@@ -1322,10 +1731,10 @@ export default function Dashboard() {
                                   >
                                     {suggestingRestaurantsStayId === stay.id ? 'Sugerindo...' : 'Sugerir restaurantes'}
                                   </Button>
-                                  <Button variant="outline" size="icon" onClick={() => openEditStay(stay)}>
+                                  <Button variant="outline" size="icon" aria-label="Editar hospedagem" onClick={() => openEditStay(stay)}>
                                     <Pencil className="h-4 w-4" />
                                   </Button>
-                                  <Button variant="outline" size="icon" onClick={() => removeStay(stay.id)} disabled={staysModule.isRemoving}>
+                                  <Button variant="outline" size="icon" aria-label="Remover hospedagem" onClick={() => removeStay(stay.id)} disabled={staysModule.isRemoving}>
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
                                 </div>
@@ -1346,16 +1755,127 @@ export default function Dashboard() {
                     </DialogHeader>
                     {selectedStay && (
                       <div className="space-y-3 text-sm">
-                        <p><strong>Nome:</strong> {selectedStay.nome || 'Não informado'}</p>
-                        <p><strong>Localização:</strong> {selectedStay.localizacao || 'Não informado'}</p>
-                        <p><strong>Período:</strong> {formatDate(selectedStay.check_in)} até {formatDate(selectedStay.check_out)}</p>
-                        <p><strong>Status:</strong> {STATUS_LABEL[selectedStay.status]}</p>
-                        <p><strong>Valor:</strong> {formatCurrency(selectedStay.valor, selectedStay.moeda ?? 'BRL')}</p>
-                        <p><strong>Dica de viagem:</strong> {selectedStay.dica_viagem || '—'}</p>
-                        <p><strong>Como chegar:</strong> {selectedStay.como_chegar || '—'}</p>
-                        <p><strong>Atrações próximas:</strong> {selectedStay.atracoes_proximas || '—'}</p>
-                        <p><strong>Restaurantes próximos:</strong> {selectedStay.restaurantes_proximos || '—'}</p>
-                        <p><strong>Dica IA:</strong> {selectedStay.dica_ia || '—'}</p>
+                        <div className="rounded-xl border bg-muted/20 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-lg font-semibold">{selectedStay.nome || 'Hospedagem'}</p>
+                              <p className="text-muted-foreground">{selectedStay.localizacao || 'Localização não informada'}</p>
+                            </div>
+                            {statusBadge(selectedStay.status)}
+                          </div>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                            <div className="rounded-lg border bg-background p-2">
+                              <p className="text-[11px] text-muted-foreground">Check-in</p>
+                              <p className="font-medium">{formatDate(selectedStay.check_in)}</p>
+                            </div>
+                            <div className="rounded-lg border bg-background p-2">
+                              <p className="text-[11px] text-muted-foreground">Check-out</p>
+                              <p className="font-medium">{formatDate(selectedStay.check_out)}</p>
+                            </div>
+                            <div className="rounded-lg border bg-background p-2">
+                              <p className="text-[11px] text-muted-foreground">Valor</p>
+                              <p className="font-medium">{formatCurrency(selectedStay.valor, selectedStay.moeda ?? 'BRL')}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border bg-muted/30 p-3">
+                          <p className="font-semibold">Mapa da hospedagem</p>
+                          <div className="mt-2">
+                            <TripOpenMap stays={[selectedStay]} transports={[]} height={220} />
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border bg-muted/30 p-3">
+                          <p className="font-semibold">Como chegar</p>
+                          <p className="mt-2 text-muted-foreground">{selectedStay.como_chegar || 'Sem instruções de chegada ainda.'}</p>
+                        </div>
+
+                        <div className="rounded-xl border bg-muted/30 p-3">
+                          <p className="font-semibold">Atrações turísticas</p>
+                          {splitInsightList(selectedStay.atracoes_proximas).length === 0 ? (
+                            <p className="mt-2 text-muted-foreground">Sem atrações cadastradas.</p>
+                          ) : (
+                            <ul className="mt-2 list-disc space-y-1 pl-5">
+                              {splitInsightList(selectedStay.atracoes_proximas).map((item) => (
+                                <li key={item}>{item}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+
+                        <div className="rounded-xl border bg-muted/30 p-3">
+                          <p className="font-semibold">Restaurantes recomendados</p>
+                          {splitInsightList(selectedStay.restaurantes_proximos).length === 0 ? (
+                            <p className="mt-2 text-muted-foreground">Sem restaurantes sugeridos.</p>
+                          ) : (
+                            <ul className="mt-2 list-disc space-y-1 pl-5">
+                              {splitInsightList(selectedStay.restaurantes_proximos).map((item) => (
+                                <li key={item}>{item}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+
+                        <div className="rounded-xl border bg-primary/5 p-3">
+                          <p className="font-semibold text-primary">Dicas personalizadas</p>
+                          <p className="mt-2 text-muted-foreground">{stayHighlight(selectedStay)}</p>
+                          {selectedStay.dica_ia && (
+                            <div className="mt-2 rounded-md border bg-background/80 p-2 text-xs text-muted-foreground">
+                              {selectedStay.dica_ia}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="rounded-xl border bg-muted/30 p-3">
+                          <p className="font-semibold">Checklist de chegada</p>
+                          <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
+                            <label className="flex items-center gap-2"><input type="checkbox" /> Validar horário de check-in</label>
+                            <label className="flex items-center gap-2"><input type="checkbox" /> Confirmar Wi-Fi / café da manhã</label>
+                            <label className="flex items-center gap-2"><input type="checkbox" /> Revisar política de cancelamento</label>
+                            <label className="flex items-center gap-2"><input type="checkbox" /> Salvar comprovante offline</label>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border bg-muted/30 p-3">
+                          <p className="font-semibold">Voucher / Comprovante</p>
+                          {selectedStayDocuments.length === 0 ? (
+                            <p className="mt-2 text-muted-foreground">Nenhum comprovante associado automaticamente.</p>
+                          ) : (
+                            <div className="mt-2 space-y-2">
+                              {selectedStayDocuments.slice(0, 3).map((doc) => (
+                                <div key={doc.id} className="flex items-center justify-between rounded-md border bg-background p-2">
+                                  <div>
+                                    <p className="font-medium">{doc.nome}</p>
+                                    <p className="text-xs text-muted-foreground">{doc.tipo || 'Documento importado'}</p>
+                                  </div>
+                                  <div className="flex gap-1">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => openSupportDocument(doc.arquivo_url)}
+                                      disabled={openingDocumentPath === doc.arquivo_url}
+                                    >
+                                      {openingDocumentPath === doc.arquivo_url ? 'Abrindo...' : 'Abrir'}
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => downloadSupportDocument(doc.arquivo_url, doc.nome)}
+                                      disabled={downloadingDocumentPath === doc.arquivo_url}
+                                    >
+                                      {downloadingDocumentPath === doc.arquivo_url ? 'Baixando...' : 'Baixar'}
+                                    </Button>
+                                    <Button variant="outline" size="icon" aria-label="Remover comprovante" onClick={() => removeDocument(doc.id)}>
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
                         <div className="pt-2 flex flex-wrap gap-2">
                           <Button
                             variant="outline"
@@ -1468,6 +1988,38 @@ export default function Dashboard() {
                       </Select>
                     </div>
 
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-xl border bg-muted/30 p-3">
+                        <p className="text-xs text-muted-foreground">Trechos no filtro</p>
+                        <p className="text-lg font-semibold">{transportStats.total}</p>
+                      </div>
+                      <div className="rounded-xl border bg-muted/30 p-3">
+                        <p className="text-xs text-muted-foreground">Confirmados</p>
+                        <p className="text-lg font-semibold">{transportStats.confirmed}</p>
+                      </div>
+                      <div className="rounded-xl border bg-muted/30 p-3">
+                        <p className="text-xs text-muted-foreground">Custo somado</p>
+                        <p className="text-lg font-semibold">{formatCurrency(transportStats.totalCost, 'BRL')}</p>
+                      </div>
+                    </div>
+
+                    {transportDayChips.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {transportDayChips.map((chip) => (
+                          <button
+                            key={chip.day}
+                            type="button"
+                            className={`rounded-2xl border px-3 py-2 text-left ${chip.allConfirmed ? 'border-emerald-400 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`}
+                          >
+                            <p className="text-xs uppercase text-muted-foreground">{chip.label}</p>
+                            <p className="text-sm font-semibold">{chip.count} trecho(s)</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    <TripOpenMap stays={staysModule.data} transports={transportFiltered} flights={flightsModule.data} height={260} />
+
                     {transportsModule.isLoading ? (
                       <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
                         Carregando transportes...
@@ -1508,10 +2060,10 @@ export default function Dashboard() {
                                 </button>
                                 <div className="flex items-center gap-2">
                                   {statusBadge(transport.status)}
-                                  <Button variant="outline" size="icon" onClick={() => openEditTransport(transport)}>
+                                  <Button variant="outline" size="icon" aria-label="Editar transporte" onClick={() => openEditTransport(transport)}>
                                     <Pencil className="h-4 w-4" />
                                   </Button>
-                                  <Button variant="outline" size="icon" onClick={() => removeTransport(transport.id)} disabled={transportsModule.isRemoving}>
+                                  <Button variant="outline" size="icon" aria-label="Remover transporte" onClick={() => removeTransport(transport.id)} disabled={transportsModule.isRemoving}>
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
                                 </div>
@@ -1531,13 +2083,71 @@ export default function Dashboard() {
                       <DialogDescription>Informações completas do deslocamento selecionado.</DialogDescription>
                     </DialogHeader>
                     {selectedTransport && (
-                      <div className="space-y-2 text-sm">
-                        <p><strong>Tipo:</strong> {selectedTransport.tipo || 'Não informado'}</p>
-                        <p><strong>Operadora:</strong> {selectedTransport.operadora || 'Não informado'}</p>
-                        <p><strong>Trecho:</strong> {selectedTransport.origem || 'Origem'} → {selectedTransport.destino || 'Destino'}</p>
-                        <p><strong>Data:</strong> {formatDateTime(selectedTransport.data)}</p>
-                        <p><strong>Status:</strong> {STATUS_LABEL[selectedTransport.status]}</p>
-                        <p><strong>Valor:</strong> {formatCurrency(selectedTransport.valor, selectedTransport.moeda ?? 'BRL')}</p>
+                      <div className="space-y-3 text-sm">
+                        <div className="rounded-xl border bg-muted/20 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-lg font-semibold">{selectedTransport.origem || 'Origem'} → {selectedTransport.destino || 'Destino'}</p>
+                              <p className="text-muted-foreground">{selectedTransport.tipo || 'Transporte'} • {selectedTransport.operadora || 'Operadora não informada'}</p>
+                            </div>
+                            {statusBadge(selectedTransport.status)}
+                          </div>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                            <div className="rounded-lg border bg-background p-2">
+                              <p className="text-[11px] text-muted-foreground">Data</p>
+                              <p className="font-medium">{formatDateTime(selectedTransport.data)}</p>
+                            </div>
+                            <div className="rounded-lg border bg-background p-2">
+                              <p className="text-[11px] text-muted-foreground">Valor</p>
+                              <p className="font-medium">{formatCurrency(selectedTransport.valor, selectedTransport.moeda ?? 'BRL')}</p>
+                            </div>
+                            <div className="rounded-lg border bg-background p-2">
+                              <p className="text-[11px] text-muted-foreground">Código da reserva</p>
+                              <p className="font-mono text-xs font-semibold">{transportReservationCode(selectedTransport)}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border bg-muted/30 p-3">
+                          <p className="font-semibold">Trajeto</p>
+                          <div className="mt-3 space-y-3">
+                            <div className="flex items-start gap-3">
+                              <div className="mt-1 h-3 w-3 rounded-full bg-primary" />
+                              <div>
+                                <p className="font-medium">{selectedTransport.origem || 'Origem'}</p>
+                                <p className="text-xs text-muted-foreground">Embarque</p>
+                              </div>
+                            </div>
+                            <div className="ml-1 h-8 w-px bg-border" />
+                            <div className="flex items-start gap-3">
+                              <div className="mt-1 h-3 w-3 rounded-full bg-primary/50" />
+                              <div>
+                                <p className="font-medium">{selectedTransport.destino || 'Destino'}</p>
+                                <p className="text-xs text-muted-foreground">Chegada</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border bg-muted/30 p-3">
+                          <p className="font-semibold">Insights do trajeto</p>
+                          <Badge variant="secondary" className="mt-2">{buildTransportInsights(selectedTransport).risk}</Badge>
+                          <div className="mt-3">
+                            <p className="text-xs font-medium uppercase text-muted-foreground">Dicas do trajeto</p>
+                            <ul className="mt-1 list-disc space-y-1 pl-5">
+                              {buildTransportInsights(selectedTransport).tips.slice(0, 3).map((tip) => (
+                                <li key={tip}>{tip}</li>
+                              ))}
+                            </ul>
+                          </div>
+                          <div className="mt-3">
+                            <p className="text-xs font-medium uppercase text-muted-foreground">Ao chegar</p>
+                            <ul className="mt-1 list-disc space-y-1 pl-5">
+                              <li>Confira plataforma/ponto de desembarque antes de sair.</li>
+                              <li>Mantenha comprovante e localização offline no celular.</li>
+                            </ul>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </DialogContent>
@@ -1631,6 +2241,7 @@ export default function Dashboard() {
                                 <Button
                                   variant="outline"
                                   size="icon"
+                                  aria-label="Remover tarefa"
                                   onClick={() => removeTask(task.id)}
                                   disabled={tasksModule.isRemoving}
                                 >
@@ -1725,6 +2336,7 @@ export default function Dashboard() {
                               <Button
                                 variant="outline"
                                 size="icon"
+                                aria-label="Remover despesa"
                                 onClick={() => removeExpense(expense.id)}
                                 disabled={expensesModule.isRemoving}
                               >
@@ -1909,7 +2521,7 @@ export default function Dashboard() {
                                   <Heart className={`mr-1 h-4 w-4 ${item.salvo ? 'fill-current' : ''}`} />
                                   {item.salvo ? 'Favorito' : 'Favoritar'}
                                 </Button>
-                                <Button variant="outline" size="icon" onClick={() => removeRestaurant(item.id)} disabled={restaurantsModule.isRemoving}>
+                                <Button variant="outline" size="icon" aria-label="Remover restaurante" onClick={() => removeRestaurant(item.id)} disabled={restaurantsModule.isRemoving}>
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
                               </div>
@@ -1954,7 +2566,25 @@ export default function Dashboard() {
                           ) : documentsModule.data.map((doc) => (
                             <div key={doc.id} className="flex items-center justify-between rounded border p-2 text-sm">
                               <span>{doc.nome}</span>
-                              <Button variant="outline" size="icon" onClick={() => removeDocument(doc.id)}><Trash2 className="h-4 w-4" /></Button>
+                              <div className="flex gap-1">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openSupportDocument(doc.arquivo_url)}
+                                  disabled={openingDocumentPath === doc.arquivo_url}
+                                >
+                                  {openingDocumentPath === doc.arquivo_url ? 'Abrindo...' : 'Abrir'}
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => downloadSupportDocument(doc.arquivo_url, doc.nome)}
+                                  disabled={downloadingDocumentPath === doc.arquivo_url}
+                                >
+                                  {downloadingDocumentPath === doc.arquivo_url ? 'Baixando...' : 'Baixar'}
+                                </Button>
+                                <Button variant="outline" size="icon" aria-label="Remover documento" onClick={() => removeDocument(doc.id)}><Trash2 className="h-4 w-4" /></Button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1979,7 +2609,7 @@ export default function Dashboard() {
                               <span>{item.item} · {item.quantidade}x</span>
                               <div className="flex gap-1">
                                 <Button variant="outline" size="sm" onClick={() => toggleLuggageChecked(item)}>{item.conferido ? 'Desmarcar' : 'Conferir'}</Button>
-                                <Button variant="outline" size="icon" onClick={() => removeLuggageItem(item.id)}><Trash2 className="h-4 w-4" /></Button>
+                                <Button variant="outline" size="icon" aria-label="Remover item de bagagem" onClick={() => removeLuggageItem(item.id)}><Trash2 className="h-4 w-4" /></Button>
                               </div>
                             </div>
                           ))}
@@ -2004,7 +2634,7 @@ export default function Dashboard() {
                           ) : travelersModule.data.map((traveler) => (
                             <div key={traveler.id} className="flex items-center justify-between rounded border p-2 text-sm">
                               <span>{traveler.nome}</span>
-                              <Button variant="outline" size="icon" onClick={() => removeTraveler(traveler.id)}><Trash2 className="h-4 w-4" /></Button>
+                              <Button variant="outline" size="icon" aria-label="Remover viajante" onClick={() => removeTraveler(traveler.id)}><Trash2 className="h-4 w-4" /></Button>
                             </div>
                           ))}
                         </div>
@@ -2027,7 +2657,7 @@ export default function Dashboard() {
                               <span className={item.concluido ? 'line-through text-muted-foreground' : ''}>{item.titulo}</span>
                               <div className="flex gap-1">
                                 <Button variant="outline" size="sm" onClick={() => togglePrepDone(item)}>{item.concluido ? 'Reabrir' : 'Concluir'}</Button>
-                                <Button variant="outline" size="icon" onClick={() => removePrepItem(item.id)}><Trash2 className="h-4 w-4" /></Button>
+                                <Button variant="outline" size="icon" aria-label="Remover preparativo" onClick={() => removePrepItem(item.id)}><Trash2 className="h-4 w-4" /></Button>
                               </div>
                             </div>
                           ))}

@@ -1,4 +1,6 @@
 import { corsHeaders } from '../_shared/cors.ts';
+import { errorResponse, successResponse } from '../_shared/http.ts';
+import { consumeRateLimit, requireAuthenticatedUser } from '../_shared/security.ts';
 
 const OCR_PROMPT = `Extraia todo o texto visivel deste documento de viagem.
 Retorne apenas texto bruto.
@@ -6,10 +8,55 @@ Nao invente palavras ilegiveis.
 Se algo estiver ilegivel, simplesmente omita.`;
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
+const LIMIT_PER_HOUR = 10;
+const ONE_HOUR_MS = 60 * 60 * 1000;
 
 function extFromName(fileName: string | null | undefined) {
   if (!fileName) return '';
   return fileName.split('.').pop()?.toLowerCase() ?? '';
+}
+
+function decodePdfTextToken(token: string) {
+  return token
+    .replace(/\\([()\\])/g, '$1')
+    .replace(/\\n/g, ' ')
+    .replace(/\\r/g, ' ')
+    .replace(/\\t/g, ' ')
+    .replace(/\\\d{3}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractPdfNativeText(base64: string) {
+  try {
+    const binary = atob(base64);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    const raw = new TextDecoder('latin1').decode(bytes);
+    const parts: string[] = [];
+
+    let current: RegExpExecArray | null = null;
+    const simpleMatch = /\(([^()]{2,})\)\s*Tj/g;
+    while ((current = simpleMatch.exec(raw)) !== null) {
+      const chunk = decodePdfTextToken(current[1]);
+      if (chunk) parts.push(chunk);
+    }
+
+    const arrayMatch = /\[(.*?)\]\s*TJ/gs;
+    while ((current = arrayMatch.exec(raw)) !== null) {
+      const inner = current[1];
+      const tokenMatch = /\(([^()]{2,})\)/g;
+      let token: RegExpExecArray | null = null;
+      while ((token = tokenMatch.exec(inner)) !== null) {
+        const chunk = decodePdfTextToken(token[1]);
+        if (chunk) parts.push(chunk);
+      }
+    }
+
+    const text = parts.join(' ').replace(/\s+/g, ' ').trim();
+    return text.length >= 24 ? text : '';
+  } catch {
+    return '';
+  }
 }
 
 async function runOcrSpace(base64: string, mimeType: string | null) {
@@ -101,16 +148,27 @@ Deno.serve(async (req) => {
   const requestId = crypto.randomUUID();
 
   try {
+    const auth = await requireAuthenticatedUser(req);
+    if (auth.error || !auth.userId) {
+      console.error('[ocr-document]', requestId, 'unauthorized', auth.error);
+      return errorResponse(requestId, 'UNAUTHORIZED', 'Faça login novamente para usar OCR.', 401);
+    }
+
+    const rate = consumeRateLimit(auth.userId, 'ocr-document', LIMIT_PER_HOUR, ONE_HOUR_MS);
+    if (!rate.allowed) {
+      console.error('[ocr-document]', requestId, 'rate_limited', { userId: auth.userId });
+      return errorResponse(requestId, 'RATE_LIMITED', 'Limite de OCR atingido. Tente novamente mais tarde.', 429, {
+        resetAt: rate.resetAt,
+      });
+    }
+
     const body = await req.json();
-    const fileBase64 = typeof body?.fileBase64 === 'string' ? body.fileBase64 : '';
+    const fileBase64 = typeof body?.fileBase64 === 'string' ? body.fileBase64.slice(0, 6_000_000) : '';
     const fileName = typeof body?.fileName === 'string' ? body.fileName : null;
     const mimeType = typeof body?.mimeType === 'string' ? body.mimeType : null;
 
     if (!fileBase64) {
-      return new Response(JSON.stringify({ error: 'Arquivo base64 não informado.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse(requestId, 'BAD_REQUEST', 'Arquivo base64 não informado.', 400);
     }
 
     const ext = extFromName(fileName);
@@ -118,37 +176,39 @@ Deno.serve(async (req) => {
 
     const ocrResult = await runOcrSpace(fileBase64, mimeType);
     if (!ocrResult.error && ocrResult.text) {
-      return new Response(JSON.stringify({ data: { text: ocrResult.text, method: 'ocr_space', warnings } }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: 'ocr_space', remaining: rate.remaining });
+      return successResponse({ text: ocrResult.text, method: 'ocr_space', warnings });
     }
 
     warnings.push(ocrResult.error || 'OCR.space indisponível.');
     console.error('[ocr-document]', requestId, 'ocr_space_failure', ocrResult.error);
 
+    if (ext === 'pdf' || mimeType === 'application/pdf') {
+      const nativePdfText = extractPdfNativeText(fileBase64);
+      if (nativePdfText) {
+        warnings.push('OCR provider falhou. Texto nativo de PDF usado como fallback.');
+        console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: 'native_pdf_fallback', remaining: rate.remaining });
+        return successResponse({ text: nativePdfText, method: 'native_pdf_fallback', warnings });
+      }
+    }
+
     if (['png', 'jpg', 'jpeg', 'webp'].includes(ext) || (mimeType || '').startsWith('image/')) {
       const vision = await runOpenAiVision(fileBase64, mimeType);
       if (!vision.error && vision.text) {
-        return new Response(JSON.stringify({ data: { text: vision.text, method: 'openai_vision', warnings } }), {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: 'openai_vision', remaining: rate.remaining });
+        return successResponse({ text: vision.text, method: 'openai_vision', warnings });
       }
 
       warnings.push(vision.error || 'OpenAI vision indisponível.');
       console.error('[ocr-document]', requestId, 'openai_vision_failure', vision.error);
     }
 
-    return new Response(JSON.stringify({ error: 'Falha no OCR em todas as camadas.', data: { text: '', method: 'none', warnings } }), {
-      status: 502,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    return errorResponse(requestId, 'UPSTREAM_ERROR', 'Falha no OCR em todas as camadas.', 502, {
+      method: 'none',
+      warnings,
     });
   } catch (error) {
     console.error('[ocr-document]', requestId, 'unexpected_error', error);
-    return new Response(JSON.stringify({ error: 'Erro inesperado no OCR.' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return errorResponse(requestId, 'INTERNAL_ERROR', 'Erro inesperado no OCR.', 500);
   }
 });

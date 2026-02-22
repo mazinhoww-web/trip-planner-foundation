@@ -1,4 +1,6 @@
 import { corsHeaders } from '../_shared/cors.ts';
+import { errorResponse, successResponse } from '../_shared/http.ts';
+import { consumeRateLimit, requireAuthenticatedUser } from '../_shared/security.ts';
 
 type SuggestRestaurantsInput = {
   city?: string | null;
@@ -40,6 +42,8 @@ Responda APENAS JSON no formato:
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const MODEL = 'gpt-4o-mini';
+const LIMIT_PER_HOUR = 18;
+const ONE_HOUR_MS = 60 * 60 * 1000;
 
 function truncate(value: string | null | undefined, max = 180) {
   if (!value) return null;
@@ -78,6 +82,18 @@ function sanitizeItems(raw: unknown): SuggestRestaurantItem[] {
     .slice(0, 6);
 }
 
+function extractJson(content: string) {
+  const start = content.indexOf('{');
+  const end = content.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) return null;
+  const maybe = content.slice(start, end + 1);
+  try {
+    return JSON.parse(maybe) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -86,23 +102,31 @@ Deno.serve(async (req) => {
   const requestId = crypto.randomUUID();
 
   try {
+    const auth = await requireAuthenticatedUser(req);
+    if (auth.error || !auth.userId) {
+      console.error('[suggest-restaurants]', requestId, 'unauthorized', auth.error);
+      return errorResponse(requestId, 'UNAUTHORIZED', 'Faça login novamente para usar sugestões de IA.', 401);
+    }
+
+    const rate = consumeRateLimit(auth.userId, 'suggest-restaurants', LIMIT_PER_HOUR, ONE_HOUR_MS);
+    if (!rate.allowed) {
+      console.error('[suggest-restaurants]', requestId, 'rate_limited', { userId: auth.userId });
+      return errorResponse(requestId, 'RATE_LIMITED', 'Limite de sugestões atingido. Tente novamente mais tarde.', 429, {
+        resetAt: rate.resetAt,
+      });
+    }
+
     const apiKey = Deno.env.get('OPENAI_API_KEY');
     if (!apiKey) {
-      console.error('[suggest-restaurants]', requestId, 'missing OPENAI_API_KEY');
-      return new Response(JSON.stringify({ error: 'Integração de IA não configurada.' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      console.error('[suggest-restaurants]', requestId, 'missing_OPENAI_API_KEY');
+      return errorResponse(requestId, 'MISCONFIGURED', 'Integração de IA não configurada.', 500);
     }
 
     const body = (await req.json()) as SuggestRestaurantsInput;
     const target = truncate(body.city) ?? truncate(body.location) ?? truncate(body.tripDestination);
 
     if (!target) {
-      return new Response(JSON.stringify({ error: 'Cidade/localização não informada para sugestão.' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse(requestId, 'BAD_REQUEST', 'Cidade/localização é obrigatória para sugerir restaurantes.', 400);
     }
 
     const aiResponse = await fetch(OPENAI_URL, {
@@ -115,6 +139,7 @@ Deno.serve(async (req) => {
         model: MODEL,
         temperature: 0.3,
         max_tokens: 650,
+        response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: PROMPT },
           { role: 'user', content: `Cidade/Região: ${target}` },
@@ -124,46 +149,36 @@ Deno.serve(async (req) => {
 
     if (!aiResponse.ok) {
       const raw = await aiResponse.text();
-      console.error('[suggest-restaurants]', requestId, 'openai_error', aiResponse.status, raw.slice(0, 300));
-      return new Response(JSON.stringify({ error: 'Falha ao sugerir restaurantes no momento.' }), {
-        status: 502,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      console.error('[suggest-restaurants]', requestId, 'openai_error', aiResponse.status, raw.slice(0, 240));
+      return errorResponse(requestId, 'UPSTREAM_ERROR', 'Falha ao sugerir restaurantes no momento.', 502);
     }
 
     const aiJson = await aiResponse.json();
     const content = aiJson?.choices?.[0]?.message?.content;
+    const usage = aiJson?.usage ?? null;
 
     if (typeof content !== 'string' || !content.trim()) {
       console.error('[suggest-restaurants]', requestId, 'empty_content');
-      return new Response(JSON.stringify({ error: 'Resposta de IA vazia.' }), {
-        status: 502,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return errorResponse(requestId, 'UPSTREAM_ERROR', 'IA retornou conteúdo vazio.', 502);
     }
 
-    let parsed: unknown = null;
-    try {
-      parsed = JSON.parse(content);
-    } catch (_err) {
-      console.error('[suggest-restaurants]', requestId, 'invalid_json', content.slice(0, 250));
-      return new Response(JSON.stringify({ error: 'Formato inválido retornado pela IA.' }), {
-        status: 502,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    const parsed = extractJson(content);
+    if (!parsed) {
+      console.error('[suggest-restaurants]', requestId, 'invalid_json');
+      return errorResponse(requestId, 'UPSTREAM_ERROR', 'IA retornou formato inválido.', 502);
     }
 
     const items = sanitizeItems(parsed);
-
-    return new Response(JSON.stringify({ data: { items } }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    console.info('[suggest-restaurants]', requestId, 'success', {
+      userId: auth.userId,
+      remaining: rate.remaining,
+      usage,
+      count: items.length,
     });
+
+    return successResponse({ items });
   } catch (error) {
     console.error('[suggest-restaurants]', requestId, 'unexpected_error', error);
-    return new Response(JSON.stringify({ error: 'Erro inesperado ao processar IA.' }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return errorResponse(requestId, 'INTERNAL_ERROR', 'Erro inesperado ao processar IA.', 500);
   }
 });

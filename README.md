@@ -59,6 +59,23 @@ supabase functions deploy ocr-document
 supabase functions deploy extract-reservation
 ```
 
+## Go-live operations (Prompt 10)
+
+Operational deliverables are versioned under `/ops`:
+
+- `ops/PREDEPLOY_CHECKLIST.md`
+- `ops/DEPLOY_RUNBOOK.md`
+- `ops/SMOKE_TESTS.md`
+- `ops/ROLLBACK_AND_MONITORING.md`
+- `ops/PHASE2_BACKLOG.md`
+- `ops/GO_LIVE_STATUS.md`
+
+Automated smoke tests:
+
+```sh
+./scripts/smoke-tests.sh
+```
+
 ## What technologies are used for this project?
 
 This project is built with:

@@ -1,8 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
 
 @layer base {
   :root {
@@ -15,7 +15,7 @@
     --popover: 0 0% 100%;
     --popover-foreground: 220 25% 10%;
 
-    --primary: 199 89% 48%;
+    --primary: 271 82% 46%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 210 20% 95%;
@@ -24,7 +24,7 @@
     --muted: 210 15% 93%;
     --muted-foreground: 220 10% 46%;
 
-    --accent: 33 100% 55%;
+    --accent: 327 80% 50%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 72% 51%;
@@ -32,18 +32,18 @@
 
     --border: 214 20% 88%;
     --input: 214 20% 88%;
-    --ring: 199 89% 48%;
+    --ring: 271 82% 46%;
 
     --radius: 0.75rem;
 
     --sidebar-background: 220 25% 10%;
     --sidebar-foreground: 210 15% 85%;
-    --sidebar-primary: 199 89% 48%;
+    --sidebar-primary: 271 82% 46%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 220 20% 16%;
     --sidebar-accent-foreground: 210 15% 90%;
     --sidebar-border: 220 15% 18%;
-    --sidebar-ring: 199 89% 48%;
+    --sidebar-ring: 271 82% 46%;
 
     --success: 152 69% 40%;
     --success-foreground: 0 0% 100%;
@@ -61,27 +61,27 @@
     --card-foreground: 210 15% 93%;
     --popover: 220 25% 10%;
     --popover-foreground: 210 15% 93%;
-    --primary: 199 89% 48%;
+    --primary: 271 82% 46%;
     --primary-foreground: 0 0% 100%;
     --secondary: 220 20% 16%;
     --secondary-foreground: 210 15% 90%;
     --muted: 220 15% 15%;
     --muted-foreground: 215 12% 55%;
-    --accent: 33 100% 55%;
+    --accent: 327 80% 50%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 62% 30%;
     --destructive-foreground: 0 0% 100%;
     --border: 220 15% 18%;
     --input: 220 15% 18%;
-    --ring: 199 89% 48%;
+    --ring: 271 82% 46%;
     --sidebar-background: 220 30% 5%;
     --sidebar-foreground: 210 15% 85%;
-    --sidebar-primary: 199 89% 48%;
+    --sidebar-primary: 271 82% 46%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 220 20% 12%;
     --sidebar-accent-foreground: 210 15% 90%;
     --sidebar-border: 220 15% 12%;
-    --sidebar-ring: 199 89% 48%;
+    --sidebar-ring: 271 82% 46%;
     --success: 152 69% 40%;
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
