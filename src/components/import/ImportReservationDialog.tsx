@@ -21,7 +21,7 @@ import {
   tryExtractNativeText,
   uploadImportFile,
 } from '@/services/importPipeline';
-import { CheckCircle2, CircleDashed, FileUp, Loader2, TriangleAlert, WandSparkles, Check, Circle } from 'lucide-react';
+import { CheckCircle2, FileUp, Loader2, TriangleAlert, WandSparkles, Check, Circle } from 'lucide-react';
 import { toast } from 'sonner';
 
 type StepStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'skipped';
@@ -255,7 +255,25 @@ function stepStatusLabel(status: StepStatus) {
   return 'Não necessário';
 }
 
+function toUserWarning(text: string) {
+  const lower = text.toLowerCase();
+  if (lower.includes('bucket de storage')) {
+    return 'Não foi possível anexar o arquivo original agora, mas você pode seguir com a importação normalmente.';
+  }
+  if (lower.includes('metadados')) {
+    return 'Não foi possível registrar o anexo neste momento. A importação da reserva seguirá normalmente.';
+  }
+  if (lower.includes('ocr')) {
+    return 'Não conseguimos ler todo o conteúdo automaticamente. Revise os campos antes de salvar.';
+  }
+  if (lower.includes('extração ia')) {
+    return 'A identificação automática ficou incompleta. Revise os dados antes de salvar.';
+  }
+  return text;
+}
+
 export function ImportReservationDialog() {
+  const showTechnicalDetails = import.meta.env.VITE_SHOW_IMPORT_DEBUG === 'true';
   const { user } = useAuth();
   const { currentTrip, currentTripId } = useTrip();
 
@@ -728,7 +746,7 @@ export function ImportReservationDialog() {
 
           <Card className="border-primary/15 bg-white/90 shadow-sm">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Importando...</CardTitle>
+              <CardTitle className="text-base">Analisando sua reserva</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
@@ -780,24 +798,26 @@ export function ImportReservationDialog() {
                 </p>
               </div>
 
-              <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
-                {PIPELINE_STEPS.map((step) => {
-                  const status = steps[step.key];
-                  return (
-                    <div key={step.key} className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">{step.label}</span>
-                      <div className="flex items-center gap-2">
-                        {status === 'in_progress' && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
-                        {status === 'completed' && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />}
-                        {status === 'failed' && <TriangleAlert className="h-3.5 w-3.5 text-amber-600" />}
-                        {status === 'pending' && <CircleDashed className="h-3.5 w-3.5 text-muted-foreground" />}
-                        {status === 'skipped' && <Badge variant="secondary" className="text-[10px]">Não necessário</Badge>}
-                        <Badge variant={status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px]">{stepStatusLabel(status)}</Badge>
+              {showTechnicalDetails && (
+                <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-3">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Debug técnico</p>
+                  {PIPELINE_STEPS.map((step) => {
+                    const status = steps[step.key];
+                    return (
+                      <div key={step.key} className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">{step.label}</span>
+                        <div className="flex items-center gap-2">
+                          {status === 'in_progress' && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />}
+                          {status === 'completed' && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />}
+                          {status === 'failed' && <TriangleAlert className="h-3.5 w-3.5 text-amber-600" />}
+                          {status === 'skipped' && <Badge variant="secondary" className="text-[10px]">Não necessário</Badge>}
+                          <Badge variant={status === 'failed' ? 'destructive' : 'secondary'} className="text-[10px]">{stepStatusLabel(status)}</Badge>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
 
               <p className="pt-1 text-xs text-muted-foreground" role="status" aria-live="polite">{pipelineStatusText}</p>
             </CardContent>
@@ -806,11 +826,11 @@ export function ImportReservationDialog() {
           {warnings.length > 0 && (
             <Card className="border-amber-500/40 bg-amber-500/5" role="alert">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Avisos de processamento</CardTitle>
+                <CardTitle className="text-sm">Atenção</CardTitle>
               </CardHeader>
               <CardContent className="space-y-1 text-sm text-muted-foreground">
                 {warnings.map((warning) => (
-                  <p key={warning}>- {warning}</p>
+                  <p key={warning}>- {toUserWarning(warning)}</p>
                 ))}
               </CardContent>
             </Card>
@@ -822,9 +842,9 @@ export function ImportReservationDialog() {
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <CardTitle className="text-base">Revisão manual assistida</CardTitle>
                   <div className="flex items-center gap-2">
-                    <Badge variant="secondary">Confiança IA: {confidence != null ? `${Math.round(confidence * 100)}%` : 'N/A'}</Badge>
+                    {showTechnicalDetails && <Badge variant="secondary">Confiança IA: {confidence != null ? `${Math.round(confidence * 100)}%` : 'N/A'}</Badge>}
                     <Badge variant={missingFields.length > 0 ? 'destructive' : 'secondary'}>
-                      Missing fields: {missingFields.length}
+                      Campos para confirmar: {missingFields.length}
                     </Badge>
                   </div>
                 </div>
@@ -923,7 +943,7 @@ export function ImportReservationDialog() {
                   </div>
                 )}
 
-                {rawText && (
+                {showTechnicalDetails && rawText && (
                   <div className="space-y-2">
                     <Label>Texto extraído (resumo)</Label>
                     <div className="max-h-40 overflow-y-auto rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
