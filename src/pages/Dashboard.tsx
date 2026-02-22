@@ -1,19 +1,12 @@
-import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useTrip } from '@/hooks/useTrip';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plane, Hotel, Bus, ListTodo, DollarSign, LogOut, MapPin } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Plane, Hotel, Bus, ListTodo, DollarSign, LogOut, MapPin, Utensils, Briefcase, Users, FileText, Package } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-
-interface Viagem {
-  id: string;
-  nome: string;
-  destino: string | null;
-  data_inicio: string | null;
-  data_fim: string | null;
-  status: string;
-}
+import { useEffect, useState } from 'react';
 
 const statCards = [
   { label: 'Voos', icon: Plane, table: 'voos' as const },
@@ -21,51 +14,58 @@ const statCards = [
   { label: 'Transportes', icon: Bus, table: 'transportes' as const },
   { label: 'Tarefas', icon: ListTodo, table: 'tarefas' as const },
   { label: 'Despesas', icon: DollarSign, table: 'despesas' as const },
+  { label: 'Restaurantes', icon: Utensils, table: 'restaurantes' as const },
+  { label: 'Documentos', icon: FileText, table: 'documentos' as const },
+  { label: 'Bagagem', icon: Package, table: 'bagagem' as const },
+  { label: 'Viajantes', icon: Users, table: 'viajantes' as const },
+  { label: 'Preparativos', icon: Briefcase, table: 'preparativos' as const },
 ];
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
+  const { currentTrip, currentTripId, trips, loading: tripLoading, selectTrip } = useTrip();
   const navigate = useNavigate();
-  const [viagem, setViagem] = useState<Viagem | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(true);
+  const [countsLoading, setCountsLoading] = useState(false);
 
   useEffect(() => {
-    async function load() {
-      const { data: viagens } = await supabase
-        .from('viagens')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(1);
-      
-      const currentViagem = viagens?.[0] ?? null;
-      setViagem(currentViagem);
+    if (!currentTripId) return;
+    
+    let cancelled = false;
+    setCountsLoading(true);
 
-      if (currentViagem) {
-        const results: Record<string, number> = {};
-        for (const card of statCards) {
-          const { count } = await supabase
-            .from(card.table)
-            .select('*', { count: 'exact', head: true })
-            .eq('viagem_id', currentViagem.id);
-          results[card.table] = count ?? 0;
-        }
+    async function loadCounts() {
+      const results: Record<string, number> = {};
+      const promises = statCards.map(async (card) => {
+        const { count } = await supabase
+          .from(card.table)
+          .select('*', { count: 'exact', head: true })
+          .eq('viagem_id', currentTripId!);
+        results[card.table] = count ?? 0;
+      });
+      await Promise.all(promises);
+      if (!cancelled) {
         setCounts(results);
+        setCountsLoading(false);
       }
-      setLoading(false);
     }
-    load();
-  }, []);
+
+    loadCounts();
+    return () => { cancelled = true; };
+  }, [currentTripId]);
 
   const handleLogout = async () => {
     await signOut();
     navigate('/login');
   };
 
-  if (loading) {
+  if (tripLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <p className="text-sm text-muted-foreground">Carregando viagem...</p>
+        </div>
       </div>
     );
   }
@@ -79,12 +79,25 @@ export default function Dashboard() {
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
               <Plane className="h-5 w-5" />
             </div>
-            <h1 className="text-xl font-bold" style={{ fontFamily: 'var(--font-display)' }}>
-              TripPlanner
-            </h1>
+            <h1 className="text-xl font-bold font-display">TripPlanner</h1>
           </div>
           <div className="flex items-center gap-3">
-            <span className="hidden text-sm text-muted-foreground sm:block">{user?.email}</span>
+            {/* Trip selector */}
+            {trips.length > 1 && (
+              <Select value={currentTripId ?? ''} onValueChange={selectTrip}>
+                <SelectTrigger className="w-[200px] hidden sm:flex">
+                  <SelectValue placeholder="Selecionar viagem" />
+                </SelectTrigger>
+                <SelectContent>
+                  {trips.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <span className="hidden text-sm text-muted-foreground lg:block">{user?.email}</span>
             <Button variant="outline" size="sm" onClick={handleLogout}>
               <LogOut className="mr-2 h-4 w-4" />
               Sair
@@ -95,7 +108,7 @@ export default function Dashboard() {
 
       {/* Content */}
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-        {viagem ? (
+        {currentTrip ? (
           <>
             {/* Trip Card */}
             <Card className="mb-8 overflow-hidden border-border/50">
@@ -105,16 +118,16 @@ export default function Dashboard() {
                     <MapPin className="h-6 w-6" />
                   </div>
                   <div>
-                    <h2 className="text-2xl font-bold" style={{ fontFamily: 'var(--font-display)' }}>
-                      {viagem.nome}
+                    <h2 className="text-2xl font-bold font-display">
+                      {currentTrip.nome}
                     </h2>
                     <p className="mt-1 text-muted-foreground">
-                      {viagem.destino ?? 'Destino a definir'}
-                      {viagem.data_inicio && ` · ${viagem.data_inicio}`}
-                      {viagem.data_fim && ` a ${viagem.data_fim}`}
+                      {currentTrip.destino ?? 'Destino a definir'}
+                      {currentTrip.data_inicio && ` · ${currentTrip.data_inicio}`}
+                      {currentTrip.data_fim && ` a ${currentTrip.data_fim}`}
                     </p>
                     <span className="mt-2 inline-block rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary capitalize">
-                      {viagem.status.replace('_', ' ')}
+                      {currentTrip.status.replace('_', ' ')}
                     </span>
                   </div>
                 </div>
@@ -132,15 +145,20 @@ export default function Dashboard() {
                     <card.icon className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{counts[card.table] ?? 0}</div>
+                    <div className="text-2xl font-bold">
+                      {countsLoading ? '–' : (counts[card.table] ?? 0)}
+                    </div>
                   </CardContent>
                 </Card>
               ))}
             </div>
 
             <div className="mt-8 rounded-xl border border-dashed border-border bg-muted/50 p-8 text-center">
-              <p className="text-muted-foreground">
-                Módulos completos (voos, hospedagens, tarefas, etc.) serão implementados nas próximas fases.
+              <p className="text-sm text-muted-foreground">
+                ID da viagem atual: <code className="rounded bg-muted px-2 py-0.5 text-xs font-mono">{currentTripId}</code>
+              </p>
+              <p className="mt-2 text-muted-foreground">
+                Módulos de CRUD serão implementados nas próximas fases.
               </p>
             </div>
           </>
