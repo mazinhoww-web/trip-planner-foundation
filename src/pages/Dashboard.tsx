@@ -1,7 +1,23 @@
-import { useMemo, useState } from 'react';
+import { Suspense, lazy, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTrip } from '@/hooks/useTrip';
-import { useModuleData, useTripSummary } from '@/hooks/useModuleData';
+import { useTripSummary } from '@/hooks/useModuleData';
+import {
+  useDocuments,
+  useExpenses,
+  useFlights,
+  useLuggage,
+  usePreparativos,
+  useRestaurants,
+  useStays,
+  useTasks,
+  useTransports,
+  useTravelers,
+} from '@/hooks/useTripModules';
+import { TripCoverageAlert } from '@/components/dashboard/TripCoverageAlert';
+import { TripHero } from '@/components/dashboard/TripHero';
+import { TripStatsGrid } from '@/components/dashboard/TripStatsGrid';
+import { TripTopActions } from '@/components/dashboard/TripTopActions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,15 +28,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Tables, TablesInsert } from '@/integrations/supabase/types';
-import { Plane, Hotel, Bus, ListTodo, DollarSign, LogOut, MapPin, Utensils, Briefcase, Users, FileText, Package, Plus, Pencil, Trash2, Clock3, Route, CheckCircle2, RotateCcw, TrendingUp, TrendingDown, Wallet, RefreshCcw, Heart, CalendarDays, AlertTriangle } from 'lucide-react';
+import { Plane, Hotel, Bus, ListTodo, DollarSign, LogOut, Utensils, Briefcase, Users, FileText, Package, Plus, Pencil, Trash2, Clock3, Route, CheckCircle2, RotateCcw, TrendingUp, TrendingDown, Wallet, Heart, CalendarDays } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { generateStayTips, suggestRestaurants } from '@/services/ai';
-import { ImportReservationDialog } from '@/components/import/ImportReservationDialog';
-import { TripOpenMap } from '@/components/map/TripOpenMap';
 import { calculateStayCoverageGaps, calculateTransportCoverageGaps } from '@/services/tripInsights';
 import { supabase } from '@/integrations/supabase/client';
+
+const ImportReservationDialog = lazy(() =>
+  import('@/components/import/ImportReservationDialog').then((mod) => ({ default: mod.ImportReservationDialog })),
+);
+const TripOpenMap = lazy(() =>
+  import('@/components/map/TripOpenMap').then((mod) => ({ default: mod.TripOpenMap })),
+);
 
 const statCards = [
   { label: 'Voos', icon: Plane, key: 'voos' },
@@ -360,16 +381,16 @@ export default function Dashboard() {
   const { currentTrip, currentTripId, trips, loading: tripLoading, selectTrip } = useTrip();
   const navigate = useNavigate();
   const { data: counts, isLoading: countsLoading } = useTripSummary();
-  const flightsModule = useModuleData('voos');
-  const staysModule = useModuleData('hospedagens');
-  const transportsModule = useModuleData('transportes');
-  const tasksModule = useModuleData('tarefas');
-  const expensesModule = useModuleData('despesas');
-  const restaurantsModule = useModuleData('restaurantes');
-  const documentsModule = useModuleData('documentos');
-  const luggageModule = useModuleData('bagagem');
-  const travelersModule = useModuleData('viajantes');
-  const prepModule = useModuleData('preparativos');
+  const flightsModule = useFlights();
+  const staysModule = useStays();
+  const transportsModule = useTransports();
+  const tasksModule = useTasks();
+  const expensesModule = useExpenses();
+  const restaurantsModule = useRestaurants();
+  const documentsModule = useDocuments();
+  const luggageModule = useLuggage();
+  const travelersModule = useTravelers();
+  const prepModule = usePreparativos();
 
   const [activeTab, setActiveTab] = useState('visao');
 
@@ -550,6 +571,27 @@ export default function Dashboard() {
   const transportCoverageGaps = useMemo(() => {
     return calculateTransportCoverageGaps(staysModule.data, transportsModule.data, flightsModule.data);
   }, [flightsModule.data, staysModule.data, transportsModule.data]);
+
+  const stayGapLines = useMemo(() => {
+    return stayCoverageGaps.slice(0, 3).map((gap) => ({
+      key: `stay-gap-${gap.start}-${gap.end}`,
+      text: `Hospedagem: ${formatDate(gap.start)} até ${formatDate(gap.end)} (${gap.nights} noite(s)) sem reserva.`,
+    }));
+  }, [stayCoverageGaps]);
+
+  const transportGapLines = useMemo(() => {
+    return transportCoverageGaps.slice(0, 3).map((gap) => ({
+      key: `transport-gap-${gap.from}-${gap.to}-${gap.referenceDate ?? 'sem-data'}`,
+      text: `Transporte: trecho ${gap.from} → ${gap.to} sem cobertura registrada.`,
+    }));
+  }, [transportCoverageGaps]);
+
+  const heroDateRangeLabel = useMemo(() => {
+    const start = currentTrip?.data_inicio ? formatDate(currentTrip.data_inicio) : '';
+    const end = currentTrip?.data_fim ? formatDate(currentTrip.data_fim) : '';
+    if (start && end) return `${start} - ${end}`;
+    return start || end || '';
+  }, [currentTrip?.data_fim, currentTrip?.data_inicio]);
 
   const selectedStayDocuments = useMemo(() => {
     if (!selectedStay) return [];
@@ -1170,92 +1212,24 @@ export default function Dashboard() {
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
         {currentTrip ? (
           <>
-            <Card className="mb-8 overflow-hidden border-border/60">
-              <div className="relative min-h-[240px]">
-                <img
-                  src={tripCoverImage(currentTrip.destino)}
-                  alt={`Capa da viagem ${currentTrip.nome}`}
-                  className="h-[240px] w-full object-cover"
-                  loading="lazy"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
+            <TripHero
+              name={currentTrip.nome}
+              status={currentTrip.status}
+              daysUntilTrip={daysUntilTrip}
+              destinationLabel={currentTrip.destino ?? 'Destino a definir'}
+              dateRangeLabel={heroDateRangeLabel}
+              coverImage={tripCoverImage(currentTrip.destino)}
+            />
 
-                <div className="absolute inset-x-0 bottom-0 p-5 text-white sm:p-6">
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="rounded-full bg-white/25 px-3 py-1 backdrop-blur">
-                      {currentTrip.status.replace('_', ' ')}
-                    </span>
-                    {daysUntilTrip != null && (
-                      <span className="rounded-full bg-white/25 px-3 py-1 backdrop-blur">
-                        Em {daysUntilTrip} dias
-                      </span>
-                    )}
-                  </div>
-                  <h2 className="mt-2 text-3xl font-bold font-display">{currentTrip.nome}</h2>
-                  <p className="mt-1 text-sm text-white/85">
-                    <MapPin className="mr-1 inline h-4 w-4" />
-                    {currentTrip.destino ?? 'Destino a definir'}
-                    {currentTrip.data_inicio && ` · ${formatDate(currentTrip.data_inicio)}`}
-                    {currentTrip.data_fim && ` - ${formatDate(currentTrip.data_fim)}`}
-                  </p>
-                </div>
-              </div>
-            </Card>
+            <TripTopActions isReconciling={isReconciling} onReconcile={reconcileFromServer}>
+              <Suspense fallback={<Button disabled>Carregando importação...</Button>}>
+                <ImportReservationDialog />
+              </Suspense>
+            </TripTopActions>
 
-            <div className="mb-6 flex flex-wrap justify-end gap-2">
-              <Button variant="outline" onClick={reconcileFromServer} disabled={isReconciling} aria-label="Reconciliar dados com banco">
-                <RefreshCcw className={`mr-2 h-4 w-4 ${isReconciling ? 'animate-spin' : ''}`} />
-                Reconciliar dados
-              </Button>
-              <ImportReservationDialog />
-            </div>
+            <TripCoverageAlert stayGapLines={stayGapLines} transportGapLines={transportGapLines} />
 
-            {(stayCoverageGaps.length > 0 || transportCoverageGaps.length > 0) && (
-              <Card className="mb-6 border-amber-500/40 bg-amber-500/5">
-                <CardContent className="space-y-3 p-4">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-700" />
-                    <p className="text-sm font-medium text-amber-900">
-                      Gaps detectados no planejamento da viagem
-                    </p>
-                  </div>
-                  {stayCoverageGaps.length > 0 && (
-                    <div className="space-y-1 text-sm text-amber-900/90">
-                      {stayCoverageGaps.slice(0, 3).map((gap) => (
-                        <p key={`stay-gap-${gap.start}-${gap.end}`}>
-                          Hospedagem: {formatDate(gap.start)} até {formatDate(gap.end)} ({gap.nights} noite(s)) sem reserva.
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                  {transportCoverageGaps.length > 0 && (
-                    <div className="space-y-1 text-sm text-amber-900/90">
-                      {transportCoverageGaps.slice(0, 3).map((gap) => (
-                        <p key={`transport-gap-${gap.from}-${gap.to}-${gap.referenceDate ?? 'sem-data'}`}>
-                          Transporte: trecho {gap.from} → {gap.to} sem cobertura registrada.
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-              {statCards.map((card) => (
-                <Card key={card.key} className="border-border/60 bg-white/90 transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
-                  <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">{card.label}</CardTitle>
-                    <card.icon className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">
-                      {countsLoading ? '–' : ((counts as Record<string, number>)?.[card.key] ?? 0)}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            <TripStatsGrid cards={statCards} counts={counts as Record<string, number> | undefined} isLoading={countsLoading} />
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-8">
               <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-2xl border border-border/70 bg-white/90 p-2 shadow-sm sm:grid-cols-4 xl:grid-cols-9">
@@ -1338,7 +1312,9 @@ export default function Dashboard() {
                     <CardTitle className="text-base">Mapa da viagem (OpenStreetMap)</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <TripOpenMap stays={staysModule.data} transports={transportsModule.data} flights={flightsModule.data} />
+                    <Suspense fallback={<div className="h-[320px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
+                      <TripOpenMap stays={staysModule.data} transports={transportsModule.data} flights={flightsModule.data} />
+                    </Suspense>
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -1666,7 +1642,9 @@ export default function Dashboard() {
                       </div>
                     )}
 
-                    <TripOpenMap stays={staysFiltered} transports={transportsModule.data} flights={flightsModule.data} height={280} />
+                    <Suspense fallback={<div className="h-[280px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
+                      <TripOpenMap stays={staysFiltered} transports={transportsModule.data} flights={flightsModule.data} height={280} />
+                    </Suspense>
 
                     {(stayCoverageGaps.length > 0 || transportCoverageGaps.length > 0) && (
                       <div className="rounded-xl border border-amber-400/40 bg-amber-500/5 p-3 text-sm">
@@ -1782,7 +1760,9 @@ export default function Dashboard() {
                         <div className="rounded-xl border bg-muted/30 p-3">
                           <p className="font-semibold">Mapa da hospedagem</p>
                           <div className="mt-2">
-                            <TripOpenMap stays={[selectedStay]} transports={[]} height={220} />
+                            <Suspense fallback={<div className="h-[220px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
+                              <TripOpenMap stays={[selectedStay]} transports={[]} height={220} />
+                            </Suspense>
                           </div>
                         </div>
 
@@ -2018,7 +1998,9 @@ export default function Dashboard() {
                       </div>
                     )}
 
-                    <TripOpenMap stays={staysModule.data} transports={transportFiltered} flights={flightsModule.data} height={260} />
+                    <Suspense fallback={<div className="h-[260px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
+                      <TripOpenMap stays={staysModule.data} transports={transportFiltered} flights={flightsModule.data} height={260} />
+                    </Suspense>
 
                     {transportsModule.isLoading ? (
                       <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
