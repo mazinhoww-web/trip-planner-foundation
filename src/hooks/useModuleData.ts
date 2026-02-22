@@ -78,6 +78,7 @@ export function useModuleData<T extends TripScopedTable>(table: T) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey: ['trip-summary', currentTripId] });
       toast.success('Registro atualizado.');
     },
     onError: (err: Error) => toast.error(err.message),

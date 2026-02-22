@@ -36,19 +36,28 @@ npm i
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+## AI Enrichment setup (Prompt 07)
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+This project now uses Supabase Edge Functions for AI enrichment:
 
-**Use GitHub Codespaces**
+- `generate-tips`
+- `suggest-restaurants`
+- `ocr-document`
+- `extract-reservation`
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+Set required environment variables:
+
+- Frontend: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`
+- Supabase Functions (server-side): `OPENAI_API_KEY`
+
+Deploy functions:
+
+```sh
+supabase functions deploy generate-tips
+supabase functions deploy suggest-restaurants
+supabase functions deploy ocr-document
+supabase functions deploy extract-reservation
+```
 
 ## What technologies are used for this project?
 
