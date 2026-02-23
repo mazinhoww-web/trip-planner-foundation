@@ -178,7 +178,7 @@ export function TripUsersPanel({ tripMembers, currentUserId }: TripUsersPanelPro
                               confirmLabel="Remover"
                               size="sm"
                               disabled={tripMembers.isRemovingMember}
-                              onConfirm={() => tripMembers.removeMember(member.id)}
+                              onConfirm={() => { void tripMembers.removeMember(member.id); }}
                             >
                               Remover
                             </ConfirmActionButton>
@@ -228,7 +228,7 @@ export function TripUsersPanel({ tripMembers, currentUserId }: TripUsersPanelPro
                             confirmLabel="Revogar"
                             size="sm"
                             disabled={tripMembers.isRevokingInvite}
-                            onConfirm={() => tripMembers.revokeInvite(invite.id)}
+                            onConfirm={() => { void tripMembers.revokeInvite(invite.id); }}
                           >
                             Revogar
                           </ConfirmActionButton>

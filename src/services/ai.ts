@@ -7,6 +7,8 @@ type StayTipsInput = {
   checkIn?: string | null;
   checkOut?: string | null;
   tripDestination?: string | null;
+  flightOrigin?: string | null;
+  flightDestination?: string | null;
 };
 
 export type StayTipsOutput = {
@@ -50,14 +52,17 @@ function trimOrNull(value: unknown): string | null {
 }
 
 function fallbackStayTips(input: StayTipsInput): StayTipsOutput {
-  const baseRegion = trimOrNull(input.location) ?? trimOrNull(input.tripDestination) ?? 'a região da sua hospedagem';
+  const loc = trimOrNull(input.location) ?? trimOrNull(input.tripDestination) ?? 'sua hospedagem';
+  const origin = trimOrNull(input.flightOrigin);
 
   return {
-    dica_viagem: `Confirme check-in/check-out e prefira deslocamentos fora do horário de pico em ${baseRegion}.`,
-    como_chegar: `Use apps de mobilidade ou transporte público a partir do aeroporto/estação principal até ${baseRegion}.`,
-    atracoes_proximas: `Pesquise no mapa por pontos culturais e parques no entorno de ${baseRegion}.`,
-    restaurantes_proximos: `Busque opções de culinária local, café da manhã e jantar no bairro de ${baseRegion}.`,
-    dica_ia: 'Fallback ativo: revise as sugestões no mapa e confirme horários diretamente com os estabelecimentos.',
+    dica_viagem: `Verifique horários de check-in/check-out diretamente com ${loc}. Salve o endereço no Google Maps offline antes de viajar.`,
+    como_chegar: origin
+      ? `Pesquise rotas de ${origin} até ${loc} no Google Maps ou Rome2Rio para opções de transporte com preços.`
+      : `Pesquise rotas até ${loc} no Google Maps ou Rome2Rio para opções de transporte com preços.`,
+    atracoes_proximas: `Busque "atrações perto de ${loc}" no Google Maps para ver pontos turísticos com avaliações reais.`,
+    restaurantes_proximos: `Busque "restaurantes perto de ${loc}" no Google Maps para ver opções com avaliações e preços.`,
+    dica_ia: 'Dicas automáticas indisponíveis no momento. Tente novamente em alguns minutos para obter sugestões personalizadas.',
   };
 }
 
@@ -112,6 +117,8 @@ export async function generateStayTips(input: StayTipsInput): Promise<FunctionRe
     checkIn: trimOrNull(input.checkIn),
     checkOut: trimOrNull(input.checkOut),
     tripDestination: trimOrNull(input.tripDestination),
+    flightOrigin: trimOrNull(input.flightOrigin),
+    flightDestination: trimOrNull(input.flightDestination),
   };
 
   const response = await invokeWithSingleRetry<{ data?: StayTipsOutput; error?: string }>('generate-tips', payload);
