@@ -227,6 +227,75 @@ export async function tryExtractNativeText(file: File) {
   };
 }
 
+const IMAGE_MAX_BYTES = 900_000; // ~900 KB target to stay under OCR.space 1 MB limit
+
+function isImageFile(file: File) {
+  const ext = extensionFromFile(file);
+  return ['png', 'jpg', 'jpeg', 'webp'].includes(ext) || file.type.startsWith('image/');
+}
+
+async function resizeImageIfNeeded(file: File, maxBytes: number): Promise<File> {
+  if (file.size <= maxBytes || !isImageFile(file)) {
+    return file;
+  }
+
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(file); // fallback to original
+        return;
+      }
+
+      // Reduce progressively until under maxBytes
+      const tryResize = (scale: number) => {
+        const w = Math.round(width * scale);
+        const h = Math.round(height * scale);
+        canvas.width = w;
+        canvas.height = h;
+        ctx.drawImage(img, 0, 0, w, h);
+
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              resolve(file);
+              return;
+            }
+            if (blob.size <= maxBytes || scale <= 0.2) {
+              const resized = new File([blob], file.name, {
+                type: 'image/jpeg',
+                lastModified: Date.now(),
+              });
+              resolve(resized);
+            } else {
+              tryResize(scale - 0.1);
+            }
+          },
+          'image/jpeg',
+          0.85,
+        );
+      };
+
+      // Start at 90% and go down
+      const initialScale = Math.min(1, Math.sqrt(maxBytes / file.size));
+      tryResize(Math.min(initialScale, 0.9));
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Falha ao carregar imagem para redimensionamento.'));
+    };
+
+    img.src = url;
+  });
+}
+
 async function toBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -244,7 +313,9 @@ async function toBase64(file: File): Promise<string> {
 }
 
 export async function runOcrDocument(file: File) {
-  const fileBase64 = await toBase64(file);
+  // Resize images > 900KB to stay within OCR.space free tier limit
+  const processedFile = await resizeImageIfNeeded(file, IMAGE_MAX_BYTES);
+  const fileBase64 = await toBase64(processedFile);
 
   const { data, error } = await supabase.functions.invoke('ocr-document', {
     body: {

@@ -7,10 +7,11 @@ Retorne apenas texto bruto.
 Nao invente palavras ilegiveis.
 Se algo estiver ilegivel, simplesmente omita.`;
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const IMAGE_MODEL = 'google/gemma-3-27b-it:free';
+const LOVABLE_AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
+const VISION_MODEL = 'google/gemini-2.5-flash';
 const LIMIT_PER_HOUR = 10;
 const ONE_HOUR_MS = 60 * 60 * 1000;
+const OCR_SPACE_MAX_BYTES = 1_000_000; // 1 MB
 
 function extFromName(fileName: string | null | undefined) {
   if (!fileName) return '';
@@ -78,6 +79,12 @@ function qualityMetricsFromText(text: string) {
   };
 }
 
+function estimateBase64FileSize(base64: string): number {
+  // Remove padding chars and estimate real byte size
+  const padding = (base64.match(/=+$/) || [''])[0].length;
+  return Math.floor((base64.length * 3) / 4) - padding;
+}
+
 async function runOcrSpace(base64: string, mimeType: string | null) {
   const apiKey = Deno.env.get('OCR_SPACE_API_KEY');
   if (!apiKey) {
@@ -111,24 +118,22 @@ async function runOcrSpace(base64: string, mimeType: string | null) {
   return { text, error: null as string | null };
 }
 
-async function runOpenRouterVision(base64: string, mimeType: string | null) {
-  const apiKey = Deno.env.get('OPENROUTER_API_KEY') ?? Deno.env.get('OPENAI_API_KEY');
+async function runLovableVision(base64: string, mimeType: string | null) {
+  const apiKey = Deno.env.get('LOVABLE_API_KEY');
   if (!apiKey) {
-    return { text: '', error: 'OPENROUTER_API_KEY não configurada.' };
+    return { text: '', error: 'LOVABLE_API_KEY não configurada.' };
   }
 
-  const res = await fetch(OPENROUTER_URL, {
+  const res = await fetch(LOVABLE_AI_URL, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
-      'HTTP-Referer': Deno.env.get('APP_ORIGIN') ?? 'https://trip-planner-foundation.local',
-      'X-Title': 'Trip Planner Foundation',
     },
     body: JSON.stringify({
-      model: IMAGE_MODEL,
+      model: VISION_MODEL,
       temperature: 0,
-      max_tokens: 1000,
+      max_tokens: 2000,
       messages: [
         { role: 'system', content: OCR_PROMPT },
         {
@@ -149,13 +154,19 @@ async function runOpenRouterVision(base64: string, mimeType: string | null) {
 
   if (!res.ok) {
     const raw = await res.text();
-    return { text: '', error: `Gemma vision falhou (${res.status}): ${raw.slice(0, 120)}` };
+    if (res.status === 429) {
+      return { text: '', error: 'Rate limit do AI gateway atingido. Tente novamente em alguns minutos.' };
+    }
+    if (res.status === 402) {
+      return { text: '', error: 'Créditos de AI insuficientes.' };
+    }
+    return { text: '', error: `Lovable AI vision falhou (${res.status}): ${raw.slice(0, 120)}` };
   }
 
   const json = await res.json();
   const text = (json?.choices?.[0]?.message?.content || '').trim();
   if (!text) {
-    return { text: '', error: 'Gemma vision sem texto extraído.' };
+    return { text: '', error: 'Lovable AI vision sem texto extraído.' };
   }
 
   return { text, error: null as string | null };
@@ -194,9 +205,24 @@ Deno.serve(async (req) => {
 
     const ext = extFromName(fileName);
     const warnings: string[] = [];
-    const nativePdfText = (ext === 'pdf' || mimeType === 'application/pdf') ? extractPdfNativeText(fileBase64) : '';
+    const fileSizeBytes = estimateBase64FileSize(fileBase64);
+    const exceedsOcrSpaceLimit = fileSizeBytes > OCR_SPACE_MAX_BYTES;
+
+    if (exceedsOcrSpaceLimit) {
+      console.info('[ocr-document]', requestId, 'size_exceeds_limit', {
+        fileSizeBytes,
+        limit: OCR_SPACE_MAX_BYTES,
+        fileName,
+      });
+      warnings.push(`Arquivo excede 1 MB (${(fileSizeBytes / 1_000_000).toFixed(2)} MB), OCR.space ignorado.`);
+    }
+
+    const isPdf = ext === 'pdf' || mimeType === 'application/pdf';
+    const isImage = ['png', 'jpg', 'jpeg', 'webp'].includes(ext) || (mimeType || '').startsWith('image/');
+    const nativePdfText = isPdf ? extractPdfNativeText(fileBase64) : '';
     const nativeMetrics = nativePdfText ? qualityMetricsFromText(nativePdfText) : null;
 
+    // 1. Try native PDF if good quality
     if (nativePdfText && nativeMetrics?.has_structured_density) {
       console.info('[ocr-document]', requestId, 'success', {
         userId: auth.userId,
@@ -212,25 +238,28 @@ Deno.serve(async (req) => {
       });
     }
 
-    const ocrResult = await runOcrSpace(fileBase64, mimeType);
-    if (!ocrResult.error && ocrResult.text) {
-      const metrics = qualityMetricsFromText(ocrResult.text);
-      console.info('[ocr-document]', requestId, 'success', {
-        userId: auth.userId,
-        method: 'ocr_space',
-        remaining: rate.remaining,
-        qualityMetrics: metrics,
-      });
-      return successResponse({ text: ocrResult.text, method: 'ocr_space', warnings, qualityMetrics: metrics });
+    // 2. Try OCR.space only if within size limit
+    if (!exceedsOcrSpaceLimit) {
+      const ocrResult = await runOcrSpace(fileBase64, mimeType);
+      if (!ocrResult.error && ocrResult.text) {
+        const metrics = qualityMetricsFromText(ocrResult.text);
+        console.info('[ocr-document]', requestId, 'success', {
+          userId: auth.userId,
+          method: 'ocr_space',
+          remaining: rate.remaining,
+          qualityMetrics: metrics,
+        });
+        return successResponse({ text: ocrResult.text, method: 'ocr_space', warnings, qualityMetrics: metrics });
+      }
+      warnings.push(ocrResult.error || 'OCR.space indisponível.');
+      console.error('[ocr-document]', requestId, 'ocr_space_failure', ocrResult.error);
     }
 
-    warnings.push(ocrResult.error || 'OCR.space indisponível.');
-    console.error('[ocr-document]', requestId, 'ocr_space_failure', ocrResult.error);
-
+    // 3. Fallback: native PDF text (lower quality)
     if (nativePdfText) {
       const metrics = qualityMetricsFromText(nativePdfText);
       if (metrics.text_length > 24) {
-        warnings.push('OCR provider falhou. Texto nativo de PDF usado como fallback.');
+        warnings.push('OCR provider indisponível. Texto nativo de PDF usado como fallback.');
         console.info('[ocr-document]', requestId, 'success', {
           userId: auth.userId,
           method: 'native_pdf_fallback',
@@ -241,21 +270,22 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (['png', 'jpg', 'jpeg', 'webp'].includes(ext) || (mimeType || '').startsWith('image/')) {
-      const vision = await runOpenRouterVision(fileBase64, mimeType);
+    // 4. Fallback: Lovable AI vision (for images and PDFs without native text)
+    if (isImage || isPdf) {
+      const vision = await runLovableVision(fileBase64, mimeType || (isImage ? 'image/png' : 'application/pdf'));
       if (!vision.error && vision.text) {
         const metrics = qualityMetricsFromText(vision.text);
         console.info('[ocr-document]', requestId, 'success', {
           userId: auth.userId,
-          method: 'gemma_vision',
+          method: 'lovable_ai_vision',
           remaining: rate.remaining,
           qualityMetrics: metrics,
         });
-        return successResponse({ text: vision.text, method: 'gemma_vision', warnings, qualityMetrics: metrics });
+        return successResponse({ text: vision.text, method: 'lovable_ai_vision', warnings, qualityMetrics: metrics });
       }
 
-      warnings.push(vision.error || 'Gemma vision indisponível.');
-      console.error('[ocr-document]', requestId, 'gemma_vision_failure', vision.error);
+      warnings.push(vision.error || 'Lovable AI vision indisponível.');
+      console.error('[ocr-document]', requestId, 'lovable_vision_failure', vision.error);
     }
 
     return errorResponse(requestId, 'UPSTREAM_ERROR', 'Falha no OCR em todas as camadas.', 502, {
