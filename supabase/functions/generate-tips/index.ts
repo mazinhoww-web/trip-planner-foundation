@@ -41,7 +41,11 @@ Regras:
 }`;
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const MODEL = 'arcee-ai/trinity-large-preview:free';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+const LOVABLE_AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
+
+const ARCEE_MODEL = 'arcee-ai/trinity-large-preview:free';
+const LOVABLE_MODEL = 'google/gemini-3-flash-preview';
 const LIMIT_PER_HOUR = 20;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
@@ -52,22 +56,14 @@ function truncate(value: string | null | undefined, max = 220) {
 
 function sanitizeOutput(value: unknown): GenerateTipsOutput {
   if (!value || typeof value !== 'object') {
-    return {
-      dica_viagem: null,
-      como_chegar: null,
-      atracoes_proximas: null,
-      restaurantes_proximos: null,
-      dica_ia: null,
-    };
+    return { dica_viagem: null, como_chegar: null, atracoes_proximas: null, restaurantes_proximos: null, dica_ia: null };
   }
-
   const v = value as Record<string, unknown>;
   const getField = (key: keyof GenerateTipsOutput) => {
     const raw = v[key];
     if (typeof raw !== 'string') return null;
     return raw.trim() || null;
   };
-
   return {
     dica_viagem: getField('dica_viagem'),
     como_chegar: getField('como_chegar'),
@@ -81,12 +77,85 @@ function extractJson(content: string) {
   const start = content.indexOf('{');
   const end = content.lastIndexOf('}');
   if (start === -1 || end === -1 || end <= start) return null;
-  const maybe = content.slice(start, end + 1);
-  try {
-    return JSON.parse(maybe) as Record<string, unknown>;
-  } catch {
-    return null;
+  try { return JSON.parse(content.slice(start, end + 1)) as Record<string, unknown>; } catch { return null; }
+}
+
+// ─── AI Provider Calls ───────────────────────────────────────────
+
+async function callArcee(userContent: string): Promise<string> {
+  const apiKey = Deno.env.get('open_router_key');
+  if (!apiKey) throw new Error('open_router_key not configured');
+  const res = await fetch(OPENROUTER_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': Deno.env.get('APP_ORIGIN') ?? 'https://trip-planner-foundation.local',
+      'X-Title': 'Trip Planner Foundation',
+    },
+    body: JSON.stringify({
+      model: ARCEE_MODEL, temperature: 0.2, max_tokens: 450,
+      messages: [{ role: 'system', content: PROMPT }, { role: 'user', content: userContent }],
+    }),
+  });
+  if (!res.ok) throw new Error(`Arcee ${res.status}`);
+  const json = await res.json();
+  const content = json?.choices?.[0]?.message?.content;
+  if (typeof content !== 'string' || !content.trim()) throw new Error('Arcee empty');
+  return content;
+}
+
+async function callGemini(userContent: string): Promise<string> {
+  const apiKey = Deno.env.get('gemini_api_key');
+  if (!apiKey) throw new Error('gemini_api_key not configured');
+  const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: `${PROMPT}\n\n${userContent}` }] }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 450 },
+    }),
+  });
+  if (!res.ok) throw new Error(`Gemini ${res.status}`);
+  const json = await res.json();
+  const content = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (typeof content !== 'string' || !content.trim()) throw new Error('Gemini empty');
+  return content;
+}
+
+async function callLovableAi(userContent: string): Promise<string> {
+  const apiKey = Deno.env.get('LOVABLE_API_KEY');
+  if (!apiKey) throw new Error('LOVABLE_API_KEY not configured');
+  const res = await fetch(LOVABLE_AI_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: LOVABLE_MODEL, temperature: 0.2, max_tokens: 450,
+      messages: [{ role: 'system', content: PROMPT }, { role: 'user', content: userContent }],
+    }),
+  });
+  if (!res.ok) throw new Error(`LovableAI ${res.status}`);
+  const json = await res.json();
+  const content = json?.choices?.[0]?.message?.content;
+  if (typeof content !== 'string' || !content.trim()) throw new Error('LovableAI empty');
+  return content;
+}
+
+async function callWithFallback(userContent: string, requestId: string): Promise<{ content: string; provider: string }> {
+  const providers = [
+    { fn: () => callArcee(userContent), name: 'arcee' },
+    { fn: () => callGemini(userContent), name: 'gemini' },
+    { fn: () => callLovableAi(userContent), name: 'lovable_ai' },
+  ];
+  for (const { fn, name } of providers) {
+    try {
+      const content = await fn();
+      return { content, provider: name };
+    } catch (err) {
+      console.warn(`[generate-tips] ${requestId} ${name} failed:`, (err as Error).message);
+    }
   }
+  throw new Error('All AI providers failed');
 }
 
 Deno.serve(async (req) => {
@@ -99,22 +168,12 @@ Deno.serve(async (req) => {
   try {
     const auth = await requireAuthenticatedUser(req);
     if (auth.error || !auth.userId) {
-      console.error('[generate-tips]', requestId, 'unauthorized', auth.error);
       return errorResponse(requestId, 'UNAUTHORIZED', 'Faça login novamente para usar dicas de IA.', 401);
     }
 
     const rate = consumeRateLimit(auth.userId, 'generate-tips', LIMIT_PER_HOUR, ONE_HOUR_MS);
     if (!rate.allowed) {
-      console.error('[generate-tips]', requestId, 'rate_limited', { userId: auth.userId });
-      return errorResponse(requestId, 'RATE_LIMITED', 'Limite de uso de IA atingido. Tente novamente mais tarde.', 429, {
-        resetAt: rate.resetAt,
-      });
-    }
-
-    const apiKey = Deno.env.get('OPENROUTER_API_KEY') ?? Deno.env.get('OPENAI_API_KEY');
-    if (!apiKey) {
-      console.error('[generate-tips]', requestId, 'missing_OPENROUTER_API_KEY');
-      return errorResponse(requestId, 'MISCONFIGURED', 'Integração de IA não configurada.', 500);
+      return errorResponse(requestId, 'RATE_LIMITED', 'Limite de uso de IA atingido. Tente novamente mais tarde.', 429, { resetAt: rate.resetAt });
     }
 
     const body = (await req.json()) as GenerateTipsInput;
@@ -126,52 +185,16 @@ Deno.serve(async (req) => {
       tripDestination: truncate(body.tripDestination),
     };
 
-    const aiResponse = await fetch(OPENROUTER_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': Deno.env.get('APP_ORIGIN') ?? 'https://trip-planner-foundation.local',
-        'X-Title': 'Trip Planner Foundation',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        temperature: 0.2,
-        max_tokens: 450,
-        messages: [
-          { role: 'system', content: PROMPT },
-          { role: 'user', content: `Dados da hospedagem: ${JSON.stringify(payload)}` },
-        ],
-      }),
-    });
-
-    if (!aiResponse.ok) {
-      const raw = await aiResponse.text();
-      console.error('[generate-tips]', requestId, 'openrouter_error', aiResponse.status, raw.slice(0, 240));
-      return errorResponse(requestId, 'UPSTREAM_ERROR', 'Falha ao gerar dicas no momento.', 502);
-    }
-
-    const aiJson = await aiResponse.json();
-    const content = aiJson?.choices?.[0]?.message?.content;
-    const usage = aiJson?.usage ?? null;
-
-    if (typeof content !== 'string' || !content.trim()) {
-      console.error('[generate-tips]', requestId, 'empty_content');
-      return errorResponse(requestId, 'UPSTREAM_ERROR', 'IA retornou conteúdo vazio.', 502);
-    }
+    const userContent = `Dados da hospedagem: ${JSON.stringify(payload)}`;
+    const { content, provider } = await callWithFallback(userContent, requestId);
 
     const parsed = extractJson(content);
     if (!parsed) {
-      console.error('[generate-tips]', requestId, 'invalid_json');
       return errorResponse(requestId, 'UPSTREAM_ERROR', 'IA retornou formato inválido.', 502);
     }
 
     const data = sanitizeOutput(parsed);
-    console.info('[generate-tips]', requestId, 'success', {
-      userId: auth.userId,
-      remaining: rate.remaining,
-      usage,
-    });
+    console.info('[generate-tips]', requestId, 'success', { userId: auth.userId, remaining: rate.remaining, provider });
 
     return successResponse(data);
   } catch (error) {
