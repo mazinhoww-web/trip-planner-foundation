@@ -498,7 +498,31 @@ async function callLovableAi(prompt: string, userContent: string): Promise<AiRes
   return { content, provider: 'lovable_ai', usage: json?.usage };
 }
 
-// ─── Parallel extraction with confidence comparison ───────────────
+// ─── Race extraction: Gemini prioritário + early accept ───────────
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timeout ${ms}ms`)), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
+type Candidate = { canonical: CanonicalPayload; scope: string; provider: string; usage: unknown };
+
+function tryParseCandidate(
+  result: AiResult, text: string, fileName: string, requestId: string,
+): Candidate | null {
+  const parsed = extractJson(result.content);
+  if (!parsed) {
+    console.warn(`[extract-reservation] ${requestId} ${result.provider} invalid_json`);
+    return null;
+  }
+  const { canonical, scope } = normalizeCanonical(parsed, text, fileName);
+  return { canonical, scope, provider: result.provider, usage: result.usage };
+}
 
 async function extractWithBestProvider(
   userContent: string,
@@ -506,44 +530,65 @@ async function extractWithBestProvider(
   fileName: string,
   requestId: string,
 ): Promise<{ canonical: CanonicalPayload; scope: string; provider: string; usage: unknown }> {
-  // 1. Run Arcee + Gemini in parallel
-  const [arceeResult, geminiResult] = await Promise.allSettled([
-    callArcee(SYSTEM_PROMPT, userContent),
-    callGemini(SYSTEM_PROMPT, userContent),
-  ]);
+  const TIMEOUT_MS = 8000;
+  const EARLY_ACCEPT_MS = 4000;
+  const EARLY_ACCEPT_THRESHOLD = 60;
 
-  type Candidate = { parsed: Record<string, unknown>; canonical: CanonicalPayload; scope: string; provider: string; usage: unknown };
-  const candidates: Candidate[] = [];
+  // Dispatch both with timeout
+  const geminiPromise = withTimeout(callGemini(SYSTEM_PROMPT, userContent), TIMEOUT_MS, 'gemini');
+  const arceePromise = withTimeout(callArcee(SYSTEM_PROMPT, userContent), TIMEOUT_MS, 'arcee');
 
-  for (const [result, name] of [[arceeResult, 'arcee'], [geminiResult, 'gemini']] as const) {
-    if (result.status === 'fulfilled') {
-      const parsed = extractJson(result.value.content);
-      if (parsed) {
-        const { canonical, scope } = normalizeCanonical(parsed, text, fileName);
-        candidates.push({ parsed, canonical, scope, provider: result.value.provider, usage: result.value.usage });
-      } else {
-        console.warn(`[extract-reservation] ${requestId} ${name} invalid_json`);
-      }
-    } else {
-      console.warn(`[extract-reservation] ${requestId} ${name} failed:`, result.reason?.message);
+  // 1. Try early accept: if Gemini returns fast with good confidence, use it immediately
+  try {
+    const geminiEarly = await withTimeout(geminiPromise, EARLY_ACCEPT_MS, 'gemini_early');
+    const candidate = tryParseCandidate(geminiEarly, text, fileName, requestId);
+    if (candidate && candidate.canonical.metadata.confianca >= EARLY_ACCEPT_THRESHOLD) {
+      console.info(`[extract-reservation] ${requestId} early_accept provider=gemini confianca=${candidate.canonical.metadata.confianca}`);
+      return candidate;
     }
-  }
+    // Gemini returned but low confidence — wait for Arcee too
+    const candidates: Candidate[] = candidate ? [candidate] : [];
+    try {
+      const arceeResult = await arceePromise;
+      const arceeCand = tryParseCandidate(arceeResult, text, fileName, requestId);
+      if (arceeCand) candidates.push(arceeCand);
+    } catch (e) {
+      console.warn(`[extract-reservation] ${requestId} arcee failed:`, (e as Error).message);
+    }
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => b.canonical.metadata.confianca - a.canonical.metadata.confianca);
+      const best = candidates[0];
+      console.info(`[extract-reservation] ${requestId} selected_provider=${best.provider} confianca=${best.canonical.metadata.confianca}`);
+      return best;
+    }
+  } catch {
+    // Gemini didn't return in time — wait for both to settle
+    const [arceeResult, geminiResult] = await Promise.allSettled([arceePromise, geminiPromise]);
+    const candidates: Candidate[] = [];
 
-  // Pick highest confidence
-  if (candidates.length > 0) {
-    candidates.sort((a, b) => b.canonical.metadata.confianca - a.canonical.metadata.confianca);
-    const best = candidates[0];
-    console.info(`[extract-reservation] ${requestId} selected_provider=${best.provider} confianca=${best.canonical.metadata.confianca}`);
-    return best;
+    for (const [result, name] of [[geminiResult, 'gemini'], [arceeResult, 'arcee']] as const) {
+      if (result.status === 'fulfilled') {
+        const c = tryParseCandidate(result.value, text, fileName, requestId);
+        if (c) candidates.push(c);
+      } else {
+        console.warn(`[extract-reservation] ${requestId} ${name} failed:`, result.reason?.message);
+      }
+    }
+
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => b.canonical.metadata.confianca - a.canonical.metadata.confianca);
+      const best = candidates[0];
+      console.info(`[extract-reservation] ${requestId} selected_provider=${best.provider} confianca=${best.canonical.metadata.confianca}`);
+      return best;
+    }
   }
 
   // 2. Fallback: Lovable AI
   console.warn(`[extract-reservation] ${requestId} falling_back_to_lovable_ai`);
   const lovableResult = await callLovableAi(SYSTEM_PROMPT, userContent);
-  const parsed = extractJson(lovableResult.content);
-  if (!parsed) throw new Error('All AI providers returned invalid JSON');
-  const { canonical, scope } = normalizeCanonical(parsed, text, fileName);
-  return { canonical, scope, provider: 'lovable_ai', usage: lovableResult.usage };
+  const candidate = tryParseCandidate(lovableResult, text, fileName, requestId);
+  if (!candidate) throw new Error('All AI providers returned invalid JSON');
+  return candidate;
 }
 
 // ─── Main handler ─────────────────────────────────────────────────
