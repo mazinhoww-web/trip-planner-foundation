@@ -32,7 +32,7 @@ export function ImportProgressCard({ activeItem, visualProgress, pipelineStatusT
           <p className="text-xs text-muted-foreground">{visualProgress}% concluído</p>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {VISUAL_STEPS.map((step, index) => {
             const status = activeItem.visualSteps[step.key];
             const isDone = status === 'completed';
@@ -42,7 +42,7 @@ export function ImportProgressCard({ activeItem, visualProgress, pipelineStatusT
               <div key={step.key} className="relative flex flex-col items-center gap-2 text-center">
                 {index < VISUAL_STEPS.length - 1 && (
                   <span
-                    className={`absolute left-[calc(50%+1rem)] top-4 hidden h-0.5 w-[calc(100%-2rem)] md:block ${isDone ? 'bg-primary' : 'bg-border'}`}
+                    className={`absolute left-[calc(50%+1rem)] top-4 hidden h-0.5 w-[calc(100%-2rem)] lg:block ${isDone ? 'bg-primary' : 'bg-border'}`}
                   />
                 )}
                 <div

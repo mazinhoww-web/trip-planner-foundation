@@ -23,7 +23,7 @@ export function ImportReviewFormByType({ reviewState, missingFieldsCount, onChan
           </Badge>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="tp-scroll max-h-[58vh] space-y-4 overflow-y-auto pr-1">
         <div className="space-y-2">
           <Label>Tipo detectado</Label>
           <Select

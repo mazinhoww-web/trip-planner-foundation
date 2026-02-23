@@ -38,9 +38,11 @@ export function ImportQueuePanel({
                 onClick={() => onSelect(item.id)}
                 className={`rounded-lg border p-3 text-left transition ${isActive ? 'border-primary bg-primary/5' : 'border-border bg-background hover:border-primary/40'}`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="line-clamp-1 text-sm font-medium">{item.file.name}</p>
-                  <Badge variant={queueStatusVariant(item.status)}>{queueStatusLabel(item.status)}</Badge>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="line-clamp-1 min-w-0 flex-1 text-sm font-medium">{item.file.name}</p>
+                  <Badge variant={queueStatusVariant(item.status)} className="shrink-0">
+                    {queueStatusLabel(item.status)}
+                  </Badge>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {item.scope === 'outside_scope' ? 'Fora de escopo' : typeLabel(item.identifiedType)}{' '}

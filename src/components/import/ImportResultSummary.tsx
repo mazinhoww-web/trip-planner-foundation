@@ -26,9 +26,9 @@ export function ImportResultSummary({ activeItem, formatCurrency, onPrevPhoto, o
               className="h-48 w-full object-cover"
               loading="lazy"
             />
-            <div className="flex items-center justify-between border-t bg-background px-3 py-2 text-xs">
+            <div className="flex flex-col gap-2 border-t bg-background px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between">
               <span>Foto {activeItem.photoIndex + 1}/{activeItem.hotelPhotos.length}</span>
-              <div className="flex gap-1">
+              <div className="grid w-full grid-cols-2 gap-1 sm:w-auto sm:flex">
                 <Button type="button" size="sm" variant="outline" onClick={onPrevPhoto}>Anterior</Button>
                 <Button type="button" size="sm" variant="outline" onClick={onNextPhoto}>Próxima</Button>
               </div>

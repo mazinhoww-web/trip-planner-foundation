@@ -1463,7 +1463,7 @@ export default function Dashboard() {
                             Novo voo
                           </Button>
                         </DialogTrigger>
-                        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+                        <DialogContent className="max-h-[90vh] w-[calc(100vw-1rem)] overflow-y-auto sm:w-full sm:max-w-2xl">
                           <DialogHeader>
                             <DialogTitle>{editingFlight ? 'Editar voo' : 'Novo voo'}</DialogTitle>
                             <DialogDescription>
@@ -1877,7 +1877,7 @@ export default function Dashboard() {
                 </Card>
 
                 <Dialog open={stayDetailOpen} onOpenChange={setStayDetailOpen}>
-                  <DialogContent className="max-h-[90vh] overflow-y-auto">
+                  <DialogContent className="max-h-[90vh] w-[calc(100vw-1rem)] overflow-y-auto sm:w-full sm:max-w-3xl">
                     <DialogHeader>
                       <DialogTitle>Detalhes da hospedagem</DialogTitle>
                       <DialogDescription>Visão rica com informações de apoio da estadia.</DialogDescription>
@@ -2050,7 +2050,7 @@ export default function Dashboard() {
                             Novo transporte
                           </Button>
                         </DialogTrigger>
-                        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+                        <DialogContent className="max-h-[90vh] w-[calc(100vw-1rem)] overflow-y-auto sm:w-full sm:max-w-2xl">
                           <DialogHeader>
                             <DialogTitle>{editingTransport ? 'Editar transporte' : 'Novo transporte'}</DialogTitle>
                             <DialogDescription>
@@ -2422,7 +2422,7 @@ export default function Dashboard() {
                             Nova despesa
                           </Button>
                         </DialogTrigger>
-                        <DialogContent className="sm:max-w-xl">
+                        <DialogContent className="max-h-[90vh] w-[calc(100vw-1rem)] overflow-y-auto sm:w-full sm:max-w-xl">
                           <DialogHeader>
                             <DialogTitle>Nova despesa</DialogTitle>
                             <DialogDescription>
