@@ -690,7 +690,9 @@ export default function Dashboard() {
       origem: from,
       destino: to,
     });
-    setTransportDialogOpen(true);
+    setActiveTab('transportes');
+    // Small delay to ensure the tab content renders the Dialog before opening it
+    setTimeout(() => setTransportDialogOpen(true), 50);
   };
 
   const heroDateRangeLabel = useMemo(() => {
