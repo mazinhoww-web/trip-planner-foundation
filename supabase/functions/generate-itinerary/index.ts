@@ -12,12 +12,26 @@ type GenerateItineraryInput = {
     localizacao?: string | null;
     check_in?: string | null;
     check_out?: string | null;
+    hora_check_in?: string | null;
+    hora_check_out?: string | null;
     atracoes_proximas?: string | null;
     restaurantes_proximos?: string | null;
     dica_viagem?: string | null;
   }>;
-  flights?: Array<{ origem?: string | null; destino?: string | null; data?: string | null }>;
-  transports?: Array<{ tipo?: string | null; origem?: string | null; destino?: string | null; data?: string | null }>;
+  flights?: Array<{
+    origem?: string | null;
+    destino?: string | null;
+    data?: string | null;
+    hora_partida?: string | null;
+    hora_chegada?: string | null;
+  }>;
+  transports?: Array<{
+    tipo?: string | null;
+    origem?: string | null;
+    destino?: string | null;
+    data?: string | null;
+    hora?: string | null;
+  }>;
   restaurants?: Array<{ nome?: string | null; cidade?: string | null; tipo?: string | null }>;
 };
 
@@ -41,38 +55,80 @@ const SYSTEM_PROMPT = `Voce é um assistente de viagem que cria roteiros dia-a-d
 
 DADOS DISPONÍVEIS:
 - Destino, datas de início e fim da viagem
-- Hospedagens com nome, localização, check-in, check-out, atrações próximas, restaurantes próximos e dicas
-- Voos com origem, destino e data/hora
-- Transportes terrestres/marítimos com tipo, origem, destino e data/hora
-- Restaurantes já salvos pelo usuário (nome, cidade, tipo)
+- Hospedagens com nome, localização, check-in, check-out, HORÁRIOS de check-in/check-out, atrações próximas, restaurantes próximos e dicas
+- Voos com origem, destino, data, HORA DE PARTIDA e HORA DE CHEGADA
+- Transportes terrestres/marítimos com tipo, origem, destino, data e hora
+- Restaurantes já salvos pelo usuário (nome, cidade, tipo) — estes são PRIORIDADE ABSOLUTA
 
-REGRAS CRÍTICAS DE HORÁRIO:
-1. No dia de CHEGADA de um voo, as atividades só começam DEPOIS do horário de chegada + 1h (deslocamento aeroporto→hotel). Exemplo: voo chega às 14h → primeira atividade às 15h.
-2. No dia de PARTIDA de um voo, as atividades terminam ANTES do horário do voo - 3h (deslocamento hotel→aeroporto + check-in). Exemplo: voo às 20h → última atividade termina às 17h.
-3. Quando houver troca de cidade (check-out de uma hospedagem + check-in de outra no mesmo dia ou dia seguinte), inclua uma atividade de "Deslocamento [Cidade A] → [Cidade B]" com categoria "transporte" e horário estimado.
+═══════════════════════════════════════════════
+REGRAS CRÍTICAS DE HORÁRIO (OBRIGATÓRIAS):
+═══════════════════════════════════════════════
 
-REGRAS DE HOSPEDAGEM:
-4. Distribua atrações e restaurantes próximos de cada hospedagem SOMENTE nos dias em que o viajante está hospedado ali (entre check_in e check_out).
-5. No dia do check-in, inclua atividade "Check-in [Nome do Hotel]" com horário estimado.
-6. No dia do check-out, inclua atividade "Check-out [Nome do Hotel]" como primeira atividade do dia.
+1. DIA DE CHEGADA (voo): A primeira atividade do dia DEVE ser DEPOIS de hora_chegada + 1h30 (deslocamento aeroporto → hotel + check-in).
+   - Se hora_chegada = "14:00", primeira atividade = "15:30" no mínimo.
+   - Se hora_chegada > 20:00, considere apenas "Jantar leve perto do hotel" ou "Descanso".
+   - Se hora_chegada não fornecida, assuma chegada às 12:00.
 
-REGRAS DE GASTRONOMIA:
-7. Se o usuário tem restaurantes salvos, use-os como sugestões PRIORITÁRIAS para almoço/jantar nos dias em que está na mesma cidade.
-8. Inclua o nome exato do restaurante salvo e sua cidade no título.
-9. Complete com sugestões próprias apenas se não houver restaurantes salvos suficientes para cobrir todas as refeições.
+2. DIA DE PARTIDA (voo): A última atividade DEVE terminar ANTES de hora_partida - 3h (deslocamento hotel → aeroporto + check-in aeroporto).
+   - Se hora_partida = "18:00", última atividade termina às 15:00 no máximo.
+   - Inclua atividade "Ida ao aeroporto [CÓDIGO]" com categoria "transporte" 3h antes do voo.
+   - Se hora_partida não fornecida, assuma partida às 18:00.
 
-REGRAS DE DICAS:
-10. Use as dicas de viagem (dica_viagem) e atrações próximas (atracoes_proximas) das hospedagens como BASE principal para atividades turísticas.
-11. ADICIONE atrações "imperdíveis" do destino mesmo que estejam mais longe.
+3. CHECK-IN HOSPEDAGEM: No dia do check_in, inclua "Check-in [Nome Hotel]" com horário = hora_check_in (ou "15:00" se não informado).
 
+4. CHECK-OUT HOSPEDAGEM: No dia do check_out, a PRIMEIRA atividade deve ser "Check-out [Nome Hotel]" com horário = hora_check_out (ou "11:00" se não informado).
+
+═══════════════════════════════════════════════
+REGRAS DE TROCA DE CIDADE (TRANSPORTE):
+═══════════════════════════════════════════════
+
+5. Quando o viajante troca de cidade (check-out de uma hospedagem em cidade A + check-in em outra cidade B):
+   - OBRIGATORIAMENTE inclua atividade "Deslocamento [Cidade A] → [Cidade B]" com categoria "transporte".
+   - Se há um transporte cadastrado para esse trecho, use os dados dele (tipo, operadora, hora).
+   - Se NÃO há transporte cadastrado, infira o meio de transporte mais provável e inclua com descrição "Transporte não cadastrado — considere adicionar".
+   - No dia de deslocamento, reduza atividades turísticas (máximo 2 após chegada à nova cidade).
+
+6. Para CADA transporte fornecido nos dados, DEVE existir uma atividade correspondente no roteiro com:
+   - titulo: "[Tipo] [Origem] → [Destino]" (ex: "Trem Zurique → Interlaken")
+   - horario_sugerido: hora fornecida ou inferida
+   - categoria: "transporte"
+   - descricao: incluir operadora se disponível
+
+═══════════════════════════════════════════════
+REGRAS DE GASTRONOMIA (RESTAURANTES SALVOS):
+═══════════════════════════════════════════════
+
+7. Restaurantes salvos pelo usuário são PRIORIDADE ABSOLUTA para refeições:
+   - Para CADA restaurante salvo, inclua uma atividade de refeição no roteiro.
+   - Distribua nos dias em que o viajante está na MESMA CIDADE do restaurante.
+   - Use o nome EXATO do restaurante salvo no título: "Almoço: [Nome do Restaurante]" ou "Jantar: [Nome do Restaurante]".
+   - Na descrição, inclua tipo de culinária se disponível.
+
+8. SOMENTE sugira restaurantes adicionais se não houver restaurantes salvos suficientes para cobrir todas as refeições.
+
+9. Se não há restaurantes salvos para uma cidade, sugira 1 restaurante por refeição com nomes reais e específicos do destino (NUNCA genéricos).
+
+═══════════════════════════════════════════════
+REGRAS DE HOSPEDAGEM E ATRAÇÕES:
+═══════════════════════════════════════════════
+
+10. Distribua atrações e restaurantes próximos de cada hospedagem SOMENTE nos dias entre check_in e check_out daquela hospedagem.
+
+11. Use as dicas de viagem (dica_viagem) e atrações próximas (atracoes_proximas) como BASE para atividades turísticas nesses dias.
+
+12. ADICIONE atrações "imperdíveis" do destino mesmo que não estejam nas dicas, mas DEPOIS de usar as dicas fornecidas.
+
+═══════════════════════════════════════════════
 REGRAS GERAIS:
+═══════════════════════════════════════════════
 - Organize por dia (YYYY-MM-DD) com atividades em ordem cronológica
 - Cada atividade tem: titulo, descricao curta, horario_sugerido (formato "09:00"), categoria, localizacao, link_maps
-- Categorias: "atracoes", "restaurante", "transporte", "livre", "compras"
-- Considere tempo de deslocamento entre pontos
+- Categorias válidas: "atracoes", "restaurante", "transporte", "livre", "compras"
+- Considere 30min de deslocamento entre pontos turísticos
 - Manhã (09:00-12:00): atrações. Almoço (12:30-14:00). Tarde (14:30-18:00): atrações/compras. Noite (19:00-22:00): jantar/passeio noturno
-- link_maps no formato: https://www.google.com/maps/search/NOME+DO+LUGAR+CIDADE (substitua espaços por +)
+- link_maps: https://www.google.com/maps/search/NOME+DO+LUGAR+CIDADE (substitua espaços por +)
 - Gere atividades para TODOS os dias entre startDate e endDate
+- NÃO coloque atividades turísticas antes do horário de chegada nem após horário limite de partida
 
 Responda APENAS JSON válido no formato:
 {
@@ -125,6 +181,8 @@ Deno.serve(async (req) => {
         localizacao: truncate(s.localizacao),
         check_in: truncate(s.check_in, 32),
         check_out: truncate(s.check_out, 32),
+        hora_check_in: truncate(s.hora_check_in, 10),
+        hora_check_out: truncate(s.hora_check_out, 10),
         atracoes_proximas: truncate(s.atracoes_proximas, 500),
         restaurantes_proximos: truncate(s.restaurantes_proximos, 500),
         dica_viagem: truncate(s.dica_viagem),
@@ -133,12 +191,15 @@ Deno.serve(async (req) => {
         origem: truncate(f.origem, 100),
         destino: truncate(f.destino, 100),
         data: truncate(f.data, 32),
+        hora_partida: truncate(f.hora_partida, 10),
+        hora_chegada: truncate(f.hora_chegada, 10),
       })),
       transports: (body.transports ?? []).slice(0, 10).map((t) => ({
         tipo: truncate(t.tipo, 50),
         origem: truncate(t.origem, 100),
         destino: truncate(t.destino, 100),
         data: truncate(t.data, 32),
+        hora: truncate(t.hora, 10),
       })),
       restaurants: (body.restaurants ?? []).slice(0, 20).map((r) => ({
         nome: truncate(r.nome, 100),
