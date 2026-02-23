@@ -670,11 +670,28 @@ export default function Dashboard() {
   }, [stayCoverageGaps]);
 
   const transportGapLines = useMemo(() => {
-    return transportCoverageGaps.slice(0, 5).map((gap) => ({
-      key: `transport-gap-${gap.from}-${gap.to}-${gap.referenceDate ?? 'sem-data'}`,
-      text: `Transporte: ${gap.from} → ${gap.to} — ${gap.reason}`,
-    }));
+    return transportCoverageGaps.slice(0, 5).map((gap) => {
+      const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(gap.from)}&destination=${encodeURIComponent(gap.to)}&travelmode=transit`;
+      return {
+        key: `transport-gap-${gap.from}-${gap.to}-${gap.referenceDate ?? 'sem-data'}`,
+        text: `Transporte: ${gap.from} → ${gap.to} — ${gap.reason}`,
+        from: gap.from,
+        to: gap.to,
+        mapsUrl,
+      };
+    });
   }, [transportCoverageGaps]);
+
+  const handleAddTransportFromGap = (from: string, to: string) => {
+    if (!ensureCanEdit()) return;
+    setEditingTransport(null);
+    setTransportForm({
+      ...emptyTransport,
+      origem: from,
+      destino: to,
+    });
+    setTransportDialogOpen(true);
+  };
 
   const heroDateRangeLabel = useMemo(() => {
     const start = currentTrip?.data_inicio ? formatDate(currentTrip.data_inicio) : '';
@@ -1412,7 +1429,7 @@ export default function Dashboard() {
               </Card>
             )}
 
-            <TripCoverageAlert stayGapLines={stayGapLines} transportGapLines={transportGapLines} />
+            <TripCoverageAlert stayGapLines={stayGapLines} transportGapLines={transportGapLines} onAddTransport={handleAddTransportFromGap} />
 
             <TripStatsGrid cards={statCards} counts={counts as Record<string, number> | undefined} isLoading={countsLoading} />
 
