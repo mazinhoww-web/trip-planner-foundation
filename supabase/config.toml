@@ -1,1 +1,13 @@
 project_id = "ugibxiaqrvrmxaniylaz"
+
+[functions.ocr-document]
+verify_jwt = false
+
+[functions.extract-reservation]
+verify_jwt = false
+
+[functions.generate-tips]
+verify_jwt = false
+
+[functions.suggest-restaurants]
+verify_jwt = false
