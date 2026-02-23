@@ -59,16 +59,40 @@ type MutationPayload = {
   permission: TripPermissionContext;
 };
 
+function normalizeTripMembersError(message: string) {
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes('relation "viagem_membros" does not exist') ||
+    normalized.includes("relation 'viagem_membros' does not exist") ||
+    normalized.includes('relation "viagem_convites" does not exist') ||
+    normalized.includes("relation 'viagem_convites' does not exist")
+  ) {
+    return 'Colaboração ainda não ativada neste ambiente. Aplique a migration de membros/convites no Supabase para habilitar o painel de usuários.';
+  }
+
+  if (
+    normalized.includes('failed to send a request to the edge function') ||
+    normalized.includes('function not found') ||
+    normalized.includes('trip-members')
+  ) {
+    return 'A função de convites não está ativa neste ambiente. Faça o deploy da edge function trip-members no Supabase.';
+  }
+
+  return message;
+}
+
 async function callTripMembers<T>(body: Record<string, unknown>): Promise<{ data: T | null; error: string | null }> {
   const { data, error } = await supabase.functions.invoke('trip-members', { body });
 
   if (error) {
-    return { data: null, error: parseFunctionError(data ?? error, 'Falha ao processar membros da viagem.') };
+    const parsedError = parseFunctionError(data ?? error, 'Falha ao processar membros da viagem.');
+    return { data: null, error: normalizeTripMembersError(parsedError) };
   }
 
   const parsed = data as FunctionEnvelope<T>;
   if (parsed?.error) {
-    return { data: null, error: parseFunctionError(parsed, 'Falha ao processar membros da viagem.') };
+    const parsedError = parseFunctionError(parsed, 'Falha ao processar membros da viagem.');
+    return { data: null, error: normalizeTripMembersError(parsedError) };
   }
 
   return { data: (parsed?.data ?? null) as T | null, error: null };

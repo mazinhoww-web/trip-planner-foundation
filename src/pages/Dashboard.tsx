@@ -22,6 +22,7 @@ import { TripHero } from '@/components/dashboard/TripHero';
 import { TripStatsGrid } from '@/components/dashboard/TripStatsGrid';
 import { TripTopActions } from '@/components/dashboard/TripTopActions';
 import { TripUsersPanel } from '@/components/dashboard/TripUsersPanel';
+import { BrandLogo } from '@/components/brand/BrandLogo';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1369,15 +1370,13 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background via-slate-50/70 to-slate-100/70">
-      <header className="sticky top-0 z-20 border-b border-border/60 bg-white/88 backdrop-blur-lg">
+      <header className="sticky top-0 z-20 border-b border-primary/15 bg-white/92 backdrop-blur-lg">
         <div className="mx-auto flex max-w-[1220px] items-center justify-between px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
-              <Plane className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold font-display leading-none">TripPlanner</h1>
-              <p className="mt-1 text-xs text-muted-foreground">Planejamento inteligente de viagem</p>
+          <div className="flex min-w-0 items-center gap-3">
+            <BrandLogo className="shrink-0" />
+            <div className="min-w-0">
+              <h1 className="truncate text-base font-bold font-display leading-none sm:text-xl">Trip Planner Foundation</h1>
+              <p className="mt-1 truncate text-[11px] text-muted-foreground sm:text-xs">Experiência co-brand LATAM Airlines + LATAM Pass</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -1453,6 +1452,25 @@ export default function Dashboard() {
               )}
             </TripTopActions>
 
+            <Card className="mb-6 border-primary/20 bg-primary/5">
+              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-primary">Colaboração da viagem</p>
+                  <p className="text-xs text-muted-foreground sm:text-sm">
+                    Convide usuários e ajuste papéis owner/editor/viewer no painel de apoio.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setActiveTab('apoio')}
+                  className="w-full border-primary/30 text-primary hover:bg-primary/10 sm:w-auto"
+                >
+                  Gerenciar usuários da viagem
+                </Button>
+              </CardContent>
+            </Card>
+
             {tripMembers.permission.role === 'viewer' && !canEditTrip && (
               <Card className="mt-4 border-slate-300/60 bg-slate-100/60">
                 <CardContent className="p-3 text-sm text-slate-700">
@@ -1479,11 +1497,15 @@ export default function Dashboard() {
             <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-8">
               <div className="overflow-x-auto pb-1 tp-scroll">
                 <TabsList
-                  className="inline-flex h-auto w-max min-w-full items-center gap-2 rounded-2xl border border-border/70 bg-white/90 p-2 shadow-sm"
+                  className="inline-flex h-auto w-max min-w-full items-center gap-2 rounded-2xl border border-primary/15 bg-white/90 p-2 shadow-sm"
                   aria-label="Navegação entre módulos da viagem"
                 >
                   {DASHBOARD_TABS.map((tab) => (
-                    <TabsTrigger key={tab.key} value={tab.key} className="shrink-0 gap-2 rounded-xl px-3 py-2 text-xs sm:text-sm">
+                    <TabsTrigger
+                      key={tab.key}
+                      value={tab.key}
+                      className="shrink-0 gap-2 rounded-xl px-3 py-2 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm sm:min-h-10 sm:px-4 sm:text-sm"
+                    >
                       <tab.icon className="h-4 w-4" />
                       {tab.label}
                     </TabsTrigger>

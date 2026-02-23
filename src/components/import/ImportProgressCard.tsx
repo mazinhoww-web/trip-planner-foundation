@@ -12,7 +12,7 @@ export function ImportProgressCard({ activeItem, visualProgress, pipelineStatusT
   if (!activeItem) return null;
 
   return (
-    <Card className="border-primary/15 bg-white/90 shadow-sm">
+    <Card className="border-primary/15 bg-white/95 shadow-sm">
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Análise do arquivo selecionado</CardTitle>
       </CardHeader>
@@ -25,7 +25,7 @@ export function ImportProgressCard({ activeItem, visualProgress, pipelineStatusT
         <div className="space-y-2" aria-label={`Progresso ${visualProgress}%`}>
           <div className="h-2 overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full rounded-full bg-gradient-to-r from-primary via-violet-500 to-fuchsia-500 transition-all duration-500"
+              className="h-full rounded-full bg-gradient-to-r from-primary to-accent transition-all duration-500"
               style={{ width: `${visualProgress}%` }}
             />
           </div>

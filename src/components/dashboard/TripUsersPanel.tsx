@@ -57,10 +57,15 @@ export function TripUsersPanel({ tripMembers, currentUserId }: TripUsersPanelPro
   };
 
   return (
-    <Card className="border-border/50">
+    <Card className="border-primary/20 bg-white/95 shadow-sm">
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-base">Usuários da viagem</CardTitle>
+          <div>
+            <CardTitle className="text-base">Usuários da viagem</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Convites e permissões de acesso em tempo real por papel.
+            </p>
+          </div>
           <Badge variant="outline" className={tripMembers.permission.role ? ROLE_BADGE_CLASS[tripMembers.permission.role] : ''}>
             {roleLabel}
           </Badge>
@@ -86,7 +91,7 @@ export function TripUsersPanel({ tripMembers, currentUserId }: TripUsersPanelPro
         ) : (
           <>
             {tripMembers.permission.isOwner && (
-              <div className="rounded-xl border bg-muted/30 p-3">
+              <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
                 <p className="mb-3 text-sm font-medium">Convidar por e-mail</p>
                 <div className="grid gap-2 sm:grid-cols-[1fr_160px_auto]">
                   <div className="space-y-1">
@@ -113,6 +118,7 @@ export function TripUsersPanel({ tripMembers, currentUserId }: TripUsersPanelPro
                     <Button
                       onClick={submitInvite}
                       disabled={!inviteEmail.trim() || tripMembers.isInviting}
+                      className="w-full sm:w-auto"
                     >
                       Enviar convite
                     </Button>

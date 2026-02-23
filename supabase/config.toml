@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.extract-itinerary]
 verify_jwt = false
+
+[functions.trip-members]
+verify_jwt = true

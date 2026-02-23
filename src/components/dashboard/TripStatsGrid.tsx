@@ -17,10 +17,10 @@ export function TripStatsGrid({ cards, counts, isLoading }: TripStatsGridProps) 
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
       {cards.map((card) => (
-        <Card key={card.key} className="border-border/60 bg-white/90 transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
+        <Card key={card.key} className="border-primary/10 bg-white/95 transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">{card.label}</CardTitle>
-            <card.icon className="h-4 w-4 text-muted-foreground" />
+            <card.icon className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
