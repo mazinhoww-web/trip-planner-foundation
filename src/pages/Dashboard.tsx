@@ -178,6 +178,18 @@ function dateDiffInDays(start: string, end: string) {
   return Math.max(0, Math.round((right - left) / (1000 * 60 * 60 * 24)));
 }
 
+function buildMapsUrl(type: 'route' | 'search', opts: { origin?: string | null; destination?: string | null; query?: string | null }) {
+  if (type === 'route') {
+    const o = opts.origin ?? '';
+    const d = opts.destination ?? '';
+    if (!o && !d) return null;
+    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(o)}&destination=${encodeURIComponent(d)}&travelmode=transit`;
+  }
+  const q = opts.query ?? '';
+  if (!q.trim()) return null;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+}
+
 function tripCoverImage(destination?: string | null) {
   const dest = (destination ?? '').toLowerCase();
   if (dest.includes('suica') || dest.includes('austria') || dest.includes('switz') || dest.includes('alpes')) {
@@ -1707,6 +1719,14 @@ export default function Dashboard() {
                                 </p>
                                 <p className="mt-1 text-sm font-medium">{formatCurrency(flight.valor, flight.moeda ?? 'BRL')}</p>
                               </button>
+                              {buildMapsUrl('route', { origin: flight.origem, destination: flight.destino }) && (
+                                <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
+                                  <a href={buildMapsUrl('route', { origin: flight.origem, destination: flight.destino })!} target="_blank" rel="noopener noreferrer">
+                                    <ExternalLink className="h-3 w-3" />
+                                    Ver rota
+                                  </a>
+                                </Button>
+                              )}
                               <div className="flex items-center gap-2">
                                 {statusBadge(flight.status)}
                                 <Button variant="outline" size="icon" aria-label="Editar voo" onClick={() => openEditFlight(flight)} disabled={!canEditTrip}>
@@ -1738,13 +1758,59 @@ export default function Dashboard() {
                       <DialogDescription>Informações completas do trecho selecionado.</DialogDescription>
                     </DialogHeader>
                     {selectedFlight && (
-                      <div className="space-y-2 text-sm">
-                        <p><strong>Número:</strong> {selectedFlight.numero || 'Não informado'}</p>
-                        <p><strong>Companhia:</strong> {selectedFlight.companhia || 'Não informado'}</p>
-                        <p><strong>Trecho:</strong> {selectedFlight.origem || 'Origem'} → {selectedFlight.destino || 'Destino'}</p>
-                        <p><strong>Data:</strong> {formatDateTime(selectedFlight.data)}</p>
-                        <p><strong>Status:</strong> {STATUS_LABEL[selectedFlight.status]}</p>
-                        <p><strong>Valor:</strong> {formatCurrency(selectedFlight.valor, selectedFlight.moeda ?? 'BRL')}</p>
+                      <div className="space-y-3 text-sm">
+                        <div className="rounded-xl border bg-muted/20 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-lg font-semibold">{selectedFlight.origem || 'Origem'} → {selectedFlight.destino || 'Destino'}</p>
+                              <p className="text-muted-foreground">{selectedFlight.companhia || 'Companhia'} • {selectedFlight.numero || 'Sem número'}</p>
+                            </div>
+                            {statusBadge(selectedFlight.status)}
+                          </div>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                            <div className="rounded-lg border bg-background p-2">
+                              <p className="text-[11px] text-muted-foreground">Data</p>
+                              <p className="font-medium">{formatDateTime(selectedFlight.data)}</p>
+                            </div>
+                            <div className="rounded-lg border bg-background p-2">
+                              <p className="text-[11px] text-muted-foreground">Valor</p>
+                              <p className="font-medium">{formatCurrency(selectedFlight.valor, selectedFlight.moeda ?? 'BRL')}</p>
+                            </div>
+                            <div className="rounded-lg border bg-background p-2">
+                              <p className="text-[11px] text-muted-foreground">Companhia</p>
+                              <p className="font-medium">{selectedFlight.companhia || 'Não informada'}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-xl border bg-muted/30 p-3">
+                          <p className="font-semibold">Trajeto</p>
+                          <div className="mt-3 space-y-3">
+                            <div className="flex items-start gap-3">
+                              <div className="mt-1 h-3 w-3 rounded-full bg-primary" />
+                              <div>
+                                <p className="font-medium">{selectedFlight.origem || 'Origem'}</p>
+                                <p className="text-xs text-muted-foreground">Embarque</p>
+                              </div>
+                            </div>
+                            <div className="ml-1 h-8 w-px bg-border" />
+                            <div className="flex items-start gap-3">
+                              <div className="mt-1 h-3 w-3 rounded-full bg-primary/50" />
+                              <div>
+                                <p className="font-medium">{selectedFlight.destino || 'Destino'}</p>
+                                <p className="text-xs text-muted-foreground">Chegada</p>
+                              </div>
+                            </div>
+                          </div>
+                          {buildMapsUrl('route', { origin: selectedFlight.origem, destination: selectedFlight.destino }) && (
+                            <Button variant="outline" size="sm" className="mt-3 gap-1.5 text-xs" asChild>
+                              <a href={buildMapsUrl('route', { origin: selectedFlight.origem, destination: selectedFlight.destino })!} target="_blank" rel="noopener noreferrer">
+                                <ExternalLink className="h-3 w-3" />
+                                Abrir rota no Google Maps
+                              </a>
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     )}
                   </DialogContent>
@@ -1942,6 +2008,14 @@ export default function Dashboard() {
                                 </p>
                                 <p className="text-sm font-medium">{formatCurrency(stay.valor, stay.moeda ?? 'BRL')}</p>
                               </button>
+                              {buildMapsUrl('search', { query: [stay.nome, stay.localizacao].filter(Boolean).join(' ') }) && (
+                                <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
+                                  <a href={buildMapsUrl('search', { query: [stay.nome, stay.localizacao].filter(Boolean).join(' ') })!} target="_blank" rel="noopener noreferrer">
+                                    <MapPin className="h-3 w-3" />
+                                    Ver no Google Maps
+                                  </a>
+                                </Button>
+                              )}
                               <div className="flex items-center justify-between">
                                 {statusBadge(stay.status)}
                                 <div className="flex flex-wrap justify-end gap-2">
@@ -2023,11 +2097,27 @@ export default function Dashboard() {
                               <TripOpenMap stays={[selectedStay]} transports={[]} height="clamp(180px, 32vh, 220px)" />
                             </Suspense>
                           </div>
+                          {buildMapsUrl('search', { query: [selectedStay.nome, selectedStay.localizacao].filter(Boolean).join(' ') }) && (
+                            <Button variant="outline" size="sm" className="mt-2 gap-1.5 text-xs" asChild>
+                              <a href={buildMapsUrl('search', { query: [selectedStay.nome, selectedStay.localizacao].filter(Boolean).join(' ') })!} target="_blank" rel="noopener noreferrer">
+                                <ExternalLink className="h-3 w-3" />
+                                Abrir no Google Maps
+                              </a>
+                            </Button>
+                          )}
                         </div>
 
                         <div className="rounded-xl border bg-muted/30 p-3">
                           <p className="font-semibold">Como chegar</p>
                           <p className="mt-2 text-muted-foreground">{selectedStay.como_chegar || 'Sem instruções de chegada ainda.'}</p>
+                          {buildMapsUrl('search', { query: [selectedStay.nome, selectedStay.localizacao].filter(Boolean).join(' ') }) && (
+                            <Button variant="outline" size="sm" className="mt-2 gap-1.5 text-xs" asChild>
+                              <a href={buildMapsUrl('search', { query: [selectedStay.nome, selectedStay.localizacao].filter(Boolean).join(' ') })!} target="_blank" rel="noopener noreferrer">
+                                <MapPin className="h-3 w-3" />
+                                Abrir no Google Maps
+                              </a>
+                            </Button>
+                          )}
                         </div>
 
                         <div className="rounded-xl border bg-muted/30 p-3">
@@ -2311,6 +2401,14 @@ export default function Dashboard() {
                                   </p>
                                   <p className="text-sm font-medium">{formatCurrency(transport.valor, transport.moeda ?? 'BRL')}</p>
                                 </button>
+                                {buildMapsUrl('route', { origin: transport.origem, destination: transport.destino }) && (
+                                  <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
+                                    <a href={buildMapsUrl('route', { origin: transport.origem, destination: transport.destino })!} target="_blank" rel="noopener noreferrer">
+                                      <ExternalLink className="h-3 w-3" />
+                                      Ver rota
+                                    </a>
+                                  </Button>
+                                )}
                                 <div className="flex items-center gap-2">
                                   {statusBadge(transport.status)}
                                   <Button variant="outline" size="icon" aria-label="Editar transporte" onClick={() => openEditTransport(transport)} disabled={!canEditTrip}>
@@ -2387,6 +2485,14 @@ export default function Dashboard() {
                               </div>
                             </div>
                           </div>
+                          {buildMapsUrl('route', { origin: selectedTransport.origem, destination: selectedTransport.destino }) && (
+                            <Button variant="outline" size="sm" className="mt-3 gap-1.5 text-xs" asChild>
+                              <a href={buildMapsUrl('route', { origin: selectedTransport.origem, destination: selectedTransport.destino })!} target="_blank" rel="noopener noreferrer">
+                                <ExternalLink className="h-3 w-3" />
+                                Abrir rota no Google Maps
+                              </a>
+                            </Button>
+                          )}
                         </div>
 
                         <div className="rounded-xl border bg-muted/30 p-3">
