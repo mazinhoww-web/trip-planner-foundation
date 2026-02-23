@@ -2,8 +2,8 @@ import { corsHeaders } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/http.ts';
 import { consumeRateLimit, requireAuthenticatedUser } from '../_shared/security.ts';
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const TEXT_MODEL = 'arcee-ai/trinity-large-preview:free';
+const LOVABLE_AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
+const TEXT_MODEL = 'google/gemini-3-flash-preview';
 const LIMIT_PER_HOUR = 20;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
@@ -454,9 +454,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    const apiKey = Deno.env.get('OPENROUTER_API_KEY') ?? Deno.env.get('OPENAI_API_KEY');
+    const apiKey = Deno.env.get('LOVABLE_API_KEY');
     if (!apiKey) {
-      return errorResponse(requestId, 'MISCONFIGURED', 'Integração IA não configurada (OPENROUTER_API_KEY).', 500);
+      return errorResponse(requestId, 'MISCONFIGURED', 'Integração IA não configurada (LOVABLE_API_KEY).', 500);
     }
 
     const body = await req.json();
@@ -467,13 +467,11 @@ Deno.serve(async (req) => {
       return errorResponse(requestId, 'BAD_REQUEST', 'Texto não informado para extração.', 400);
     }
 
-    const aiResponse = await fetch(OPENROUTER_URL, {
+    const aiResponse = await fetch(LOVABLE_AI_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': Deno.env.get('APP_ORIGIN') ?? 'https://trip-planner-foundation.local',
-        'X-Title': 'Trip Planner Foundation',
       },
       body: JSON.stringify({
         model: TEXT_MODEL,
@@ -491,7 +489,13 @@ Deno.serve(async (req) => {
 
     if (!aiResponse.ok) {
       const raw = await aiResponse.text();
-      console.error('[extract-reservation]', requestId, 'openrouter_error', aiResponse.status, raw.slice(0, 240));
+      console.error('[extract-reservation]', requestId, 'lovable_ai_error', aiResponse.status, raw.slice(0, 240));
+      if (aiResponse.status === 429) {
+        return errorResponse(requestId, 'RATE_LIMITED', 'Rate limit do AI gateway atingido. Tente novamente em alguns minutos.', 429);
+      }
+      if (aiResponse.status === 402) {
+        return errorResponse(requestId, 'UPSTREAM_ERROR', 'Créditos de AI insuficientes.', 402);
+      }
       return errorResponse(requestId, 'UPSTREAM_ERROR', 'Falha na extração IA.', 502);
     }
 
