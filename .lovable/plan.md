@@ -1,159 +1,147 @@
 
+## Plano: Corrigir mapa de viagem, gaps duplicados e sugestoes de transporte
 
-## Plano: Rotas aereas no mapa + Tarefas inteligentes + Roteiro diario
+### Problemas identificados
 
-### 1. Mapa: Linhas retas para voos (em vez de rotas terrestres)
+**1. Gaps duplicados e falsos (screenshot)**
 
-**Problema**: O mapa usa `fetchRoutePolyline` (OSRM driving route) para TODOS os segmentos, incluindo voos. Um voo GRU>CDG aparece como uma rota terrestre impossivel.
+O banco tem 2 voos para CDG com nomes diferentes:
+- Voo 1: "GRU (Sao Paulo)" -> "CDG (Paris)"
+- Voo 2: "Amsterdam, Schiphol Airport (AMS)" -> "Paris, Aeroport Charles de Gaulle (CDG)"
 
-**Solucao**: No `TripOpenMap.tsx`, para segmentos do tipo `voo`, usar linha reta (great circle) entre os 2 pontos em vez de chamar OSRM.
+A funcao `locationsMatch` faz substring match, mas "CDG (Paris)" NAO e substring de "Paris, Aeroport Charles de Gaulle (CDG)" e vice-versa. Resultado: o sistema trata como 2 aeroportos diferentes e gera 2 gaps identicos para o mesmo trecho (CDG -> hotel).
 
-**Arquivo: `src/components/map/TripOpenMap.tsx`**
-- Na secao de voos (linhas 245-276), substituir `fetchRoutePolyline` por uma funcao `greatCircleLine(origin, destination, numPoints)` que gera pontos intermediarios ao longo de um arco
-- A funcao calcula pontos interpolados entre lat/lon de origem e destino (10-20 pontos) para criar uma curva suave
-- Manter o estilo tracejado (`dashArray: '8 6'`) e cor amarela para diferenciar de rotas terrestres
-- Para segmentos de `roteiro` entre hospedagens, tambem usar linha reta (pois sao apenas indicativos de deslocamento entre cidades, nao necessariamente por estrada)
+Alem disso, `cidade_origem` e NULL no perfil de todos os usuarios, entao o gap "hotel -> GRU (Sao Paulo)" nao e suprimido porque `userHomeCity` e null.
 
-```text
-function greatCircleLine(from: {lat:number,lon:number}, to: {lat:number,lon:number}, steps=20): [number,number][] {
-  // Interpolacao linear (suficiente para visualizacao no mapa)
-  const points: [number,number][] = [];
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    points.push([
-      from.lat + (to.lat - from.lat) * t,
-      from.lon + (to.lon - from.lon) * t,
-    ]);
-  }
-  return points;
+**2. Mapa mostra rota errada**
+
+O mapa ja usa `greatCircleLine` para voos (correto), mas como o voo 1 vai direto GRU->CDG (a importacao colapsou as conexoes), o mapa so mostra uma linha reta SP->Paris. As escalas JFK e AMS nao aparecem porque nao existem como voos separados no banco.
+
+**3. Faltam sugestoes de transporte nos gaps**
+
+Os gaps dizem apenas "sem cobertura registrada" sem sugerir como resolver (metro, uber, aluguel de carro).
+
+### Solucao
+
+#### 1. Melhorar `locationsMatch` com deteccao de codigo IATA
+
+**Arquivo: `src/services/geo.ts`**
+
+Adicionar funcao que extrai codigos IATA (3 letras maiusculas entre parenteses) e compara:
+
+```typescript
+function extractIataCode(value: string): string | null {
+  // Matches patterns like "(CDG)", "(GRU)", "(AMS)"
+  const match = value.match(/\(([A-Z]{3})\)/i);
+  return match ? match[1].toUpperCase() : null;
+}
+
+export function locationsMatch(a, b) {
+  // Existing substring logic...
+  if (left.includes(right) || right.includes(left)) return true;
+  
+  // IATA code comparison
+  const iataA = extractIataCode(a);
+  const iataB = extractIataCode(b);
+  if (iataA && iataB && iataA === iataB) return true;
+  
+  return false;
 }
 ```
 
-- Remover chamadas `fetchRoutePolyline` para voos
-- Manter `fetchRoutePolyline` apenas para transportes terrestres (trem, onibus, carro)
+Isso resolve: "CDG (Paris)" e "Paris, Aeroport Charles de Gaulle (CDG)" ambos tem IATA "CDG" -> match!
 
----
+#### 2. Auto-detectar cidade de origem quando `cidade_origem` e null
 
-### 2. Geracao automatica de tarefas com IA
+**Arquivo: `src/pages/Dashboard.tsx`**
 
-**Problema**: As tarefas sao 100% manuais. O usuario precisa pensar em tudo: visto, passaporte, roupas, seguro, etc.
+Se `cidade_origem` e null no perfil, inferir a partir da origem do primeiro voo:
 
-**Solucao**: Criar edge function `generate-tasks` que analisa o contexto da viagem e gera uma lista categorizada de tarefas.
+```typescript
+const inferredHomeCity = useMemo(() => {
+  if (userHomeCity) return userHomeCity;
+  // Infer from first flight origin
+  const firstFlight = flightsModule.data
+    .filter(f => f.status !== 'cancelado' && f.origem)
+    .sort((a, b) => (a.data ?? '').localeCompare(b.data ?? ''))[0];
+  return firstFlight?.origem ?? null;
+}, [userHomeCity, flightsModule.data]);
+```
 
-**Nova edge function: `supabase/functions/generate-tasks/index.ts`**
+Usar `inferredHomeCity` em vez de `userHomeCity` no calculo de gaps. Assim, se o primeiro voo sai de "GRU (Sao Paulo)", o sistema sabe que GRU e a casa do usuario e suprime gaps de/para GRU.
 
-Input:
-```json
-{
-  "destination": "Paris, Franca",
-  "startDate": "2026-01-15",
-  "endDate": "2026-01-25",
-  "userNationality": "brasileira",
-  "userHomeCity": "Sao Paulo",
-  "flights": [{"origem":"GRU","destino":"CDG"}],
-  "stays": [{"localizacao":"Paris","check_in":"2026-01-15"}],
-  "existingTasks": ["Comprar seguro viagem"]
+#### 3. Adicionar sugestoes contextuais nas mensagens de gap
+
+**Arquivo: `src/services/tripInsights.ts`**
+
+Enriquecer o campo `reason` dos gaps de transporte com sugestoes baseadas na cidade:
+
+```typescript
+function getTransportSuggestion(from: string, to: string): string {
+  const normalized = normalizeTextForMatch(to) + ' ' + normalizeTextForMatch(from);
+  
+  const publicTransitCities = ['paris', 'london', 'roma', 'barcelona', 'berlin', 
+    'amsterdam', 'tokyo', 'new york', 'nyc', 'chicago', 'toronto'];
+  const carCities = ['miami', 'los angeles', 'las vegas', 'orlando', 'houston'];
+  
+  const isPublicTransit = publicTransitCities.some(c => normalized.includes(c));
+  const isCar = carCities.some(c => normalized.includes(c));
+  
+  if (isPublicTransit) return 'Considere transporte publico (metro/trem). Veja rotas em Google Maps ou Citymapper.';
+  if (isCar) return 'Considere alugar um veiculo ou usar Uber/taxi. Transporte publico limitado nesta regiao.';
+  return 'Verifique opcoes de transporte no Google Maps.';
 }
 ```
 
-Prompt da IA (usando Lovable AI / Gemini):
-- Analisa destino + datas + nacionalidade
-- Gera tarefas em categorias: Documentos/Legal, Bagagem/Roupas, Transporte, Seguro, Saude, Financeiro, Tecnologia, Outros
-- Para Paris em janeiro: roupas de frio, adaptador de tomada europeu, seguro viagem Schengen obrigatorio
-- Para EUA: visto B1/B2, ESTA, seguro viagem
-- NAO duplica tarefas que ja existem
-- Retorna array de `{titulo, categoria, prioridade}`
-
-**Arquivo: `src/services/ai.ts`**
-- Adicionar funcao `generateTripTasks(input)` que chama a edge function
-
-**Arquivo: `src/pages/Dashboard.tsx`**
-- Na tab "Tarefas", adicionar botao "Gerar tarefas com IA"
-- Ao clicar, envia contexto da viagem (destino, datas, nacionalidade do perfil, voos cadastrados, tarefas existentes)
-- Recebe lista e insere no banco via `tasksModule.create` em batch
-- Toast de sucesso: "X tarefas geradas por IA"
-
-**Migration SQL**: Nenhuma (usa a tabela `tarefas` existente com campos `titulo`, `categoria`, `prioridade`)
-
----
-
-### 3. Roteiro diario com IA (MVP)
-
-**Problema**: Nao existe secao de roteiro. O usuario ve dicas soltas por hospedagem mas nao tem uma visao dia-a-dia.
-
-**Solucao**: Criar uma nova tab "Roteiro" no dashboard com itinerario dia-a-dia gerado por IA.
-
-**Nova tabela: `roteiro_dias`**
-```sql
-CREATE TABLE public.roteiro_dias (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  viagem_id uuid NOT NULL REFERENCES viagens(id) ON DELETE CASCADE,
-  user_id uuid NOT NULL,
-  dia date NOT NULL,
-  ordem int NOT NULL DEFAULT 0,
-  titulo text NOT NULL,
-  descricao text,
-  horario_sugerido text,
-  categoria text, -- 'atracoes', 'restaurante', 'transporte', 'livre'
-  localizacao text,
-  link_maps text,
-  sugerido_por_ia boolean DEFAULT true,
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now()
-);
-ALTER TABLE public.roteiro_dias ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own roteiro" ON public.roteiro_dias
-  FOR ALL USING (user_id = auth.uid());
+E adicionar ao `reason`:
+```
+"Sem transporte registrado do aeroporto ate a hospedagem. Considere transporte publico (metro/trem)..."
 ```
 
-**Nova edge function: `supabase/functions/generate-itinerary/index.ts`**
-
-Input: destino, datas, hospedagens (com dicas ja geradas), voos, atracoes ja conhecidas
-Output: Array de atividades por dia com horarios sugeridos, nomes reais de atracoes, links Google Maps
-
-Prompt:
-- Usa as dicas ja geradas (`atracoes_proximas`, `restaurantes_proximos`) como base
-- Adiciona atracoes "imperdíveis" que podem estar mais longe (Torre Eiffel, Cristo Redentor, etc)
-- Organiza por dia com horarios logicos (manha, tarde, noite)
-- Considera tempo de deslocamento entre pontos
-
-**Nova tab no Dashboard: "Roteiro"**
-- Lista dias da viagem como cards expansiveis
-- Cada dia mostra atividades ordenadas por horario
-- Botao "Gerar roteiro com IA" para criar/recria
-- Drag and drop basico entre dias (reordenar atividades)
-- Botao para adicionar atividade manual
-- Sugestoes da IA aparecem como cards com opcao de aceitar/rejeitar
-
-**Arquivo: `src/hooks/useTripModules.ts`**
-- Adicionar `useRoteiro = () => useModuleData('roteiro_dias')`
+#### 4. Adicionar link de sugestao nos gaps exibidos
 
 **Arquivo: `src/pages/Dashboard.tsx`**
-- Nova tab `{ key: 'roteiro', label: 'Roteiro', icon: CalendarDays }`
-- Componente de roteiro com visualizacao dia-a-dia
 
----
+Nas `transportGapLines`, incluir link Google Maps com rota:
 
-### Arquivos modificados/criados
+```typescript
+const transportGapLines = useMemo(() => {
+  return transportCoverageGaps.slice(0, 5).map((gap) => ({
+    key: `transport-gap-${gap.from}-${gap.to}`,
+    text: `Transporte: ${gap.from} → ${gap.to} — ${gap.reason}`,
+  }));
+}, [transportCoverageGaps]);
+```
 
-| Arquivo | Tipo | Alteracao |
-|---|---|---|
-| `src/components/map/TripOpenMap.tsx` | Modificar | Linha reta para voos, manter OSRM so para transportes terrestres |
-| `supabase/functions/generate-tasks/index.ts` | Criar | Edge function para gerar tarefas contextuais |
-| `src/services/ai.ts` | Modificar | Adicionar `generateTripTasks()` |
-| `src/pages/Dashboard.tsx` | Modificar | Botao "Gerar tarefas IA" + nova tab Roteiro |
-| `supabase/functions/generate-itinerary/index.ts` | Criar | Edge function para gerar roteiro dia-a-dia |
-| Migration SQL | Criar | Tabela `roteiro_dias` com RLS |
-| `src/hooks/useTripModules.ts` | Modificar | Adicionar `useRoteiro` |
-| `supabase/config.toml` | Verificar | Garantir que as novas functions estao listadas |
+#### 5. Corrigir deduplicacao no `buildFlightChains`
 
-### Sequencia de implementacao
+**Arquivo: `src/services/tripInsights.ts`**
 
-1. Mapa: corrigir linhas de voo (rapido, sem backend)
-2. Edge function `generate-tasks` + integracao no Dashboard
-3. Migration `roteiro_dias` + edge function `generate-itinerary` + tab Roteiro
+Com o `locationsMatch` corrigido (IATA matching), os voos GRU->CDG e AMS->CDG serao reconhecidos como tendo o mesmo destino CDG. Mas ainda ha o problema de que ambos geram gap CDG->hotel. O `pushUniqueGap` ja deveria deduplicar, mas precisa usar `locationsMatch` em vez de comparacao exata.
 
-### Nota sobre drag and drop
+A funcao `pushUniqueGap` ja usa `locationsMatch` (linha 157-160), entao com o fix do IATA code, a deduplicacao funcionara automaticamente.
 
-Para o MVP do roteiro, usar reordenacao simples com botoes (mover cima/baixo) em vez de biblioteca de drag-and-drop complexa. Isso mantem o bundle leve e pode evoluir depois para `@dnd-kit` se necessario.
+### Arquivos modificados
 
+| Arquivo | Alteracao |
+|---|---|
+| `src/services/geo.ts` | Adicionar `extractIataCode`, melhorar `locationsMatch` com comparacao IATA |
+| `src/services/tripInsights.ts` | Adicionar `getTransportSuggestion`, enriquecer `reason` dos gaps |
+| `src/pages/Dashboard.tsx` | Inferir `userHomeCity` do primeiro voo quando perfil nao tem `cidade_origem`; melhorar display dos gaps |
+| `src/components/dashboard/TripCoverageAlert.tsx` | Opcional: links clicaveis para Google Maps nas sugestoes de gap |
+
+### Resultado esperado
+
+**Antes (3 gaps falsos/duplicados):**
+- "CDG (Paris) -> 21 Bis Rue de Paris..." 
+- "Paris, Aeroport Charles de Gaulle (CDG) -> 21 Bis Rue de Paris..." (duplicata)
+- "21 Bis Rue de Paris -> GRU (Sao Paulo)" (deveria ser suprimido)
+
+**Depois (1 gap real com sugestao):**
+- "CDG -> 21 Bis Rue de Paris, Clichy: Sem transporte registrado. Considere transporte publico (metro/trem). Veja rotas em Google Maps ou Citymapper."
+
+O gap hotel->GRU e suprimido porque GRU e inferido como aeroporto de casa (origem do primeiro voo).
+
+### Nota sobre o mapa
+
+O mapa mostra o que esta no banco: se so existem 2 voos (GRU->CDG e AMS->CDG), so pode desenhar 2 arcos. Os trechos JFK e AMS intermediarios nao aparecem porque a importacao colapsou a passagem em 2 registros. Isso e uma limitacao da importacao, nao do mapa. O mapa em si esta correto: usa `greatCircleLine` para voos (linhas retas/arcos) e OSRM apenas para transportes terrestres.
