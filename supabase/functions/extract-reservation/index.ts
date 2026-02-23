@@ -2,8 +2,13 @@ import { corsHeaders } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/http.ts';
 import { consumeRateLimit, requireAuthenticatedUser } from '../_shared/security.ts';
 
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 const LOVABLE_AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
-const TEXT_MODEL = 'google/gemini-3-flash-preview';
+
+const ARCEE_MODEL = 'arcee-ai/trinity-large-preview:free';
+const LOVABLE_MODEL = 'google/gemini-3-flash-preview';
+
 const LIMIT_PER_HOUR = 20;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
@@ -113,17 +118,10 @@ function numOrNull(value: unknown): number | null {
 function normalizeDateLike(value: unknown): string | null {
   const raw = strOrNull(value);
   if (!raw) return null;
-
-  const iso = raw.match(/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/);
-  if (iso) {
-    return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
-  }
-
-  const br = raw.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](20\d{2})\b/);
-  if (br) {
-    return `${br[3]}-${br[2].padStart(2, '0')}-${br[1].padStart(2, '0')}`;
-  }
-
+  const iso = raw.match(/\b(20\d{2})[-/\.](\d{1,2})[-/\.](\d{1,2})\b/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+  const br = raw.match(/\b(\d{1,2})[-/\.](\d{1,2})[-/\.](20\d{2})\b/);
+  if (br) return `${br[3]}-${br[2].padStart(2, '0')}-${br[1].padStart(2, '0')}`;
   return null;
 }
 
@@ -195,19 +193,13 @@ function inferScopeAndTypeHints(text: string, fileName: string) {
   const travelSignal =
     /\b(voo|flight|airbnb|hotel|hospedagem|check-in|check-out|airport|aeroporto|pnr|iata|itiner[áa]rio|booking|trip|restaurante)\b/.test(bag) ||
     /\b(latam|gol|azul|air france|lufthansa|booking\.com|airbnb)\b/.test(bag);
-
   if (!travelSignal) return { scope: 'outside_scope' as const, forcedType: null };
-
-  if (/\b(latam|gol|azul|flight|boarding|pnr|iata|ticket|itiner[áa]rio)\b/.test(bag)) {
+  if (/\b(latam|gol|azul|flight|boarding|pnr|iata|ticket|itiner[áa]rio)\b/.test(bag))
     return { scope: 'trip_related' as const, forcedType: 'Voo' as const };
-  }
-  if (/\b(airbnb|hotel|hospedagem|booking|check-in|checkout|check out|pousada)\b/.test(bag)) {
+  if (/\b(airbnb|hotel|hospedagem|booking|check-in|checkout|check out|pousada)\b/.test(bag))
     return { scope: 'trip_related' as const, forcedType: 'Hospedagem' as const };
-  }
-  if (/\b(restaurante|restaurant|reserva de mesa|opentable)\b/.test(bag)) {
+  if (/\b(restaurante|restaurant|reserva de mesa|opentable)\b/.test(bag))
     return { scope: 'trip_related' as const, forcedType: 'Restaurante' as const };
-  }
-
   return { scope: 'trip_related' as const, forcedType: null };
 }
 
@@ -215,13 +207,10 @@ function inferAirportCodes(text: string) {
   const normalized = text.replace(/\s+/g, ' ');
   const withArrow = normalized.match(/\b([A-Z]{3})\s*(?:-|->|→|\/)\s*([A-Z]{3})\b/);
   if (withArrow) return { origem: withArrow[1], destino: withArrow[2] };
-
   const labeled = normalized.match(/(?:origem|from)\s*[:\-]?\s*([A-Z]{3}).*?(?:destino|to)\s*[:\-]?\s*([A-Z]{3})/i);
   if (labeled) return { origem: labeled[1].toUpperCase(), destino: labeled[2].toUpperCase() };
-
   const all = normalized.match(/\b[A-Z]{3}\b/g) || [];
   if (all.length >= 2) return { origem: all[0], destino: all[1] };
-
   return { origem: null, destino: null };
 }
 
@@ -236,11 +225,10 @@ function inferFlightCode(text: string, fileName: string) {
 }
 
 function inferDates(text: string) {
-  const iso = text.match(/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/);
-  const br = text.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](20\d{2})\b/);
-  const checkIn = text.match(/(?:check[\s-]?in|entrada)\s*[:\-]?\s*([0-9]{1,2}[\/.\-][0-9]{1,2}[\/.\-](?:20[0-9]{2}|[0-9]{2})|20[0-9]{2}[\/.\-][0-9]{1,2}[\/.\-][0-9]{1,2})/i);
-  const checkOut = text.match(/(?:check[\s-]?out|sa[ií]da)\s*[:\-]?\s*([0-9]{1,2}[\/.\-][0-9]{1,2}[\/.\-](?:20[0-9]{2}|[0-9]{2})|20[0-9]{2}[\/.\-][0-9]{1,2}[\/.\-][0-9]{1,2})/i);
-
+  const iso = text.match(/\b(20\d{2})[-/\.](\d{1,2})[-/\.](\d{1,2})\b/);
+  const br = text.match(/\b(\d{1,2})[-/\.](\d{1,2})[-/\.](20\d{2})\b/);
+  const checkIn = text.match(/(?:check[ -]?in|entrada)\s*[:\-]?\s*([0-9]{1,2}[/.\-][0-9]{1,2}[/.\-](?:20[0-9]{2}|[0-9]{2})|20[0-9]{2}[/.\-][0-9]{1,2}[/.\-][0-9]{1,2})/i);
+  const checkOut = text.match(/(?:check[ -]?out|sa[ií]da)\s*[:\-]?\s*([0-9]{1,2}[/.\-][0-9]{1,2}[/.\-](?:20[0-9]{2}|[0-9]{2})|20[0-9]{2}[/.\-][0-9]{1,2}[/.\-][0-9]{1,2})/i);
   return {
     generic: normalizeDateLike(iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : br ? `${br[1]}-${br[2]}-${br[3]}` : null),
     checkIn: normalizeDateLike(checkIn?.[1] ?? null),
@@ -266,7 +254,6 @@ function normalizeCanonical(raw: Record<string, unknown>, text: string, fileName
   const dadosRaw = (raw.dados_principais ?? {}) as Record<string, unknown>;
   const financeiroRaw = (raw.financeiro ?? {}) as Record<string, unknown>;
   const enrichRaw = (raw.enriquecimento_ia ?? {}) as Record<string, unknown>;
-
   const hints = inferScopeAndTypeHints(text, fileName);
 
   const canonical: CanonicalPayload = {
@@ -334,10 +321,7 @@ function missingFromCanonical(payload: CanonicalPayload, scope: 'trip_related' |
   const missing: string[] = [];
   const d = payload.dados_principais;
 
-  if (!tipo) {
-    missing.push('metadata.tipo');
-    return missing;
-  }
+  if (!tipo) { missing.push('metadata.tipo'); return missing; }
 
   if (tipo === 'Voo') {
     if (!d.origem) missing.push('voo.origem');
@@ -345,25 +329,21 @@ function missingFromCanonical(payload: CanonicalPayload, scope: 'trip_related' |
     if (!d.data_inicio) missing.push('voo.data_inicio');
     if (!d.codigo_reserva && !d.nome_exibicao) missing.push('voo.identificador');
   }
-
   if (tipo === 'Hospedagem') {
     if (!d.nome_exibicao) missing.push('hospedagem.nome_exibicao');
     if (!d.data_inicio) missing.push('hospedagem.data_inicio');
     if (!d.data_fim) missing.push('hospedagem.data_fim');
     if (!payload.financeiro.valor_total) missing.push('hospedagem.valor_total');
   }
-
   if (tipo === 'Transporte') {
     if (!d.origem) missing.push('transporte.origem');
     if (!d.destino) missing.push('transporte.destino');
     if (!d.data_inicio) missing.push('transporte.data_inicio');
   }
-
   if (tipo === 'Restaurante') {
     if (!d.nome_exibicao) missing.push('restaurante.nome');
     if (!d.destino) missing.push('restaurante.cidade');
   }
-
   return missing;
 }
 
@@ -371,55 +351,42 @@ function toLegacyData(payload: CanonicalPayload) {
   const tipo = mapTipoToLegacy(payload.metadata.tipo);
   const status = payload.metadata.status?.toLowerCase();
   const normalizedStatus = status === 'confirmado' || status === 'cancelado' ? status : 'pendente';
-
   return {
-    voo:
-      tipo === 'voo'
-        ? {
-            numero: payload.dados_principais.nome_exibicao,
-            companhia: payload.dados_principais.provedor,
-            origem: payload.dados_principais.origem,
-            destino: payload.dados_principais.destino,
-            data: payload.dados_principais.data_inicio,
-            status: normalizedStatus,
-            valor: payload.financeiro.valor_total,
-            moeda: payload.financeiro.moeda,
-          }
-        : null,
-    hospedagem:
-      tipo === 'hospedagem'
-        ? {
-            nome: payload.dados_principais.nome_exibicao,
-            localizacao: payload.dados_principais.destino,
-            check_in: payload.dados_principais.data_inicio,
-            check_out: payload.dados_principais.data_fim,
-            status: normalizedStatus,
-            valor: payload.financeiro.valor_total,
-            moeda: payload.financeiro.moeda,
-          }
-        : null,
-    transporte:
-      tipo === 'transporte'
-        ? {
-            tipo: payload.dados_principais.nome_exibicao,
-            operadora: payload.dados_principais.provedor,
-            origem: payload.dados_principais.origem,
-            destino: payload.dados_principais.destino,
-            data: payload.dados_principais.data_inicio,
-            status: normalizedStatus,
-            valor: payload.financeiro.valor_total,
-            moeda: payload.financeiro.moeda,
-          }
-        : null,
-    restaurante:
-      tipo === 'restaurante'
-        ? {
-            nome: payload.dados_principais.nome_exibicao,
-            cidade: payload.dados_principais.destino,
-            tipo: payload.dados_principais.provedor,
-            rating: null,
-          }
-        : null,
+    voo: tipo === 'voo' ? {
+      numero: payload.dados_principais.nome_exibicao,
+      companhia: payload.dados_principais.provedor,
+      origem: payload.dados_principais.origem,
+      destino: payload.dados_principais.destino,
+      data: payload.dados_principais.data_inicio,
+      status: normalizedStatus,
+      valor: payload.financeiro.valor_total,
+      moeda: payload.financeiro.moeda,
+    } : null,
+    hospedagem: tipo === 'hospedagem' ? {
+      nome: payload.dados_principais.nome_exibicao,
+      localizacao: payload.dados_principais.destino,
+      check_in: payload.dados_principais.data_inicio,
+      check_out: payload.dados_principais.data_fim,
+      status: normalizedStatus,
+      valor: payload.financeiro.valor_total,
+      moeda: payload.financeiro.moeda,
+    } : null,
+    transporte: tipo === 'transporte' ? {
+      tipo: payload.dados_principais.nome_exibicao,
+      operadora: payload.dados_principais.provedor,
+      origem: payload.dados_principais.origem,
+      destino: payload.dados_principais.destino,
+      data: payload.dados_principais.data_inicio,
+      status: normalizedStatus,
+      valor: payload.financeiro.valor_total,
+      moeda: payload.financeiro.moeda,
+    } : null,
+    restaurante: tipo === 'restaurante' ? {
+      nome: payload.dados_principais.nome_exibicao,
+      cidade: payload.dados_principais.destino,
+      tipo: payload.dados_principais.provedor,
+      rating: null,
+    } : null,
   };
 }
 
@@ -431,6 +398,155 @@ function fieldConfidenceMap(payload: CanonicalPayload) {
     'hospedagem.checkin_checkout': d.data_inicio && d.data_fim ? 0.9 : 0.35,
   };
 }
+
+// ─── AI Provider Calls ───────────────────────────────────────────
+
+type AiResult = { content: string; provider: string; usage?: unknown };
+
+async function callArcee(prompt: string, userContent: string): Promise<AiResult> {
+  const apiKey = Deno.env.get('open_router_key');
+  if (!apiKey) throw new Error('open_router_key not configured');
+
+  const res = await fetch(OPENROUTER_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': Deno.env.get('APP_ORIGIN') ?? 'https://trip-planner-foundation.local',
+      'X-Title': 'Trip Planner Foundation',
+    },
+    body: JSON.stringify({
+      model: ARCEE_MODEL,
+      temperature: 0.05,
+      max_tokens: 1300,
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: userContent },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const raw = await res.text();
+    throw new Error(`Arcee ${res.status}: ${raw.slice(0, 120)}`);
+  }
+
+  const json = await res.json();
+  const content = json?.choices?.[0]?.message?.content;
+  if (typeof content !== 'string' || !content.trim()) throw new Error('Arcee empty content');
+  return { content, provider: 'arcee', usage: json?.usage };
+}
+
+async function callGemini(prompt: string, userContent: string): Promise<AiResult> {
+  const apiKey = Deno.env.get('gemini_api_key');
+  if (!apiKey) throw new Error('gemini_api_key not configured');
+
+  const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        parts: [{ text: `${prompt}\n\n${userContent}` }],
+      }],
+      generationConfig: {
+        temperature: 0.05,
+        maxOutputTokens: 1300,
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const raw = await res.text();
+    throw new Error(`Gemini ${res.status}: ${raw.slice(0, 120)}`);
+  }
+
+  const json = await res.json();
+  const content = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (typeof content !== 'string' || !content.trim()) throw new Error('Gemini empty content');
+  return { content, provider: 'gemini', usage: json?.usageMetadata };
+}
+
+async function callLovableAi(prompt: string, userContent: string): Promise<AiResult> {
+  const apiKey = Deno.env.get('LOVABLE_API_KEY');
+  if (!apiKey) throw new Error('LOVABLE_API_KEY not configured');
+
+  const res = await fetch(LOVABLE_AI_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: LOVABLE_MODEL,
+      temperature: 0.05,
+      max_tokens: 1300,
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: userContent },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const raw = await res.text();
+    throw new Error(`LovableAI ${res.status}: ${raw.slice(0, 120)}`);
+  }
+
+  const json = await res.json();
+  const content = json?.choices?.[0]?.message?.content;
+  if (typeof content !== 'string' || !content.trim()) throw new Error('LovableAI empty content');
+  return { content, provider: 'lovable_ai', usage: json?.usage };
+}
+
+// ─── Parallel extraction with confidence comparison ───────────────
+
+async function extractWithBestProvider(
+  userContent: string,
+  text: string,
+  fileName: string,
+  requestId: string,
+): Promise<{ canonical: CanonicalPayload; scope: string; provider: string; usage: unknown }> {
+  // 1. Run Arcee + Gemini in parallel
+  const [arceeResult, geminiResult] = await Promise.allSettled([
+    callArcee(SYSTEM_PROMPT, userContent),
+    callGemini(SYSTEM_PROMPT, userContent),
+  ]);
+
+  type Candidate = { parsed: Record<string, unknown>; canonical: CanonicalPayload; scope: string; provider: string; usage: unknown };
+  const candidates: Candidate[] = [];
+
+  for (const [result, name] of [[arceeResult, 'arcee'], [geminiResult, 'gemini']] as const) {
+    if (result.status === 'fulfilled') {
+      const parsed = extractJson(result.value.content);
+      if (parsed) {
+        const { canonical, scope } = normalizeCanonical(parsed, text, fileName);
+        candidates.push({ parsed, canonical, scope, provider: result.value.provider, usage: result.value.usage });
+      } else {
+        console.warn(`[extract-reservation] ${requestId} ${name} invalid_json`);
+      }
+    } else {
+      console.warn(`[extract-reservation] ${requestId} ${name} failed:`, result.reason?.message);
+    }
+  }
+
+  // Pick highest confidence
+  if (candidates.length > 0) {
+    candidates.sort((a, b) => b.canonical.metadata.confianca - a.canonical.metadata.confianca);
+    const best = candidates[0];
+    console.info(`[extract-reservation] ${requestId} selected_provider=${best.provider} confianca=${best.canonical.metadata.confianca}`);
+    return best;
+  }
+
+  // 2. Fallback: Lovable AI
+  console.warn(`[extract-reservation] ${requestId} falling_back_to_lovable_ai`);
+  const lovableResult = await callLovableAi(SYSTEM_PROMPT, userContent);
+  const parsed = extractJson(lovableResult.content);
+  if (!parsed) throw new Error('All AI providers returned invalid JSON');
+  const { canonical, scope } = normalizeCanonical(parsed, text, fileName);
+  return { canonical, scope, provider: 'lovable_ai', usage: lovableResult.usage };
+}
+
+// ─── Main handler ─────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -448,15 +564,7 @@ Deno.serve(async (req) => {
 
     const rate = consumeRateLimit(auth.userId, 'extract-reservation', LIMIT_PER_HOUR, ONE_HOUR_MS);
     if (!rate.allowed) {
-      console.error('[extract-reservation]', requestId, 'rate_limited', { userId: auth.userId });
-      return errorResponse(requestId, 'RATE_LIMITED', 'Limite de extrações atingido. Tente novamente mais tarde.', 429, {
-        resetAt: rate.resetAt,
-      });
-    }
-
-    const apiKey = Deno.env.get('LOVABLE_API_KEY');
-    if (!apiKey) {
-      return errorResponse(requestId, 'MISCONFIGURED', 'Integração IA não configurada (LOVABLE_API_KEY).', 500);
+      return errorResponse(requestId, 'RATE_LIMITED', 'Limite de extrações atingido. Tente novamente mais tarde.', 429, { resetAt: rate.resetAt });
     }
 
     const body = await req.json();
@@ -467,56 +575,12 @@ Deno.serve(async (req) => {
       return errorResponse(requestId, 'BAD_REQUEST', 'Texto não informado para extração.', 400);
     }
 
-    const aiResponse = await fetch(LOVABLE_AI_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: TEXT_MODEL,
-        temperature: 0.05,
-        max_tokens: 1300,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          {
-            role: 'user',
-            content: `Arquivo: ${fileName}\n\nTexto OCR:\n${text}`,
-          },
-        ],
-      }),
-    });
+    const userContent = `Arquivo: ${fileName}\n\nTexto OCR:\n${text}`;
 
-    if (!aiResponse.ok) {
-      const raw = await aiResponse.text();
-      console.error('[extract-reservation]', requestId, 'lovable_ai_error', aiResponse.status, raw.slice(0, 240));
-      if (aiResponse.status === 429) {
-        return errorResponse(requestId, 'RATE_LIMITED', 'Rate limit do AI gateway atingido. Tente novamente em alguns minutos.', 429);
-      }
-      if (aiResponse.status === 402) {
-        return errorResponse(requestId, 'UPSTREAM_ERROR', 'Créditos de AI insuficientes.', 402);
-      }
-      return errorResponse(requestId, 'UPSTREAM_ERROR', 'Falha na extração IA.', 502);
-    }
+    const { canonical, scope, provider, usage } = await extractWithBestProvider(userContent, text, fileName, requestId);
 
-    const aiJson = await aiResponse.json();
-    const content = aiJson?.choices?.[0]?.message?.content;
-    const usage = aiJson?.usage ?? null;
-    const reasoningTokens = aiJson?.usage?.reasoning_tokens ?? aiJson?.usage?.reasoningTokens ?? null;
-
-    if (typeof content !== 'string') {
-      return errorResponse(requestId, 'UPSTREAM_ERROR', 'Resposta IA vazia.', 502);
-    }
-
-    const parsed = extractJson(content);
-    if (!parsed) {
-      console.error('[extract-reservation]', requestId, 'invalid_json', content.slice(0, 240));
-      return errorResponse(requestId, 'UPSTREAM_ERROR', 'Formato inválido na extração IA.', 502);
-    }
-
-    const { canonical, scope } = normalizeCanonical(parsed, text, fileName);
     const tipoLegacy = mapTipoToLegacy(canonical.metadata.tipo);
-    const missingFields = missingFromCanonical(canonical, scope);
+    const missingFields = missingFromCanonical(canonical, scope as 'trip_related' | 'outside_scope');
     const typeConfidence = confidenceToUnit(canonical.metadata.confianca);
     const extractionQuality: 'high' | 'medium' | 'low' =
       canonical.metadata.confianca >= 75 ? 'high' : canonical.metadata.confianca >= 55 ? 'medium' : 'low';
@@ -535,6 +599,7 @@ Deno.serve(async (req) => {
       missingFields,
       data: toLegacyData(canonical),
       canonical,
+      ai_provider: provider,
     };
 
     console.info('[extract-reservation]', requestId, 'success', {
@@ -544,7 +609,7 @@ Deno.serve(async (req) => {
       scope,
       confianca: canonical.metadata.confianca,
       missing_count: missingFields.length,
-      reasoningTokens,
+      provider,
       usage,
     });
 
