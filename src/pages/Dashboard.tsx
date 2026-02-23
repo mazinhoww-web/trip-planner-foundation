@@ -159,6 +159,11 @@ function formatCurrency(value?: number | null, currency: string = 'BRL') {
   }
 }
 
+function formatByCurrency(items: { currency: string; total: number }[]) {
+  if (items.length === 0) return 'Sem valor';
+  return items.map((i) => formatCurrency(i.total, i.currency)).join(' + ');
+}
+
 function normalizeDate(value?: string | null) {
   if (!value) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
@@ -512,9 +517,32 @@ export default function Dashboard() {
     });
   }, [taskSearch, tasksModule.data]);
 
+  const realByCurrency = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of expensesModule.data) {
+      const cur = item.moeda?.toUpperCase() || 'BRL';
+      map.set(cur, (map.get(cur) ?? 0) + Number(item.valor ?? 0));
+    }
+    return Array.from(map.entries()).map(([currency, total]) => ({ currency, total }));
+  }, [expensesModule.data]);
+
   const realTotal = useMemo(() => {
     return expensesModule.data.reduce((acc, item) => acc + Number(item.valor ?? 0), 0);
   }, [expensesModule.data]);
+
+  const estimadoByCurrency = useMemo(() => {
+    const map = new Map<string, number>();
+    const allItems = [
+      ...flightsModule.data.filter(i => i.status !== 'cancelado').map(i => ({ valor: i.valor, moeda: i.moeda, source: 'Voos' })),
+      ...staysModule.data.filter(i => i.status !== 'cancelado').map(i => ({ valor: i.valor, moeda: i.moeda, source: 'Hospedagens' })),
+      ...transportsModule.data.filter(i => i.status !== 'cancelado').map(i => ({ valor: i.valor, moeda: i.moeda, source: 'Transportes' })),
+    ];
+    for (const item of allItems) {
+      const cur = item.moeda?.toUpperCase() || 'BRL';
+      map.set(cur, (map.get(cur) ?? 0) + Number(item.valor ?? 0));
+    }
+    return Array.from(map.entries()).map(([currency, total]) => ({ currency, total }));
+  }, [flightsModule.data, staysModule.data, transportsModule.data]);
 
   const estimadoTotal = useMemo(() => {
     const moduleTotals = [flightsModule.data, staysModule.data, transportsModule.data].flat();
@@ -694,23 +722,30 @@ export default function Dashboard() {
   const flightStats = useMemo(() => {
     const active = flightsFiltered.filter((flight) => flight.status !== 'cancelado');
     const confirmed = active.filter((flight) => flight.status === 'confirmado').length;
-    const totalCost = active.reduce((sum, flight) => sum + Number(flight.valor ?? 0), 0);
-
+    const byCurrency = new Map<string, number>();
+    for (const f of active) {
+      const cur = f.moeda?.toUpperCase() || 'BRL';
+      byCurrency.set(cur, (byCurrency.get(cur) ?? 0) + Number(f.valor ?? 0));
+    }
     return {
       total: flightsFiltered.length,
       confirmed,
-      totalCost,
+      byCurrency: Array.from(byCurrency.entries()).map(([currency, total]) => ({ currency, total })),
     };
   }, [flightsFiltered]);
 
   const stayStats = useMemo(() => {
     const active = staysFiltered.filter((stay) => stay.status !== 'cancelado');
-    const totalCost = active.reduce((sum, stay) => sum + Number(stay.valor ?? 0), 0);
+    const byCurrency = new Map<string, number>();
+    for (const s of active) {
+      const cur = s.moeda?.toUpperCase() || 'BRL';
+      byCurrency.set(cur, (byCurrency.get(cur) ?? 0) + Number(s.valor ?? 0));
+    }
     const cities = new Set(active.map((stay) => stay.localizacao?.trim()).filter(Boolean));
     return {
       total: staysFiltered.length,
       active: active.length,
-      totalCost,
+      byCurrency: Array.from(byCurrency.entries()).map(([currency, total]) => ({ currency, total })),
       cities: cities.size,
     };
   }, [staysFiltered]);
@@ -718,11 +753,15 @@ export default function Dashboard() {
   const transportStats = useMemo(() => {
     const active = transportFiltered.filter((transport) => transport.status !== 'cancelado');
     const confirmed = active.filter((transport) => transport.status === 'confirmado').length;
-    const totalCost = active.reduce((sum, transport) => sum + Number(transport.valor ?? 0), 0);
+    const byCurrency = new Map<string, number>();
+    for (const t of active) {
+      const cur = t.moeda?.toUpperCase() || 'BRL';
+      byCurrency.set(cur, (byCurrency.get(cur) ?? 0) + Number(t.valor ?? 0));
+    }
     return {
       total: transportFiltered.length,
       confirmed,
-      totalCost,
+      byCurrency: Array.from(byCurrency.entries()).map(([currency, total]) => ({ currency, total })),
     };
   }, [transportFiltered]);
 
@@ -1579,7 +1618,7 @@ export default function Dashboard() {
                       </div>
                       <div className="rounded-xl border bg-muted/30 p-3">
                         <p className="text-xs text-muted-foreground">Custo somado</p>
-                        <p className="text-lg font-semibold">{formatCurrency(flightStats.totalCost, 'BRL')}</p>
+                        <p className="text-lg font-semibold">{formatByCurrency(flightStats.byCurrency)}</p>
                       </div>
                     </div>
 
@@ -1791,7 +1830,7 @@ export default function Dashboard() {
                       </div>
                       <div className="rounded-xl border bg-muted/30 p-3">
                         <p className="text-xs text-muted-foreground">Custo somado</p>
-                        <p className="text-lg font-semibold">{formatCurrency(stayStats.totalCost, 'BRL')}</p>
+                        <p className="text-lg font-semibold">{formatByCurrency(stayStats.byCurrency)}</p>
                       </div>
                     </div>
 
@@ -2166,7 +2205,7 @@ export default function Dashboard() {
                       </div>
                       <div className="rounded-xl border bg-muted/30 p-3">
                         <p className="text-xs text-muted-foreground">Custo somado</p>
-                        <p className="text-lg font-semibold">{formatCurrency(transportStats.totalCost, 'BRL')}</p>
+                        <p className="text-lg font-semibold">{formatByCurrency(transportStats.byCurrency)}</p>
                       </div>
                     </div>
 
@@ -2767,29 +2806,34 @@ export default function Dashboard() {
                 </Card>
               </TabsContent>
 
-              <TabsContent value="orcamento" className="space-y-4">
+               <TabsContent value="orcamento" className="space-y-4">
                 <div className="grid gap-4 md:grid-cols-3">
                   <Card className="border-border/50">
                     <CardHeader className="pb-2">
-                      <CardTitle className="text-sm text-muted-foreground">Total real</CardTitle>
+                      <CardTitle className="text-sm text-muted-foreground">Total real (despesas)</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <div className="flex items-center gap-2 text-2xl font-bold">
                         <Wallet className="h-5 w-5 text-primary" />
-                        {formatCurrency(realTotal, 'BRL')}
+                        {formatByCurrency(realByCurrency)}
                       </div>
                       <p className="mt-1 text-xs text-muted-foreground">Baseado em despesas efetivamente lançadas.</p>
                     </CardContent>
                   </Card>
                   <Card className="border-border/50">
                     <CardHeader className="pb-2">
-                      <CardTitle className="text-sm text-muted-foreground">Total estimado</CardTitle>
+                      <CardTitle className="text-sm text-muted-foreground">Total estimado (reservas)</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="text-2xl font-bold">{formatCurrency(estimadoTotal, 'BRL')}</div>
+                      <div className="text-2xl font-bold">{formatByCurrency(estimadoByCurrency)}</div>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Soma dinâmica de voos, hospedagens e transportes não cancelados.
+                        Soma de voos, hospedagens e transportes não cancelados.
                       </p>
+                      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                        <p>✈ Voos: {formatByCurrency(flightStats.byCurrency)}</p>
+                        <p>🏨 Hospedagens: {formatByCurrency(stayStats.byCurrency)}</p>
+                        <p>🚌 Transportes: {formatByCurrency(transportStats.byCurrency)}</p>
+                      </div>
                     </CardContent>
                   </Card>
                   <Card className="border-border/50">
