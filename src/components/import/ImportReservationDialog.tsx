@@ -1066,13 +1066,13 @@ export function ImportReservationDialog() {
       }}
     >
       <DialogTrigger asChild>
-        <Button aria-label="Abrir importação de reserva">
+        <Button aria-label="Abrir importação de reserva" className="w-full sm:w-auto">
           <FileUp className="mr-2 h-4 w-4" />
           Importar reservas
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="tp-scroll max-h-[92vh] overflow-y-auto border-primary/20 bg-gradient-to-b from-white to-slate-50/90 sm:max-w-5xl" aria-describedby={descriptionId}>
+      <DialogContent className="tp-scroll max-h-[92vh] w-[calc(100vw-1rem)] overflow-y-auto border-primary/20 bg-gradient-to-b from-white to-slate-50/90 p-4 sm:w-full sm:max-w-5xl sm:p-6" aria-describedby={descriptionId}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -1088,7 +1088,7 @@ export function ImportReservationDialog() {
         <div className="space-y-4">
           <Card className="border-primary/15 bg-white/90 shadow-sm">
             <CardContent className="pt-4">
-              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+              <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
                 <div className="space-y-2">
                   <Label htmlFor={fileInputId}>Arquivos da viagem</Label>
                   <Input
@@ -1097,13 +1097,19 @@ export function ImportReservationDialog() {
                     multiple
                     accept=".txt,.html,.eml,.pdf,.png,.jpg,.jpeg,.webp"
                     onChange={(event) => onSelectFiles(event.target.files)}
+                    className="h-11"
                   />
                   <p className="text-xs text-muted-foreground">
                     Você pode subir vários arquivos ao mesmo tempo. Formatos: txt, html, eml, pdf, png, jpg e webp.
                   </p>
                 </div>
-                <div className="flex items-end">
-                  <Button onClick={runBatch} disabled={!canProcess} aria-label="Analisar arquivos selecionados">
+                <div className="flex items-end lg:justify-end">
+                  <Button
+                    onClick={runBatch}
+                    disabled={!canProcess}
+                    aria-label="Analisar arquivos selecionados"
+                    className="h-11 w-full min-w-[200px] lg:w-[220px]"
+                  >
                     {isProcessingBatch ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
                     Analisar arquivos
                   </Button>

@@ -10,8 +10,14 @@ type TripTopActionsProps = {
 
 export function TripTopActions({ isReconciling, onReconcile, children }: TripTopActionsProps) {
   return (
-    <div className="mb-6 flex flex-wrap justify-end gap-2">
-      <Button variant="outline" onClick={onReconcile} disabled={isReconciling} aria-label="Reconciliar dados com banco">
+    <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+      <Button
+        variant="outline"
+        onClick={onReconcile}
+        disabled={isReconciling}
+        aria-label="Reconciliar dados com banco"
+        className="w-full sm:w-auto"
+      >
         <RefreshCcw className={`mr-2 h-4 w-4 ${isReconciling ? 'animate-spin' : ''}`} />
         Reconciliar dados
       </Button>

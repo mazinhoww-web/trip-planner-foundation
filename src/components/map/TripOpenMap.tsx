@@ -34,7 +34,7 @@ type TripOpenMapProps = {
   transports: Tables<'transportes'>[];
   flights?: Tables<'voos'>[];
   className?: string;
-  height?: number;
+  height?: number | string;
 };
 
 const LEAFLET_CSS_ID = 'tripplanner-leaflet-css';
@@ -389,11 +389,11 @@ export function TripOpenMap({ stays, transports, flights = [], className, height
   }, [mapData]);
 
   return (
-    <div className={className}>
+    <div className={`tp-map-root ${className ?? ''}`}>
       <div
         ref={containerRef}
         style={{ height, minHeight: 220 }}
-        className="w-full rounded-2xl border border-border/60 bg-muted/20"
+        className="relative z-0 w-full overflow-hidden rounded-2xl border border-border/60 bg-muted/20"
         aria-label="Mapa da viagem em OpenStreetMap"
       />
       {isLoading && (

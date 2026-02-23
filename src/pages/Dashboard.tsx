@@ -780,6 +780,7 @@ export default function Dashboard() {
 
   const openCreateStay = () => {
     if (!ensureCanEdit()) return;
+    setStayDetailOpen(false);
     setEditingStay(null);
     setStayForm(emptyStay);
     setStayDialogOpen(true);
@@ -787,6 +788,7 @@ export default function Dashboard() {
 
   const openEditStay = (stay: Tables<'hospedagens'>) => {
     if (!ensureCanEdit()) return;
+    setStayDetailOpen(false);
     setEditingStay(stay);
     setStayForm({
       nome: stay.nome ?? '',
@@ -1351,11 +1353,11 @@ export default function Dashboard() {
             <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-8">
               <div className="overflow-x-auto pb-1 tp-scroll">
                 <TabsList
-                  className="inline-grid min-w-[860px] h-auto grid-cols-9 gap-2 rounded-2xl border border-border/70 bg-white/90 p-2 shadow-sm"
+                  className="inline-flex h-auto w-max min-w-full items-center gap-2 rounded-2xl border border-border/70 bg-white/90 p-2 shadow-sm"
                   aria-label="Navegação entre módulos da viagem"
                 >
                   {DASHBOARD_TABS.map((tab) => (
-                    <TabsTrigger key={tab.key} value={tab.key} className="gap-2 rounded-xl">
+                    <TabsTrigger key={tab.key} value={tab.key} className="shrink-0 gap-2 rounded-xl px-3 py-2 text-xs sm:text-sm">
                       <tab.icon className="h-4 w-4" />
                       {tab.label}
                     </TabsTrigger>
@@ -1432,7 +1434,12 @@ export default function Dashboard() {
                   </CardHeader>
                   <CardContent>
                     <Suspense fallback={<div className="h-[320px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
-                      <TripOpenMap stays={staysModule.data} transports={transportsModule.data} flights={flightsModule.data} />
+                      <TripOpenMap
+                        stays={staysModule.data}
+                        transports={transportsModule.data}
+                        flights={flightsModule.data}
+                        height="clamp(220px, 42vh, 320px)"
+                      />
                     </Suspense>
                     <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
                       <Badge variant="outline" className="border-emerald-400/60 bg-emerald-50 text-emerald-700">Hospedagens</Badge>
@@ -1648,7 +1655,7 @@ export default function Dashboard() {
                             Nova hospedagem
                           </Button>
                         </DialogTrigger>
-                        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+                        <DialogContent className="max-h-[90vh] w-[calc(100vw-1rem)] overflow-y-auto sm:w-full sm:max-w-3xl">
                           <DialogHeader>
                             <DialogTitle>{editingStay ? 'Editar hospedagem' : 'Nova hospedagem'}</DialogTitle>
                             <DialogDescription>
@@ -1775,7 +1782,12 @@ export default function Dashboard() {
                     )}
 
                     <Suspense fallback={<div className="h-[280px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
-                      <TripOpenMap stays={staysFiltered} transports={transportsModule.data} flights={flightsModule.data} height={280} />
+                      <TripOpenMap
+                        stays={staysFiltered}
+                        transports={transportsModule.data}
+                        flights={flightsModule.data}
+                        height="clamp(200px, 36vh, 280px)"
+                      />
                     </Suspense>
 
                     {(stayCoverageGaps.length > 0 || transportCoverageGaps.length > 0) && (
@@ -1900,7 +1912,7 @@ export default function Dashboard() {
                           <p className="font-semibold">Mapa da hospedagem</p>
                           <div className="mt-2">
                             <Suspense fallback={<div className="h-[220px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
-                              <TripOpenMap stays={[selectedStay]} transports={[]} height={220} />
+                              <TripOpenMap stays={[selectedStay]} transports={[]} height="clamp(180px, 32vh, 220px)" />
                             </Suspense>
                           </div>
                         </div>
@@ -2145,7 +2157,12 @@ export default function Dashboard() {
                     )}
 
                     <Suspense fallback={<div className="h-[260px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
-                      <TripOpenMap stays={staysModule.data} transports={transportFiltered} flights={flightsModule.data} height={260} />
+                      <TripOpenMap
+                        stays={staysModule.data}
+                        transports={transportFiltered}
+                        flights={flightsModule.data}
+                        height="clamp(200px, 34vh, 260px)"
+                      />
                     </Suspense>
 
                     {transportsModule.isLoading ? (

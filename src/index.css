@@ -116,6 +116,12 @@
   .tp-surface {
     @apply rounded-2xl border border-border/70 bg-white/90 shadow-sm backdrop-blur;
   }
+
+  .tp-map-root {
+    position: relative;
+    isolation: isolate;
+    z-index: 0;
+  }
 }
 
 @layer utilities {
