@@ -201,6 +201,23 @@ function isUserHomeAirport(airport: string, userHome: string | null) {
   return locationsMatch(airport, userHome);
 }
 
+function getTransportSuggestion(from: string, to: string): string {
+  const normalized = normalizeTextForMatch(to) + ' ' + normalizeTextForMatch(from);
+
+  const publicTransitCities = ['paris', 'london', 'londres', 'roma', 'rome', 'barcelona', 'berlin',
+    'amsterdam', 'tokyo', 'new york', 'nyc', 'chicago', 'toronto', 'madrid', 'lisboa', 'lisbon',
+    'milao', 'milan', 'munique', 'munich', 'zurich', 'zurique', 'bruxelas', 'brussels', 'viena', 'vienna'];
+  const carCities = ['miami', 'los angeles', 'las vegas', 'orlando', 'houston', 'phoenix',
+    'san diego', 'dallas', 'austin', 'nashville', 'cancun', 'punta cana'];
+
+  const isPublicTransit = publicTransitCities.some((c) => normalized.includes(c));
+  const isCar = carCities.some((c) => normalized.includes(c));
+
+  if (isPublicTransit) return ' Considere transporte público (metrô/trem). Veja rotas em Google Maps ou Citymapper.';
+  if (isCar) return ' Considere alugar um veículo ou usar Uber/táxi. Transporte público limitado nesta região.';
+  return ' Verifique opções de transporte no Google Maps.';
+}
+
 export function calculateTransportCoverageGaps(
   stays: Tables<'hospedagens'>[],
   transports: Tables<'transportes'>[],
@@ -222,7 +239,7 @@ export function calculateTransportCoverageGaps(
 
   const gaps: TransportGap[] = [];
 
-  // ── Inter-stay gaps (unchanged logic: stays in different cities need transport) ──
+  // ── Inter-stay gaps ──
   if (activeStays.length >= 2) {
     for (let i = 0; i < activeStays.length - 1; i += 1) {
       const current = activeStays[i];
@@ -237,11 +254,12 @@ export function calculateTransportCoverageGaps(
       const referenceDate = next.check_in || current.check_out || null;
 
       if (!hasTransportCoverage(from, to, referenceDate, transports, flights)) {
+        const suggestion = getTransportSuggestion(from, to);
         pushUniqueGap(gaps, {
           from,
           to,
           referenceDate,
-          reason: 'Não existe trecho registrado cobrindo a troca de cidade.',
+          reason: 'Não existe trecho registrado cobrindo a troca de cidade.' + suggestion,
         });
       }
     }
@@ -251,44 +269,33 @@ export function calculateTransportCoverageGaps(
   if (activeStays.length > 0) {
     const { chains, connectionAirports } = buildFlightChains(flights);
 
-    // For each chain's final arrival, check if transport exists to the first stay
     for (const chain of chains) {
-      // Skip if this is the user's home airport (they know how to get there)
-      if (isUserHomeAirport(chain.departure, userHomeLocation)) {
-        // This is an outbound chain from home — only check arrival end
-      }
-
       const arrivalAirport = chain.arrival;
-      // Skip connection airports — they don't need ground transport
       if (connectionAirports.has(normalizeTextForMatch(arrivalAirport))) continue;
-      // Skip if arrival is the user's home airport (return flight)
       if (isUserHomeAirport(arrivalAirport, userHomeLocation)) continue;
 
       const firstStay = activeStays[0];
       const firstLocation = firstStay.localizacao || '';
       if (!firstLocation) continue;
 
-      // Don't flag if the airport matches the stay location
       if (locationsMatch(arrivalAirport, firstLocation)) continue;
 
       const referenceDate = firstStay.check_in || firstStay.check_out || null;
 
       if (!hasTransportCoverage(arrivalAirport, firstLocation, referenceDate, transports, flights)) {
+        const suggestion = getTransportSuggestion(arrivalAirport, firstLocation);
         pushUniqueGap(gaps, {
           from: arrivalAirport,
           to: firstLocation,
           referenceDate,
-          reason: 'Sem transporte registrado do aeroporto de chegada até a hospedagem.',
+          reason: 'Sem transporte registrado do aeroporto de chegada até a hospedagem.' + suggestion,
         });
       }
     }
 
-    // Check last stay → departure airport (for return flights)
     for (const chain of chains) {
       const departureAirport = chain.departure;
-      // Skip connection airports
       if (connectionAirports.has(normalizeTextForMatch(departureAirport))) continue;
-      // Skip if departure is user's home (they know how to get to their airport)
       if (isUserHomeAirport(departureAirport, userHomeLocation)) continue;
 
       const lastStay = activeStays[activeStays.length - 1];
@@ -300,11 +307,12 @@ export function calculateTransportCoverageGaps(
       const referenceDate = lastStay.check_out || lastStay.check_in || null;
 
       if (!hasTransportCoverage(lastLocation, departureAirport, referenceDate, transports, flights)) {
+        const suggestion = getTransportSuggestion(lastLocation, departureAirport);
         pushUniqueGap(gaps, {
           from: lastLocation,
           to: departureAirport,
           referenceDate,
-          reason: 'Sem transporte registrado da hospedagem até o aeroporto de partida.',
+          reason: 'Sem transporte registrado da hospedagem até o aeroporto de partida.' + suggestion,
         });
       }
     }
