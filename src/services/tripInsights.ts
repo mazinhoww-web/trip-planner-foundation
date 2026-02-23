@@ -269,6 +269,9 @@ export function calculateTransportCoverageGaps(
   if (activeStays.length > 0) {
     const { chains, connectionAirports } = buildFlightChains(flights);
 
+
+
+    // ── Arrival airport → first stay ──
     for (const chain of chains) {
       const arrivalAirport = chain.arrival;
       if (connectionAirports.has(normalizeTextForMatch(arrivalAirport))) continue;
@@ -293,10 +296,23 @@ export function calculateTransportCoverageGaps(
       }
     }
 
+    // ── Last stay → departure airport ──
     for (const chain of chains) {
       const departureAirport = chain.departure;
       if (connectionAirports.has(normalizeTextForMatch(departureAirport))) continue;
       if (isUserHomeAirport(departureAirport, userHomeLocation)) continue;
+
+      // Skip departure airports that also appear as arrival airports of OTHER chains
+      // arriving at the same destination (connection flights, e.g. AMS→CDG when CDG is the destination)
+      // Check if another chain arrives at the same airport, making this a connection origin
+      const isConnectionOrigin = chains.some(other => {
+        if (other === chain) return false;
+        return locationsMatch(other.arrival, chain.arrival);
+      }) && !locationsMatch(departureAirport, chain.arrival);
+
+      // If this chain's departure is just a connection point for reaching the same
+      // arrival as another chain, skip it (e.g. AMS departing to CDG, while GRU also goes to CDG)
+      if (isConnectionOrigin) continue;
 
       const lastStay = activeStays[activeStays.length - 1];
       const lastLocation = lastStay.localizacao || '';
