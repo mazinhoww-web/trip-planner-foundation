@@ -1,5 +1,5 @@
 import { Tables } from '@/integrations/supabase/types';
-import { locationsMatch } from '@/services/geo';
+import { locationsMatch, normalizeTextForMatch } from '@/services/geo';
 
 export type StayGap = {
   start: string;
@@ -160,10 +160,52 @@ function pushUniqueGap(gaps: TransportGap[], gap: TransportGap) {
   if (!exists) gaps.push(gap);
 }
 
+/**
+ * Detect flight connections: if flight A's destination matches flight B's origin
+ * (and they are consecutive by date), B is a connection — no ground transport needed.
+ * Returns the final arrival airport and original departure airport.
+ */
+function buildFlightChains(flights: Tables<'voos'>[]) {
+  const active = flights
+    .filter(f => isActiveStatus(f.status) && f.origem && f.destino)
+    .sort((a, b) => {
+      if (!a.data) return 1;
+      if (!b.data) return -1;
+      return new Date(a.data).getTime() - new Date(b.data).getTime();
+    });
+
+  if (active.length === 0) return { chains: [], connectionAirports: new Set<string>() };
+
+  const connectionAirports = new Set<string>();
+  const chains: Array<{ departure: string; arrival: string }> = [];
+  let chainStart = active[0].origem!;
+
+  for (let i = 0; i < active.length - 1; i++) {
+    const current = active[i];
+    const next = active[i + 1];
+    if (locationsMatch(current.destino!, next.origem!)) {
+      connectionAirports.add(normalizeTextForMatch(current.destino));
+      connectionAirports.add(normalizeTextForMatch(next.origem));
+    } else {
+      chains.push({ departure: chainStart, arrival: current.destino! });
+      chainStart = next.origem!;
+    }
+  }
+  chains.push({ departure: chainStart, arrival: active[active.length - 1].destino! });
+
+  return { chains, connectionAirports };
+}
+
+function isUserHomeAirport(airport: string, userHome: string | null) {
+  if (!userHome) return false;
+  return locationsMatch(airport, userHome);
+}
+
 export function calculateTransportCoverageGaps(
   stays: Tables<'hospedagens'>[],
   transports: Tables<'transportes'>[],
   flights: Tables<'voos'>[],
+  userHomeLocation: string | null = null,
 ): TransportGap[] {
   const activeStays = stays
     .filter((stay) => isActiveStatus(stay.status) && !!stay.localizacao)
@@ -180,6 +222,7 @@ export function calculateTransportCoverageGaps(
 
   const gaps: TransportGap[] = [];
 
+  // ── Inter-stay gaps (unchanged logic: stays in different cities need transport) ──
   if (activeStays.length >= 2) {
     for (let i = 0; i < activeStays.length - 1; i += 1) {
       const current = activeStays[i];
@@ -204,50 +247,65 @@ export function calculateTransportCoverageGaps(
     }
   }
 
+  // ── Airport ↔ Stay gaps (smart: detect connections, suppress home airport) ──
   if (activeStays.length > 0) {
-    const firstStay = activeStays[0];
-    const firstLocation = firstStay.localizacao || '';
-    const firstReference = firstStay.check_in || firstStay.check_out || null;
+    const { chains, connectionAirports } = buildFlightChains(flights);
 
-    if (firstLocation) {
-      const arrivalFlights = flights
-        .filter((flight) => isActiveStatus(flight.status) && !!flight.destino)
-        .filter((flight) => isInReferenceWindow(flight.data, firstReference))
-        .filter((flight) => !locationsMatch(flight.destino, firstLocation));
+    // For each chain's final arrival, check if transport exists to the first stay
+    for (const chain of chains) {
+      // Skip if this is the user's home airport (they know how to get there)
+      if (isUserHomeAirport(chain.departure, userHomeLocation)) {
+        // This is an outbound chain from home — only check arrival end
+      }
 
-      for (const flight of arrivalFlights) {
-        if (!flight.destino) continue;
-        if (!hasTransportCoverage(flight.destino, firstLocation, firstReference, transports, flights)) {
-          pushUniqueGap(gaps, {
-            from: flight.destino,
-            to: firstLocation,
-            referenceDate: firstReference,
-            reason: 'Chegada por voo sem transporte registrado até a primeira hospedagem.',
-          });
-        }
+      const arrivalAirport = chain.arrival;
+      // Skip connection airports — they don't need ground transport
+      if (connectionAirports.has(normalizeTextForMatch(arrivalAirport))) continue;
+      // Skip if arrival is the user's home airport (return flight)
+      if (isUserHomeAirport(arrivalAirport, userHomeLocation)) continue;
+
+      const firstStay = activeStays[0];
+      const firstLocation = firstStay.localizacao || '';
+      if (!firstLocation) continue;
+
+      // Don't flag if the airport matches the stay location
+      if (locationsMatch(arrivalAirport, firstLocation)) continue;
+
+      const referenceDate = firstStay.check_in || firstStay.check_out || null;
+
+      if (!hasTransportCoverage(arrivalAirport, firstLocation, referenceDate, transports, flights)) {
+        pushUniqueGap(gaps, {
+          from: arrivalAirport,
+          to: firstLocation,
+          referenceDate,
+          reason: 'Sem transporte registrado do aeroporto de chegada até a hospedagem.',
+        });
       }
     }
 
-    const lastStay = activeStays[activeStays.length - 1];
-    const lastLocation = lastStay.localizacao || '';
-    const lastReference = lastStay.check_out || lastStay.check_in || null;
+    // Check last stay → departure airport (for return flights)
+    for (const chain of chains) {
+      const departureAirport = chain.departure;
+      // Skip connection airports
+      if (connectionAirports.has(normalizeTextForMatch(departureAirport))) continue;
+      // Skip if departure is user's home (they know how to get to their airport)
+      if (isUserHomeAirport(departureAirport, userHomeLocation)) continue;
 
-    if (lastLocation) {
-      const departureFlights = flights
-        .filter((flight) => isActiveStatus(flight.status) && !!flight.origem)
-        .filter((flight) => isInReferenceWindow(flight.data, lastReference))
-        .filter((flight) => !locationsMatch(flight.origem, lastLocation));
+      const lastStay = activeStays[activeStays.length - 1];
+      const lastLocation = lastStay.localizacao || '';
+      if (!lastLocation) continue;
 
-      for (const flight of departureFlights) {
-        if (!flight.origem) continue;
-        if (!hasTransportCoverage(lastLocation, flight.origem, lastReference, transports, flights)) {
-          pushUniqueGap(gaps, {
-            from: lastLocation,
-            to: flight.origem,
-            referenceDate: lastReference,
-            reason: 'Saída por voo sem transporte registrado da hospedagem até o aeroporto/estação.',
-          });
-        }
+      if (locationsMatch(lastLocation, departureAirport)) continue;
+
+      const referenceDate = lastStay.check_out || lastStay.check_in || null;
+
+      if (!hasTransportCoverage(lastLocation, departureAirport, referenceDate, transports, flights)) {
+        pushUniqueGap(gaps, {
+          from: lastLocation,
+          to: departureAirport,
+          referenceDate,
+          reason: 'Sem transporte registrado da hospedagem até o aeroporto de partida.',
+        });
       }
     }
   }

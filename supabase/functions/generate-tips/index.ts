@@ -10,6 +10,7 @@ type GenerateTipsInput = {
   tripDestination?: string | null;
   flightOrigin?: string | null;
   flightDestination?: string | null;
+  userHomeCity?: string | null;
 };
 
 type GenerateTipsOutput = {
@@ -29,12 +30,19 @@ Dados disponiveis nos campos enviados:
 - Destino da viagem
 - Aeroporto/cidade de origem do viajante (se disponivel)
 - Aeroporto/cidade de chegada (se disponivel)
+- Cidade onde o viajante mora (se disponivel)
 
 Entregue:
 
 1) dica_viagem: Dica pratica e especifica sobre a estadia. Ex: "O bairro Marais em Paris tem ruas estreitas -- prefira mala de mao rigida. Supermercado Monoprix a 200m na Rue de Rivoli." Nao repita dados obvios como "confirme check-in". Fale sobre o bairro, seguranca, transporte local, supermercados proximos.
 
 2) como_chegar: Rota ESPECIFICA do aeroporto/estacao ate o hotel. Se tiver dados de voo, descreva o trajeto desde o aeroporto de chegada (ex: "Do aeroporto CDG, pegue o RER B ate Chatelet-Les Halles, depois linha 1 do metro ate Hotel de Ville. Alternativa: taxi/Uber ~50 EUR, 45min."). Se o viajante vem de carro, sugira rota e inclua um link Google Maps no formato: https://www.google.com/maps/dir/ORIGEM/DESTINO (substitua espacos por +). Se nao souber o aeroporto, liste as 2-3 opcoes principais de chegada na cidade com rotas de cada uma.
+
+REGRA DE TRANSPORTE CONTEXTUAL:
+- Em cidades europeias (Paris, Londres, Roma, Barcelona, Berlim, Amsterdam, etc), Tokyo, NYC, Chicago, Toronto, Buenos Aires: SEMPRE priorize transporte publico. Descreva linhas de metro/trem/onibus especificas do aeroporto ate o hotel com precos aproximados e tempo.
+- Em cidades como Miami, Los Angeles, Las Vegas, Orlando, cidades pequenas ou sem metro: sugira locacao de veiculo ou Uber/taxi com estimativa de custo e tempo. Ex: "Miami nao tem bom transporte publico do aeroporto. Uber: ~$25-35 USD, 30min. Considere alugar um carro pela Hertz/Enterprise no aeroporto (~$40-60/dia)."
+- SEMPRE inclua link Google Maps: https://www.google.com/maps/dir/AEROPORTO/ENDERECO+DO+HOTEL (substitua espacos por +)
+- Se o usuario tem cidade de origem informada, contextualize: "Saindo de Sao Paulo (GRU), voce chegara em CDG. De la..."
 
 3) atracoes_proximas: Liste 3-4 atracoes REAIS com nomes verdadeiros proximo ao hotel. Use nomes de pontos turisticos, museus, parques, pracas que existem de verdade na regiao. Inclua distancia aproximada. Ex: "Musee du Louvre (800m), Place des Vosges (400m), Centre Pompidou (600m)".
 
@@ -204,6 +212,7 @@ Deno.serve(async (req) => {
       tripDestination: truncate(body.tripDestination),
       flightOrigin: truncate(body.flightOrigin),
       flightDestination: truncate(body.flightDestination),
+      userHomeCity: truncate(body.userHomeCity),
     };
 
     const userContent = `Dados da hospedagem: ${JSON.stringify(payload)}`;

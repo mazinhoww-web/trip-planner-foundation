@@ -9,6 +9,7 @@ type StayTipsInput = {
   tripDestination?: string | null;
   flightOrigin?: string | null;
   flightDestination?: string | null;
+  userHomeCity?: string | null;
 };
 
 export type StayTipsOutput = {
@@ -119,6 +120,7 @@ export async function generateStayTips(input: StayTipsInput): Promise<FunctionRe
     tripDestination: trimOrNull(input.tripDestination),
     flightOrigin: trimOrNull(input.flightOrigin),
     flightDestination: trimOrNull(input.flightDestination),
+    userHomeCity: trimOrNull(input.userHomeCity),
   };
 
   const response = await invokeWithSingleRetry<{ data?: StayTipsOutput; error?: string }>('generate-tips', payload);
