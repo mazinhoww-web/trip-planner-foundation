@@ -163,7 +163,7 @@ function pushUniqueGap(gaps: TransportGap[], gap: TransportGap) {
 /**
  * Detect flight connections: if flight A's destination matches flight B's origin
  * (and they are consecutive by date), B is a connection — no ground transport needed.
- * Returns the final arrival airport and original departure airport.
+ * Returns the final arrival airport and original departure airport, plus date info.
  */
 function buildFlightChains(flights: Tables<'voos'>[]) {
   const active = flights
@@ -174,11 +174,12 @@ function buildFlightChains(flights: Tables<'voos'>[]) {
       return new Date(a.data).getTime() - new Date(b.data).getTime();
     });
 
-  if (active.length === 0) return { chains: [], connectionAirports: new Set<string>() };
+  if (active.length === 0) return { chains: [] as FlightChain[], connectionAirports: new Set<string>() };
 
   const connectionAirports = new Set<string>();
-  const chains: Array<{ departure: string; arrival: string }> = [];
+  const chains: FlightChain[] = [];
   let chainStart = active[0].origem!;
+  let chainStartDate = toDateOnly(active[0].data) ?? null;
 
   for (let i = 0; i < active.length - 1; i++) {
     const current = active[i];
@@ -187,14 +188,33 @@ function buildFlightChains(flights: Tables<'voos'>[]) {
       connectionAirports.add(normalizeTextForMatch(current.destino));
       connectionAirports.add(normalizeTextForMatch(next.origem));
     } else {
-      chains.push({ departure: chainStart, arrival: current.destino! });
+      chains.push({
+        departure: chainStart,
+        arrival: current.destino!,
+        departureDate: chainStartDate,
+        arrivalDate: toDateOnly(current.data) ?? null,
+      });
       chainStart = next.origem!;
+      chainStartDate = toDateOnly(next.data) ?? null;
     }
   }
-  chains.push({ departure: chainStart, arrival: active[active.length - 1].destino! });
+  const lastFlight = active[active.length - 1];
+  chains.push({
+    departure: chainStart,
+    arrival: lastFlight.destino!,
+    departureDate: chainStartDate,
+    arrivalDate: toDateOnly(lastFlight.data) ?? null,
+  });
 
   return { chains, connectionAirports };
 }
+
+type FlightChain = {
+  departure: string;
+  arrival: string;
+  departureDate: string | null;
+  arrivalDate: string | null;
+};
 
 function isUserHomeAirport(airport: string, userHome: string | null) {
   if (!userHome) return false;
@@ -216,6 +236,52 @@ function getTransportSuggestion(from: string, to: string): string {
   if (isPublicTransit) return ' Considere transporte público (metrô/trem). Veja rotas em Google Maps ou Citymapper.';
   if (isCar) return ' Considere alugar um veículo ou usar Uber/táxi. Transporte público limitado nesta região.';
   return ' Verifique opções de transporte no Google Maps.';
+}
+
+/**
+ * Find the stay whose date field (check_in or check_out) is closest to a reference date.
+ * For check_in: prefer stays starting on or after the reference date.
+ * For check_out: prefer stays ending on or before the reference date.
+ */
+function findNearestStay(
+  stays: Array<{ check_in: string | null; check_out: string | null; localizacao: string | null }>,
+  referenceDate: string | null,
+  field: 'check_in' | 'check_out',
+) {
+  if (stays.length === 0) return null;
+  if (!referenceDate) return field === 'check_in' ? stays[0] : stays[stays.length - 1];
+
+  const refTime = toUtcDate(referenceDate).getTime();
+  let best: typeof stays[0] | null = null;
+  let bestDiff = Infinity;
+
+  for (const stay of stays) {
+    const dateStr = stay[field];
+    if (!dateStr) continue;
+    const stayTime = toUtcDate(dateStr).getTime();
+    const diff = field === 'check_in'
+      ? (stayTime >= refTime ? stayTime - refTime : Infinity)
+      : (stayTime <= refTime ? refTime - stayTime : Infinity);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = stay;
+    }
+  }
+
+  // Fallback: if no stay found in preferred direction, pick closest overall
+  if (!best) {
+    for (const stay of stays) {
+      const dateStr = stay[field];
+      if (!dateStr) continue;
+      const diff = Math.abs(toUtcDate(dateStr).getTime() - refTime);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = stay;
+      }
+    }
+  }
+
+  return best ?? (field === 'check_in' ? stays[0] : stays[stays.length - 1]);
 }
 
 export function calculateTransportCoverageGaps(
@@ -265,71 +331,90 @@ export function calculateTransportCoverageGaps(
     }
   }
 
-  // ── Airport ↔ Stay gaps (smart: detect connections, suppress home airport) ──
+  // ── Airport ↔ Stay gaps (date-aware: match chains to temporally relevant stays) ──
   if (activeStays.length > 0) {
     const { chains, connectionAirports } = buildFlightChains(flights);
 
-
-
-    // ── Arrival airport → first stay ──
     for (const chain of chains) {
-      const arrivalAirport = chain.arrival;
-      if (connectionAirports.has(normalizeTextForMatch(arrivalAirport))) continue;
-      if (isUserHomeAirport(arrivalAirport, userHomeLocation)) continue;
+      if (connectionAirports.has(normalizeTextForMatch(chain.arrival))) continue;
+      if (connectionAirports.has(normalizeTextForMatch(chain.departure))) continue;
 
-      const firstStay = activeStays[0];
-      const firstLocation = firstStay.localizacao || '';
-      if (!firstLocation) continue;
+      const isReturnHome = isUserHomeAirport(chain.arrival, userHomeLocation);
+      const isDepartureFromHome = isUserHomeAirport(chain.departure, userHomeLocation);
 
-      if (locationsMatch(arrivalAirport, firstLocation)) continue;
-
-      const referenceDate = firstStay.check_in || firstStay.check_out || null;
-
-      if (!hasTransportCoverage(arrivalAirport, firstLocation, referenceDate, transports, flights)) {
-        const suggestion = getTransportSuggestion(arrivalAirport, firstLocation);
-        pushUniqueGap(gaps, {
-          from: arrivalAirport,
-          to: firstLocation,
-          referenceDate,
-          reason: 'Sem transporte registrado do aeroporto de chegada até a hospedagem.' + suggestion,
-        });
-      }
-    }
-
-    // ── Last stay → departure airport ──
-    for (const chain of chains) {
-      const departureAirport = chain.departure;
-      if (connectionAirports.has(normalizeTextForMatch(departureAirport))) continue;
-      if (isUserHomeAirport(departureAirport, userHomeLocation)) continue;
-
-      // Skip departure airports that also appear as arrival airports of OTHER chains
-      // arriving at the same destination (connection flights, e.g. AMS→CDG when CDG is the destination)
-      // Check if another chain arrives at the same airport, making this a connection origin
+      // Skip connection origins (same arrival as another chain)
       const isConnectionOrigin = chains.some(other => {
         if (other === chain) return false;
         return locationsMatch(other.arrival, chain.arrival);
-      }) && !locationsMatch(departureAirport, chain.arrival);
-
-      // If this chain's departure is just a connection point for reaching the same
-      // arrival as another chain, skip it (e.g. AMS departing to CDG, while GRU also goes to CDG)
+      }) && !locationsMatch(chain.departure, chain.arrival);
       if (isConnectionOrigin) continue;
 
-      const lastStay = activeStays[activeStays.length - 1];
-      const lastLocation = lastStay.localizacao || '';
-      if (!lastLocation) continue;
+      if (isDepartureFromHome && !isReturnHome) {
+        // ── OUTBOUND chain: departure from home → arrival at destination ──
+        // Find the stay whose check_in is closest to (and after) the arrival date
+        const nearestStay = findNearestStay(activeStays, chain.arrivalDate, 'check_in');
+        if (!nearestStay) continue;
 
-      if (locationsMatch(lastLocation, departureAirport)) continue;
+        const stayLocation = nearestStay.localizacao || '';
+        if (!stayLocation || locationsMatch(chain.arrival, stayLocation)) continue;
 
-      const referenceDate = lastStay.check_out || lastStay.check_in || null;
+        const referenceDate = nearestStay.check_in || chain.arrivalDate || null;
 
-      if (!hasTransportCoverage(lastLocation, departureAirport, referenceDate, transports, flights)) {
-        const suggestion = getTransportSuggestion(lastLocation, departureAirport);
-        pushUniqueGap(gaps, {
-          from: lastLocation,
-          to: departureAirport,
-          referenceDate,
-          reason: 'Sem transporte registrado da hospedagem até o aeroporto de partida.' + suggestion,
-        });
+        if (!hasTransportCoverage(chain.arrival, stayLocation, referenceDate, transports, flights)) {
+          const suggestion = getTransportSuggestion(chain.arrival, stayLocation);
+          pushUniqueGap(gaps, {
+            from: chain.arrival,
+            to: stayLocation,
+            referenceDate,
+            reason: 'Sem transporte registrado do aeroporto de chegada até a hospedagem.' + suggestion,
+          });
+        }
+      } else if (isReturnHome && !isDepartureFromHome) {
+        // ── RETURN chain: departure from destination → arrival at home ──
+        // Find the stay whose check_out is closest to (and before) the departure date
+        const nearestStay = findNearestStay(activeStays, chain.departureDate, 'check_out');
+        if (!nearestStay) continue;
+
+        const stayLocation = nearestStay.localizacao || '';
+        if (!stayLocation || locationsMatch(stayLocation, chain.departure)) continue;
+
+        const referenceDate = nearestStay.check_out || chain.departureDate || null;
+
+        if (!hasTransportCoverage(stayLocation, chain.departure, referenceDate, transports, flights)) {
+          const suggestion = getTransportSuggestion(stayLocation, chain.departure);
+          pushUniqueGap(gaps, {
+            from: stayLocation,
+            to: chain.departure,
+            referenceDate,
+            reason: 'Sem transporte registrado da hospedagem até o aeroporto de partida.' + suggestion,
+          });
+        }
+      } else if (!isDepartureFromHome && !isReturnHome) {
+        // ── MID-TRIP chain (e.g. inter-city flight within the trip) ──
+        // Arrival side: find stay starting near arrival date
+        const arrivalStay = findNearestStay(activeStays, chain.arrivalDate, 'check_in');
+        if (arrivalStay) {
+          const loc = arrivalStay.localizacao || '';
+          if (loc && !locationsMatch(chain.arrival, loc)) {
+            const ref = arrivalStay.check_in || chain.arrivalDate || null;
+            if (!hasTransportCoverage(chain.arrival, loc, ref, transports, flights)) {
+              const suggestion = getTransportSuggestion(chain.arrival, loc);
+              pushUniqueGap(gaps, { from: chain.arrival, to: loc, referenceDate: ref, reason: 'Sem transporte do aeroporto até a hospedagem.' + suggestion });
+            }
+          }
+        }
+        // Departure side: find stay ending near departure date
+        const departureStay = findNearestStay(activeStays, chain.departureDate, 'check_out');
+        if (departureStay) {
+          const loc = departureStay.localizacao || '';
+          if (loc && !locationsMatch(loc, chain.departure)) {
+            const ref = departureStay.check_out || chain.departureDate || null;
+            if (!hasTransportCoverage(loc, chain.departure, ref, transports, flights)) {
+              const suggestion = getTransportSuggestion(loc, chain.departure);
+              pushUniqueGap(gaps, { from: loc, to: chain.departure, referenceDate: ref, reason: 'Sem transporte da hospedagem até o aeroporto.' + suggestion });
+            }
+          }
+        }
       }
     }
   }
