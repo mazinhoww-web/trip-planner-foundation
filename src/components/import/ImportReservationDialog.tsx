@@ -640,7 +640,11 @@ export function ImportReservationDialog() {
     const localWarnings: string[] = [];
 
     try {
-      const upload = await uploadImportFile(file, user.id, currentTripId);
+      // Run upload + native text extraction in parallel
+      const [upload, native] = await Promise.all([
+        uploadImportFile(file, user.id, currentTripId),
+        tryExtractNativeText(file),
+      ]);
       if (!upload.uploaded && upload.warning) {
         localWarnings.push(upload.warning);
       }
@@ -658,8 +662,6 @@ export function ImportReservationDialog() {
         console.error('[import][metadata_failure]', { file: file.name, error: metadataError });
         localWarnings.push('Falha ao registrar metadados do anexo.');
       }
-
-      const native = await tryExtractNativeText(file);
       let extractedText = native.text ?? '';
 
       if (!native.text) {

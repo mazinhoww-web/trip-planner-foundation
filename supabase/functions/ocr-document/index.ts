@@ -284,23 +284,45 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 4. Vision fallback chain: Gemma -> Gemini -> Lovable AI
+    // 4. Vision parallel race: all providers compete, first valid wins
     if (isImage || isPdf) {
-      const visionProviders = [
-        { fn: () => runGemmaVision(fileBase64, mimeType || (isImage ? 'image/png' : 'application/pdf')), name: 'gemma_vision' },
-        { fn: () => runGeminiVision(fileBase64, mimeType || (isImage ? 'image/png' : 'application/pdf')), name: 'gemini_vision' },
-        { fn: () => runLovableVision(fileBase64, mimeType || (isImage ? 'image/png' : 'application/pdf')), name: 'lovable_ai_vision' },
-      ];
+      const visionMime = mimeType || (isImage ? 'image/png' : 'application/pdf');
+      const VISION_TIMEOUT = 10_000;
 
-      for (const { fn, name } of visionProviders) {
-        const result = await fn();
-        if (!result.error && result.text) {
-          const metrics = qualityMetricsFromText(result.text);
-          console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: name, remaining: rate.remaining });
-          return successResponse({ text: result.text, method: name, warnings, qualityMetrics: metrics });
+      const withVisionTimeout = <T>(p: Promise<T>, label: string): Promise<T> =>
+        new Promise((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error(`${label} timeout ${VISION_TIMEOUT}ms`)), VISION_TIMEOUT);
+          p.then(
+            (v) => { clearTimeout(timer); resolve(v); },
+            (e) => { clearTimeout(timer); reject(e); },
+          );
+        });
+
+      try {
+        const result = await Promise.any([
+          withVisionTimeout(runGemmaVision(fileBase64, visionMime), 'gemma').then(r => {
+            if (!r.text) throw new Error('gemma empty');
+            return { ...r, method: 'gemma_vision' as const };
+          }),
+          withVisionTimeout(runGeminiVision(fileBase64, visionMime), 'gemini').then(r => {
+            if (!r.text) throw new Error('gemini empty');
+            return { ...r, method: 'gemini_vision' as const };
+          }),
+          withVisionTimeout(runLovableVision(fileBase64, visionMime), 'lovable').then(r => {
+            if (!r.text) throw new Error('lovable empty');
+            return { ...r, method: 'lovable_ai_vision' as const };
+          }),
+        ]);
+        const metrics = qualityMetricsFromText(result.text);
+        console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: result.method, remaining: rate.remaining });
+        return successResponse({ text: result.text, method: result.method, warnings, qualityMetrics: metrics });
+      } catch (aggError) {
+        const errors = aggError instanceof AggregateError ? aggError.errors : [aggError];
+        for (const e of errors) {
+          const msg = e instanceof Error ? e.message : String(e);
+          warnings.push(msg);
+          console.warn(`[ocr-document] ${requestId} vision_provider failed:`, msg);
         }
-        warnings.push(result.error || `${name} indisponível.`);
-        console.warn(`[ocr-document] ${requestId} ${name} failed:`, result.error);
       }
     }
 
