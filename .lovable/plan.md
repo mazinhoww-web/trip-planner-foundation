@@ -1,126 +1,149 @@
 
-## Plano: Acelerar pipeline sem remover enriquecimento
 
-### Problema
-O pipeline esta lento porque:
-- `extract-reservation`: `Promise.allSettled` espera AMBOS providers terminarem antes de escolher
-- `ocr-document`: vision providers rodam em sequencia (um falha, espera, tenta o proximo)
-- Client-side: upload e extracao de texto rodam sequencialmente
-- Sem timeouts nas chamadas de AI
+## Plano: Enriquecer dicas de hospedagem com dados reais e contextuais
 
-### Estrategia
+### Problema atual
 
-Manter tudo que existe (incluindo `enriquecimento_ia`). Apenas mudar a estrategia de execucao e priorizar Gemini (mais rapido na media).
+1. O prompt do `generate-tips` e generico demais: "Gere dicas para estadia no hotel informado" sem contexto de voos, ruas, bairros
+2. O fallback em `src/services/ai.ts` retorna frases template como "Pesquise no mapa por pontos culturais" -- completamente inuteis
+3. Os dados enviados ao backend sao insuficientes: so passam `hotelName`, `location`, `checkIn`, `checkOut`, `tripDestination` -- faltam dados de voos (aeroporto de chegada), endereco detalhado, meio de transporte
+4. O campo `dica_ia` nao tem instrucao clara no prompt -- a IA nao sabe o que colocar ali
+5. Restaurantes no fallback sao inventados ("Sabores do Centro (paris)") -- nomes falsos
 
-### Mudancas
+### Correcoes
 
-#### 1. `supabase/functions/extract-reservation/index.ts`
+#### 1. Expandir input do `generate-tips` com dados de contexto da viagem
 
-**Race com Gemini prioritario:**
-- Disparar Gemini primeiro (mais rapido) com timeout de 8s via `AbortController`
-- Se Gemini retornar resultado valido com confianca >= 60, usar imediatamente sem esperar Arcee
-- Caso contrario, disparar Arcee em paralelo (ja estara rodando) e comparar resultados
-- Se ambos falharem, fallback para Lovable AI
-- Implementacao: usar `Promise.allSettled` mas com wrapper de timeout, e logica de "early accept" onde Gemini pode ganhar sozinho se for bom o suficiente
+**Arquivo: `src/services/ai.ts`** e **`src/pages/Dashboard.tsx`** e **`src/components/import/ImportReservationDialog.tsx`**
 
-Concretamente:
-1. Disparar ambos com `AbortController` (timeout 8s cada)
-2. Usar `Promise.race` entre:
-   - Gemini com logica de "aceitar se confianca >= 60"
-   - Promise.allSettled de ambos (para comparar se Gemini nao foi aceito rapido)
-3. Se nenhum funcionar, chamar Lovable AI
+Adicionar campos ao `StayTipsInput`:
+- `flightOrigin`: aeroporto/cidade de onde o usuario esta vindo (buscar do modulo de voos)
+- `flightDestination`: aeroporto de chegada na cidade do hotel
+- `address`: endereco completo se disponivel (rua, bairro)
+- `transportMode`: se tem voo cadastrado = "aviao", se tem transporte terrestre = "carro/onibus"
 
-#### 2. `supabase/functions/ocr-document/index.ts`
+No Dashboard, ao chamar `enrichStay`, buscar tambem os voos da viagem para extrair aeroporto de chegada e origem.
 
-**Vision em paralelo com `Promise.any`:**
-- Trocar o loop `for...of` sequencial por `Promise.any` nos 3 providers (Gemma, Gemini, Lovable AI)
-- Cada um com timeout de 10s via `AbortController`
-- O primeiro que retornar texto valido ganha
-- Manter a ordem de prioridade no log mas nao na execucao
+#### 2. Reescrever o prompt do `generate-tips` (backend)
 
-#### 3. `src/components/import/ImportReservationDialog.tsx`
+**Arquivo: `supabase/functions/generate-tips/index.ts`**
 
-**Upload + text extraction em paralelo:**
-- Na funcao `processOneFile`, linhas 643-677: rodar `uploadImportFile` e `tryExtractNativeText` simultaneamente com `Promise.all`
-- Mover a criacao do document metadata para depois do upload (ja e assim)
-- Se nao tiver texto nativo, rodar OCR em paralelo com o registro de metadados
-
-### Detalhes tecnicos
-
-**extract-reservation - Race com early accept:**
+Novo prompt muito mais especifico:
 
 ```text
-// Disparar ambos com timeout
-const geminiPromise = withTimeout(callGemini(...), 8000)
-const arceePromise = withTimeout(callArcee(...), 8000)
+Voce e um assistente de viagem especializado. Com base nos dados da hospedagem e do contexto da viagem, gere informacoes REAIS e UTEIS.
 
-// Tentar Gemini first (mais rapido na media)
-try {
-  const gemini = await Promise.race([
-    geminiPromise.then(r => ({ ...r, source: 'gemini' })),
-    new Promise((_, reject) => setTimeout(() => reject('timeout_race'), 4000))
-  ])
-  // Se confianca >= 60, usar direto
-  if (parsed.metadata.confianca >= 60) return gemini
-} catch { /* continua */ }
+Dados disponiveis:
+- Nome do hotel/hospedagem
+- Endereco/localizacao (cidade, bairro, rua)
+- Datas de check-in e check-out
+- Destino da viagem
+- Aeroporto/cidade de origem do viajante (se disponivel)
+- Aeroporto/cidade de chegada (se disponivel)
+- Meio de transporte (aviao, carro, etc)
 
-// Se Gemini nao bastou, esperar ambos
-const [arcee, gemini] = await Promise.allSettled([arceePromise, geminiPromise])
-// Comparar e pegar melhor
+Entregue:
+
+1) dica_viagem: Dica pratica e especifica sobre a estadia. Ex: "O bairro Marais em Paris tem ruas estreitas -- prefira mala de mao rigida. Supermercado Monoprix a 200m na Rue de Rivoli." Nao repita dados obvios como "confirme check-in".
+
+2) como_chegar: Rota ESPECIFICA do aeroporto/estacao ate o hotel. Se o usuario vem de aviao, descreva o trajeto desde o aeroporto de chegada (ex: "Do aeroporto CDG, pegue o RER B ate Chatelet-Les Halles, depois linha 1 do metro ate Hotel de Ville. Alternativa: taxi/Uber ~50 EUR, 45min."). Se vem de carro, sugira rota e inclua um link Google Maps no formato: https://www.google.com/maps/dir/ORIGEM/DESTINO. Se nao souber o aeroporto, liste as 2-3 opcoes principais de chegada na cidade.
+
+3) atracoes_proximas: Liste 3-4 atracoes REAIS com nomes verdadeiros proximo ao hotel. Use nomes de pontos turisticos, museus, parques, etc que existem de verdade na regiao. Inclua distancia aproximada. Ex: "Musee du Louvre (800m), Place des Vosges (400m), Centre Pompidou (600m)".
+
+4) restaurantes_proximos: Liste 3-4 restaurantes ou tipos de culinaria da REGIAO REAL do hotel. Pode usar nomes de ruas/bairros conhecidos. Ex: "Rue des Rosiers (falafel, 300m), Le Marais cafes na Rue Vieille du Temple, Breizh Cafe (crepes bretones, 500m)".
+
+5) dica_ia: Uma informacao UNICA e util que nao se encaixa nas categorias acima. Pode ser: clima esperado nas datas, evento local acontecendo, dica de seguranca do bairro, costume local, melhor horario para visitar algo, app de transporte local recomendado, etc. Ex: "Em dezembro Paris tem mercados de Natal nos Champs-Elysees. Baixe o app Citymapper para navegacao."
+
+Regras:
+- Portugues do Brasil
+- Use nomes REAIS de lugares, ruas, estacoes de metro/trem
+- Se nao tiver certeza do nome exato, use a regiao/bairro
+- NUNCA invente nomes de restaurantes -- prefira descrever o tipo de culinaria do bairro
+- Inclua distancias aproximadas quando possivel
+- Se tiver dados de voo, use o aeroporto REAL de chegada na resposta
+- Responda APENAS JSON valido no formato especificado
 ```
 
-**ocr-document - Promise.any:**
+Aumentar `max_tokens` de 450 para 700 para permitir respostas mais detalhadas.
 
-```text
-// Antes (sequencial):
-for (const { fn, name } of visionProviders) {
-  const result = await fn()
-  if (result.text) return result
+#### 3. Melhorar o fallback local em `src/services/ai.ts`
+
+**Arquivo: `src/services/ai.ts`**
+
+O fallback nao deve inventar dados -- deve ser honesto que nao conseguiu gerar e sugerir acoes ao usuario:
+
+```typescript
+function fallbackStayTips(input: StayTipsInput): StayTipsOutput {
+  const loc = trimOrNull(input.location) ?? trimOrNull(input.tripDestination) ?? 'sua hospedagem';
+  return {
+    dica_viagem: `Verifique horarios de check-in/check-out diretamente com ${loc}. Salve o endereco no Google Maps offline antes de viajar.`,
+    como_chegar: input.flightOrigin 
+      ? `Pesquise rotas de ${input.flightOrigin} ate ${loc} no Google Maps ou Rome2Rio para opcoes de transporte.`
+      : `Pesquise rotas ate ${loc} no Google Maps ou Rome2Rio para opcoes de transporte com precos.`,
+    atracoes_proximas: `Busque "atracoes perto de ${loc}" no Google Maps para ver pontos turisticos com avaliacoes reais.`,
+    restaurantes_proximos: `Busque "restaurantes perto de ${loc}" no Google Maps para ver opcoes com avaliacoes e precos.`,
+    dica_ia: 'Dicas automaticas indisponiveis no momento. Tente novamente em alguns minutos para obter sugestoes personalizadas.',
+  };
 }
-
-// Depois (paralelo):
-const visionMime = mimeType || (isImage ? 'image/png' : 'application/pdf')
-const result = await Promise.any([
-  withTimeout(runGemmaVision(fileBase64, visionMime), 10000).then(r => ({ ...r, method: 'gemma_vision' })),
-  withTimeout(runGeminiVision(fileBase64, visionMime), 10000).then(r => ({ ...r, method: 'gemini_vision' })),
-  withTimeout(runLovableVision(fileBase64, visionMime), 10000).then(r => ({ ...r, method: 'lovable_ai_vision' })),
-].map(p => p.then(r => {
-  if (!r.text) throw new Error('empty')
-  return r
-})))
 ```
 
-**Client paralelo:**
+#### 4. Passar dados de voo ao chamar `enrichStay`
 
-```text
-// Antes (linhas 643-662):
-const upload = await uploadImportFile(file, user.id, currentTripId)
-// ... metadata ...
-const native = await tryExtractNativeText(file)
+**Arquivo: `src/pages/Dashboard.tsx`**
 
-// Depois:
-const [upload, native] = await Promise.all([
-  uploadImportFile(file, user.id, currentTripId),
-  tryExtractNativeText(file),
-])
+Na funcao `enrichStay`, buscar os voos da viagem atual e encontrar o voo mais proximo ao check-in da hospedagem para extrair aeroporto de origem e destino:
+
+```typescript
+const enrichStay = async (stay) => {
+  // Buscar voos da viagem para contexto
+  const flights = flightsModule.items ?? [];
+  const relevantFlight = flights.find(f => f.destino && stay.localizacao?.toLowerCase().includes(f.destino.toLowerCase()));
+  
+  const result = await generateStayTips({
+    hotelName: stay.nome,
+    location: stay.localizacao,
+    checkIn: stay.check_in,
+    checkOut: stay.check_out,
+    tripDestination: currentTrip?.destino,
+    flightOrigin: relevantFlight?.origem ?? null,
+    flightDestination: relevantFlight?.destino ?? null,
+  });
+  // ...
+};
 ```
+
+#### 5. Corrigir build errors existentes
+
+**Arquivo: `supabase/functions/trip-members/index.ts`**
+
+A funcao `requireSupabaseEnv` retorna um union type sem discriminar corretamente. Adicionar type guard com `as const` para que o TS entenda que quando `ok: true`, os campos existem:
+
+```typescript
+function requireSupabaseEnv(): 
+  | { ok: false; message: string; supabaseUrl?: undefined; supabaseAnonKey?: undefined; supabaseServiceRole?: undefined }
+  | { ok: true; message?: undefined; supabaseUrl: string; supabaseAnonKey: string; supabaseServiceRole: string } {
+  // ... mesmo corpo
+}
+```
+
+**Arquivo: `src/components/dashboard/TripUsersPanel.tsx`**
+
+O `onConfirm` retorna `Promise<MutationPayload>` mas espera `void | Promise<void>`. Adicionar `.then(() => {})` ou ajustar para ignorar retorno.
 
 ### Arquivos modificados
 
 | Arquivo | Alteracao |
 |---|---|
-| `supabase/functions/extract-reservation/index.ts` | Race strategy com Gemini prioritario + timeouts |
-| `supabase/functions/ocr-document/index.ts` | Vision providers em paralelo com Promise.any + timeouts |
-| `src/components/import/ImportReservationDialog.tsx` | Upload + text extraction em paralelo |
+| `supabase/functions/generate-tips/index.ts` | Novo prompt detalhado, novos campos de input, max_tokens 700 |
+| `src/services/ai.ts` | Expandir `StayTipsInput` com `flightOrigin`/`flightDestination`, melhorar fallback |
+| `src/pages/Dashboard.tsx` | Passar dados de voo ao chamar `enrichStay` |
+| `src/components/import/ImportReservationDialog.tsx` | Passar dados de voo ao chamar `generateStayTips` no import |
+| `supabase/functions/trip-members/index.ts` | Fix TS: tipar retorno de `requireSupabaseEnv` como discriminated union |
+| `src/components/dashboard/TripUsersPanel.tsx` | Fix TS: ajustar tipo de retorno dos callbacks `onConfirm` |
 
 ### O que NAO muda
-- Prompt completo mantido (incluindo `enriquecimento_ia`)
-- Schema JSON mantido integralmente
-- max_tokens mantido em 1300
-- Toda logica de normalizacao e fallback mantida
-- Lovable AI continua como 3o fallback
+- Schema do banco de dados (campos da tabela `hospedagens` continuam iguais)
+- Hierarquia de providers (Arcee -> Gemini -> Lovable AI)
+- Logica de race/paralelo do `extract-reservation`
+- Estrutura do JSON de resposta (mesmos 5 campos)
 
-### Impacto estimado
-- Extracao: de ~15-25s para ~4-8s (Gemini responde em ~3-5s, aceito direto se bom)
-- OCR vision: de ~10-30s (sequencial) para ~5-10s (paralelo, primeiro ganha)
-- Upload + leitura: economia de ~1-2s (paralelo no client)
