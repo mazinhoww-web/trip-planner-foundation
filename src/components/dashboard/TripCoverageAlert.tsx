@@ -1,17 +1,27 @@
 import { Card, CardContent } from '@/components/ui/card';
-import { AlertTriangle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { AlertTriangle, ExternalLink, Plus } from 'lucide-react';
 
 type GapSummary = {
   key: string;
   text: string;
 };
 
-type TripCoverageAlertProps = {
-  stayGapLines: GapSummary[];
-  transportGapLines: GapSummary[];
+export type TransportGapSummary = {
+  key: string;
+  text: string;
+  from: string;
+  to: string;
+  mapsUrl: string;
 };
 
-export function TripCoverageAlert({ stayGapLines, transportGapLines }: TripCoverageAlertProps) {
+type TripCoverageAlertProps = {
+  stayGapLines: GapSummary[];
+  transportGapLines: TransportGapSummary[];
+  onAddTransport?: (from: string, to: string) => void;
+};
+
+export function TripCoverageAlert({ stayGapLines, transportGapLines, onAddTransport }: TripCoverageAlertProps) {
   if (stayGapLines.length === 0 && transportGapLines.length === 0) return null;
 
   return (
@@ -33,9 +43,35 @@ export function TripCoverageAlert({ stayGapLines, transportGapLines }: TripCover
         )}
 
         {transportGapLines.length > 0 && (
-          <div className="space-y-1 text-sm text-amber-900/90">
+          <div className="space-y-3">
             {transportGapLines.map((gap) => (
-              <p key={gap.key}>{gap.text}</p>
+              <div key={gap.key} className="rounded-lg border border-amber-400/30 bg-amber-500/5 p-3">
+                <p className="text-sm text-amber-900/90 mb-2">{gap.text}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1.5 border-amber-500/40 bg-white/60 text-amber-900 hover:bg-amber-100/60 text-xs"
+                    asChild
+                  >
+                    <a href={gap.mapsUrl} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-3 w-3" />
+                      Ver rota no Google Maps
+                    </a>
+                  </Button>
+                  {onAddTransport && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1.5 border-sky-500/40 bg-white/60 text-sky-800 hover:bg-sky-100/60 text-xs"
+                      onClick={() => onAddTransport(gap.from, gap.to)}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Adicionar transporte
+                    </Button>
+                  )}
+                </div>
+              </div>
             ))}
           </div>
         )}
