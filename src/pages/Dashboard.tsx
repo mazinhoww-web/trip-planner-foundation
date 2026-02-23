@@ -43,6 +43,9 @@ import { supabase } from '@/integrations/supabase/client';
 const ImportReservationDialog = lazy(() =>
   import('@/components/import/ImportReservationDialog').then((mod) => ({ default: mod.ImportReservationDialog })),
 );
+const ImportItineraryDialog = lazy(() =>
+  import('@/components/import/ImportItineraryDialog').then((mod) => ({ default: mod.ImportItineraryDialog })),
+);
 const TripOpenMap = lazy(() =>
   import('@/components/map/TripOpenMap').then((mod) => ({ default: mod.TripOpenMap })),
 );
@@ -1438,7 +1441,10 @@ export default function Dashboard() {
             <TripTopActions isReconciling={isReconciling} onReconcile={reconcileFromServer}>
               {canEditTrip ? (
                 <Suspense fallback={<Button disabled>Carregando importação...</Button>}>
-                  <ImportReservationDialog />
+                  <div className="flex gap-2 flex-wrap">
+                    <ImportReservationDialog />
+                    <ImportItineraryDialog />
+                  </div>
                 </Suspense>
               ) : (
                 <Button disabled variant="outline">
