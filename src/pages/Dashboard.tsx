@@ -682,17 +682,23 @@ export default function Dashboard() {
     });
   }, [transportCoverageGaps]);
 
-  const handleAddTransportFromGap = (from: string, to: string) => {
+  const handleAddTransportFromGap = async (from: string, to: string) => {
     if (!ensureCanEdit()) return;
-    setEditingTransport(null);
-    setTransportForm({
-      ...emptyTransport,
-      origem: from,
-      destino: to,
-    });
-    setActiveTab('transportes');
-    // Small delay to ensure the tab content renders the Dialog before opening it
-    setTimeout(() => setTransportDialogOpen(true), 50);
+    try {
+      await transportsModule.create({
+        tipo: 'Terrestre',
+        operadora: null,
+        origem: from,
+        destino: to,
+        data: null,
+        status: 'pendente',
+        valor: null,
+        moeda: 'BRL',
+      });
+      toast.success(`Transporte ${from} → ${to} adicionado com sucesso!`);
+    } catch {
+      toast.error('Erro ao adicionar transporte.');
+    }
   };
 
   const heroDateRangeLabel = useMemo(() => {
