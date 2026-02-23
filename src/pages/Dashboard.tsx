@@ -139,11 +139,20 @@ function formatDateShort(date?: string | null) {
 
 function formatCurrency(value?: number | null, currency: string = 'BRL') {
   if (value == null) return 'Valor não informado';
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: currency || 'BRL',
-    minimumFractionDigits: 2,
-  }).format(value);
+  const validCurrency = /^[A-Z]{3}$/.test(currency) ? currency : 'BRL';
+  try {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: validCurrency,
+      minimumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+      minimumFractionDigits: 2,
+    }).format(value);
+  }
 }
 
 function normalizeDate(value?: string | null) {
