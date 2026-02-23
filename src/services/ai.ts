@@ -190,3 +190,94 @@ export async function suggestRestaurants(input: SuggestRestaurantsInput): Promis
 
   return { data: normalized, error: null, fromFallback: false };
 }
+
+// ---------------------------------------------------------------------------
+// Generate trip tasks with AI
+// ---------------------------------------------------------------------------
+
+type GenerateTasksInput = {
+  destination?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  userHomeCity?: string | null;
+  flights?: Array<{ origem?: string | null; destino?: string | null }>;
+  stays?: Array<{ localizacao?: string | null; check_in?: string | null }>;
+  existingTasks?: string[];
+};
+
+export type SuggestedTask = {
+  titulo: string;
+  categoria: string;
+  prioridade: 'baixa' | 'media' | 'alta';
+};
+
+export async function generateTripTasks(input: GenerateTasksInput): Promise<FunctionResult<SuggestedTask[]>> {
+  const response = await invokeWithSingleRetry<{ data?: { tasks?: SuggestedTask[] }; error?: string }>(
+    'generate-tasks',
+    input as Record<string, unknown>,
+  );
+
+  const tasks = response.data?.data?.tasks ?? [];
+
+  if (response.error || tasks.length === 0) {
+    logAi('generate_tasks_fallback', { error: response.error });
+    return {
+      data: [],
+      error: response.error ?? 'Não foi possível gerar tarefas com IA.',
+      fromFallback: true,
+    };
+  }
+
+  return { data: tasks, error: null, fromFallback: false };
+}
+
+// ---------------------------------------------------------------------------
+// Generate itinerary with AI
+// ---------------------------------------------------------------------------
+
+type GenerateItineraryInput = {
+  destination?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  userHomeCity?: string | null;
+  stays?: Array<{
+    localizacao?: string | null;
+    check_in?: string | null;
+    check_out?: string | null;
+    atracoes_proximas?: string | null;
+    restaurantes_proximos?: string | null;
+    dica_viagem?: string | null;
+  }>;
+  flights?: Array<{ origem?: string | null; destino?: string | null; data?: string | null }>;
+};
+
+export type ItineraryItem = {
+  dia: string;
+  ordem: number;
+  titulo: string;
+  descricao: string | null;
+  horario_sugerido: string | null;
+  categoria: string;
+  localizacao: string | null;
+  link_maps: string | null;
+};
+
+export async function generateItinerary(input: GenerateItineraryInput): Promise<FunctionResult<ItineraryItem[]>> {
+  const response = await invokeWithSingleRetry<{ data?: { items?: ItineraryItem[] }; error?: string }>(
+    'generate-itinerary',
+    input as Record<string, unknown>,
+  );
+
+  const items = response.data?.data?.items ?? [];
+
+  if (response.error || items.length === 0) {
+    logAi('generate_itinerary_fallback', { error: response.error });
+    return {
+      data: [],
+      error: response.error ?? 'Não foi possível gerar roteiro com IA.',
+      fromFallback: true,
+    };
+  }
+
+  return { data: items, error: null, fromFallback: false };
+}

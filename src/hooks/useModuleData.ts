@@ -31,7 +31,8 @@ type TripScopedTable =
   | 'bagagem'
   | 'restaurantes'
   | 'viajantes'
-  | 'preparativos';
+  | 'preparativos'
+  | 'roteiro_dias';
 
 export function useModuleData<T extends TripScopedTable>(table: T) {
   const { currentTripId } = useTrip();

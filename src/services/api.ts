@@ -32,11 +32,12 @@ type TripScopedTable =
   | 'bagagem'
   | 'restaurantes'
   | 'viajantes'
-  | 'preparativos';
+  | 'preparativos'
+  | 'roteiro_dias';
 
 const TRIP_SCOPED_TABLES: TripScopedTable[] = [
   'voos', 'hospedagens', 'transportes', 'despesas', 'tarefas',
-  'documentos', 'bagagem', 'restaurantes', 'viajantes', 'preparativos',
+  'documentos', 'bagagem', 'restaurantes', 'viajantes', 'preparativos', 'roteiro_dias',
 ];
 
 // ---------------------------------------------------------------------------
