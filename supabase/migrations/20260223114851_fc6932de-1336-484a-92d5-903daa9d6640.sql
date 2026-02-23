@@ -1,0 +1,1 @@
+ALTER TABLE public.profiles ADD COLUMN cidade_origem text;

@@ -601,9 +601,24 @@ export default function Dashboard() {
     );
   }, [currentTrip?.data_fim, currentTrip?.data_inicio, staysModule.data]);
 
+  const [userHomeCity, setUserHomeCity] = useState<string | null>(null);
+
+  // Load user profile cidade_origem
+  useMemo(() => {
+    if (!user?.id) return;
+    supabase
+      .from('profiles')
+      .select('cidade_origem')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.cidade_origem) setUserHomeCity(data.cidade_origem);
+      });
+  }, [user?.id]);
+
   const transportCoverageGaps = useMemo(() => {
-    return calculateTransportCoverageGaps(staysModule.data, transportsModule.data, flightsModule.data);
-  }, [flightsModule.data, staysModule.data, transportsModule.data]);
+    return calculateTransportCoverageGaps(staysModule.data, transportsModule.data, flightsModule.data, userHomeCity);
+  }, [flightsModule.data, staysModule.data, transportsModule.data, userHomeCity]);
 
   const stayGapLines = useMemo(() => {
     return stayCoverageGaps.slice(0, 3).map((gap) => ({
@@ -864,6 +879,7 @@ export default function Dashboard() {
         tripDestination: currentTrip?.destino,
         flightOrigin: relevantFlight?.origem ?? null,
         flightDestination: relevantFlight?.destino ?? null,
+        userHomeCity: userHomeCity,
       });
 
       if (!result.data) {
