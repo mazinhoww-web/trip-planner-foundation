@@ -2696,12 +2696,28 @@ export default function Dashboard() {
                                 localizacao: s.localizacao,
                                 check_in: s.check_in,
                                 check_out: s.check_out,
+                                hora_check_in: '15:00',
+                                hora_check_out: '11:00',
                                 atracoes_proximas: s.atracoes_proximas,
                                 restaurantes_proximos: s.restaurantes_proximos,
                                 dica_viagem: s.dica_viagem,
                               })),
-                              flights: flightsModule.data.map((f) => ({ origem: f.origem, destino: f.destino, data: f.data })),
-                              transports: transportsModule.data.map((t) => ({ tipo: t.tipo, origem: t.origem, destino: t.destino, data: t.data })),
+                              flights: flightsModule.data.map((f) => {
+                                const dt = f.data ? new Date(f.data) : null;
+                                const hora = dt && !isNaN(dt.getTime()) ? dt.toISOString().slice(11, 16) : null;
+                                return {
+                                  origem: f.origem,
+                                  destino: f.destino,
+                                  data: f.data,
+                                  hora_partida: hora,
+                                  hora_chegada: hora,
+                                };
+                              }),
+                              transports: transportsModule.data.map((t) => {
+                                const dt = t.data ? new Date(t.data) : null;
+                                const hora = dt && !isNaN(dt.getTime()) ? dt.toISOString().slice(11, 16) : null;
+                                return { tipo: t.tipo, origem: t.origem, destino: t.destino, data: t.data, hora };
+                              }),
                               restaurants: restaurantsModule.data.filter((r) => r.salvo).map((r) => ({ nome: r.nome, cidade: r.cidade, tipo: r.tipo })),
                             });
                             if (result.data && result.data.length > 0) {

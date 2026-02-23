@@ -245,12 +245,26 @@ type GenerateItineraryInput = {
     localizacao?: string | null;
     check_in?: string | null;
     check_out?: string | null;
+    hora_check_in?: string | null;
+    hora_check_out?: string | null;
     atracoes_proximas?: string | null;
     restaurantes_proximos?: string | null;
     dica_viagem?: string | null;
   }>;
-  flights?: Array<{ origem?: string | null; destino?: string | null; data?: string | null }>;
-  transports?: Array<{ tipo?: string | null; origem?: string | null; destino?: string | null; data?: string | null }>;
+  flights?: Array<{
+    origem?: string | null;
+    destino?: string | null;
+    data?: string | null;
+    hora_partida?: string | null;
+    hora_chegada?: string | null;
+  }>;
+  transports?: Array<{
+    tipo?: string | null;
+    origem?: string | null;
+    destino?: string | null;
+    data?: string | null;
+    hora?: string | null;
+  }>;
   restaurants?: Array<{ nome?: string | null; cidade?: string | null; tipo?: string | null }>;
 };
 
