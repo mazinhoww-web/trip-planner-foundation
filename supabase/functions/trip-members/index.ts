@@ -140,13 +140,27 @@ function buildPermission(role: TripRole | null): TripPermissionContext {
   };
 }
 
-async function getTripRoleForActor(client: ReturnType<typeof createAuthedClient>, viagemId: string) {
+async function getTripRoleForActor(client: ReturnType<typeof createAuthedClient>, viagemId: string): Promise<TripRole | null> {
+  // Try the RPC function first (requires viagem_membros table + trip_role function)
   const { data, error } = await client.rpc('trip_role', { _viagem_id: viagemId });
-  if (error) {
-    throw new Error('Não foi possível validar o papel do usuário nesta viagem.');
+
+  if (!error) {
+    return normalizeRole(data);
   }
 
-  return normalizeRole(data);
+  // Fallback: check if the user is the trip owner via viagens table
+  const { data: trip, error: tripError } = await client
+    .from('viagens')
+    .select('user_id')
+    .eq('id', viagemId)
+    .maybeSingle();
+
+  if (tripError || !trip) {
+    return null;
+  }
+
+  // If the RLS lets them read the trip, they're the owner (RLS policy: auth.uid() = user_id)
+  return 'owner';
 }
 
 function makeInviteToken() {
