@@ -850,12 +850,20 @@ export default function Dashboard() {
     if (!ensureCanEdit()) return;
     setEnrichingStayId(stay.id);
     try {
+      // Buscar voo relevante para contexto de rota
+      const flights = flightsModule.data ?? [];
+      const relevantFlight = flights.find(f =>
+        f.destino && stay.localizacao?.toLowerCase().includes(f.destino.toLowerCase())
+      ) ?? flights[0] ?? null;
+
       const result = await generateStayTips({
         hotelName: stay.nome,
         location: stay.localizacao,
         checkIn: stay.check_in,
         checkOut: stay.check_out,
         tripDestination: currentTrip?.destino,
+        flightOrigin: relevantFlight?.origem ?? null,
+        flightDestination: relevantFlight?.destino ?? null,
       });
 
       if (!result.data) {
