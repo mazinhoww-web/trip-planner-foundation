@@ -78,8 +78,8 @@ function mapCanonicalTypeToImportType(tipo?: string | null): ImportType | null {
   return null;
 }
 
-function filledCount(values: Array<string | number | null | undefined>) {
-  return values.reduce((count, value) => {
+function filledCount(values: Array<string | number | null | undefined>): number {
+  return values.reduce<number>((count, value) => {
     if (typeof value === 'number') {
       return Number.isFinite(value) ? count + 1 : count;
     }
@@ -794,12 +794,6 @@ export function ImportReservationDialog() {
               id: activeItem.documentId,
               updates: {
                 tipo: 'fora_escopo',
-                extracao_tipo: null,
-                extracao_confianca: canonicalConfidence ?? Math.round((activeItem.typeConfidence ?? activeItem.confidence ?? 0) * 100),
-                extracao_scope: 'outside_scope',
-                extracao_payload: canonical ?? null,
-                origem_importacao: 'arquivo',
-                importado: true,
               },
             });
           } catch (docUpdateError) {
@@ -813,27 +807,20 @@ export function ImportReservationDialog() {
         setItemStep(activeItem.id, 'tips', 'skipped');
       } else if (reviewState?.type === 'voo') {
         const payload: Omit<TablesInsert<'voos'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
-          nome_exibicao: reviewState.voo.nome_exibicao || null,
-          provedor: reviewState.voo.provedor || reviewState.voo.companhia || null,
-          codigo_reserva: reviewState.voo.codigo_reserva || null,
-          passageiro_hospede: reviewState.voo.passageiro_hospede || null,
           numero: reviewState.voo.numero || null,
           companhia: reviewState.voo.companhia || null,
           origem: reviewState.voo.origem || null,
           destino: reviewState.voo.destino || null,
           data: toIsoDateTime(reviewState.voo.data_inicio, reviewState.voo.hora_inicio),
-          hora_inicio: toTimeInput(reviewState.voo.hora_inicio) || null,
-          hora_fim: toTimeInput(reviewState.voo.hora_fim) || null,
           status: reviewState.voo.status,
           valor: reviewState.voo.valor ? Number(reviewState.voo.valor) : null,
           moeda: reviewState.voo.moeda || 'BRL',
-          metodo_pagamento: reviewState.voo.metodo_pagamento || null,
-          pontos_utilizados: reviewState.voo.pontos_utilizados ? Number(reviewState.voo.pontos_utilizados) : null,
         };
+        const displayName = reviewState.voo.nome_exibicao || null;
         const created = await flightsModule.create(payload);
         if (created) flightsAfter = [created, ...flightsAfter];
 
-        title = payload.nome_exibicao || payload.numero || payload.companhia || 'Voo importado';
+        title = displayName || payload.numero || payload.companhia || 'Voo importado';
         subtitle = `${payload.origem || 'Origem'} → ${payload.destino || 'Destino'}`;
         amount = payload.valor ?? null;
         currency = payload.moeda ?? 'BRL';
@@ -854,27 +841,20 @@ export function ImportReservationDialog() {
             null,
         };
         const payload: Omit<TablesInsert<'hospedagens'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
-          nome_exibicao: reviewState.hospedagem.nome_exibicao || null,
-          provedor: reviewState.hospedagem.provedor || null,
-          codigo_reserva: reviewState.hospedagem.codigo_reserva || null,
-          passageiro_hospede: reviewState.hospedagem.passageiro_hospede || null,
           nome: reviewState.hospedagem.nome || null,
           localizacao: reviewState.hospedagem.localizacao || null,
           check_in: reviewState.hospedagem.check_in || null,
           check_out: reviewState.hospedagem.check_out || null,
-          hora_inicio: toTimeInput(reviewState.hospedagem.hora_inicio) || null,
-          hora_fim: toTimeInput(reviewState.hospedagem.hora_fim) || null,
           status: reviewState.hospedagem.status,
           valor: reviewState.hospedagem.valor ? Number(reviewState.hospedagem.valor) : null,
           moeda: reviewState.hospedagem.moeda || 'BRL',
-          metodo_pagamento: reviewState.hospedagem.metodo_pagamento || null,
-          pontos_utilizados: reviewState.hospedagem.pontos_utilizados ? Number(reviewState.hospedagem.pontos_utilizados) : null,
           dica_viagem: inferredTips.dica_viagem,
           como_chegar: inferredTips.como_chegar,
           atracoes_proximas: inferredTips.atracoes_proximas,
           restaurantes_proximos: inferredTips.restaurantes_proximos,
           dica_ia: inferredTips.dica_ia,
         };
+        const stayDisplayName = reviewState.hospedagem.nome_exibicao || null;
 
         const created = await staysModule.create(payload);
         if (created) {
@@ -922,7 +902,7 @@ export function ImportReservationDialog() {
           setItemStep(activeItem.id, 'tips', 'completed');
         }
 
-        title = payload.nome_exibicao || payload.nome || 'Hospedagem importada';
+        title = stayDisplayName || payload.nome || 'Hospedagem importada';
         subtitle = `${payload.localizacao || 'Local não informado'} · ${payload.check_in || 'sem check-in'} a ${payload.check_out || 'sem check-out'}`;
         amount = payload.valor ?? null;
         currency = payload.moeda ?? 'BRL';
@@ -975,12 +955,6 @@ export function ImportReservationDialog() {
             id: activeItem.documentId,
             updates: {
               tipo: reviewState?.type ?? activeItem.identifiedType ?? (canonicalType as string | null),
-              extracao_tipo: reviewState?.type ?? activeItem.identifiedType ?? (canonicalType as string | null),
-              extracao_confianca: canonicalConfidence ?? Math.round((activeItem.typeConfidence ?? activeItem.confidence ?? 0) * 100),
-              extracao_scope: extractionScope,
-              extracao_payload: canonical ?? null,
-              origem_importacao: 'arquivo',
-              importado: true,
             },
           });
         } catch (docUpdateError) {

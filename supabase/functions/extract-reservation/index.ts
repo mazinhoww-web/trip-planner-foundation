@@ -310,8 +310,8 @@ function normalizeCanonical(raw: Record<string, unknown>, text: string, fileName
     const money = inferMoney(text);
     const flight = inferFlightCode(text, fileName);
 
-    canonical.dados_principais.origem = canonical.dados_principais.origem ?? airports.origem;
-    canonical.dados_principais.destino = canonical.dados_principais.destino ?? airports.destino;
+    canonical.dados_principais.origem = canonical.dados_principais.origem ?? airports.origem ?? null;
+    canonical.dados_principais.destino = canonical.dados_principais.destino ?? airports.destino ?? null;
     canonical.dados_principais.data_inicio = canonical.dados_principais.data_inicio ?? (canonical.metadata.tipo === 'Hospedagem' ? dates.checkIn : dates.generic);
     canonical.dados_principais.data_fim = canonical.dados_principais.data_fim ?? (canonical.metadata.tipo === 'Hospedagem' ? dates.checkOut : null);
     canonical.dados_principais.hora_inicio = canonical.dados_principais.hora_inicio ?? firstTime;
