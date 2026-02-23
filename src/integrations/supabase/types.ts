@@ -332,6 +332,65 @@ export type Database = {
           },
         ]
       }
+      roteiro_dias: {
+        Row: {
+          categoria: string | null
+          created_at: string
+          descricao: string | null
+          dia: string
+          horario_sugerido: string | null
+          id: string
+          link_maps: string | null
+          localizacao: string | null
+          ordem: number
+          sugerido_por_ia: boolean | null
+          titulo: string
+          updated_at: string
+          user_id: string
+          viagem_id: string
+        }
+        Insert: {
+          categoria?: string | null
+          created_at?: string
+          descricao?: string | null
+          dia: string
+          horario_sugerido?: string | null
+          id?: string
+          link_maps?: string | null
+          localizacao?: string | null
+          ordem?: number
+          sugerido_por_ia?: boolean | null
+          titulo: string
+          updated_at?: string
+          user_id: string
+          viagem_id: string
+        }
+        Update: {
+          categoria?: string | null
+          created_at?: string
+          descricao?: string | null
+          dia?: string
+          horario_sugerido?: string | null
+          id?: string
+          link_maps?: string | null
+          localizacao?: string | null
+          ordem?: number
+          sugerido_por_ia?: boolean | null
+          titulo?: string
+          updated_at?: string
+          user_id?: string
+          viagem_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roteiro_dias_viagem_id_fkey"
+            columns: ["viagem_id"]
+            isOneToOne: false
+            referencedRelation: "viagens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tarefas: {
         Row: {
           categoria: string | null

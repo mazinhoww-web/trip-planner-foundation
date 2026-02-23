@@ -44,6 +44,22 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function greatCircleLine(
+  from: { lat: number; lon: number },
+  to: { lat: number; lon: number },
+  steps = 20,
+): [number, number][] {
+  const points: [number, number][] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    points.push([
+      from.lat + (to.lat - from.lat) * t,
+      from.lon + (to.lon - from.lon) * t,
+    ]);
+  }
+  return points;
+}
+
 async function loadLeaflet(): Promise<any> {
   if (typeof window === 'undefined') return null;
   if (window.L) return window.L;
@@ -183,8 +199,8 @@ export function TripOpenMap({ stays, transports, flights = [], className, height
         const destination = locationPool.get(next);
         if (!origin || !destination) continue;
 
-        const polyline = await fetchRoutePolyline(origin, destination);
-        if (polyline.length < 2) continue;
+        // Use straight line for inter-city routes (indicative only)
+        const polyline = greatCircleLine(origin, destination);
 
         segments.push({
           type: 'roteiro',
@@ -265,8 +281,8 @@ export function TripOpenMap({ stays, transports, flights = [], className, height
           lon: destination.lon,
         });
 
-        const polyline = await fetchRoutePolyline(origin, destination);
-        if (polyline.length < 2) continue;
+        // Use straight/great-circle line for flights (not road routing)
+        const polyline = greatCircleLine(origin, destination);
 
         segments.push({
           type: 'voo',

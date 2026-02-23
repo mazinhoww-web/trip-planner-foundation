@@ -10,3 +10,4 @@ export const useDocuments = () => useModuleData('documentos');
 export const useLuggage = () => useModuleData('bagagem');
 export const useTravelers = () => useModuleData('viajantes');
 export const usePreparativos = () => useModuleData('preparativos');
+export const useRoteiro = () => useModuleData('roteiro_dias');
