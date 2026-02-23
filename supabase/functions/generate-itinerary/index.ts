@@ -8,6 +8,7 @@ type GenerateItineraryInput = {
   endDate?: string | null;
   userHomeCity?: string | null;
   stays?: Array<{
+    nome?: string | null;
     localizacao?: string | null;
     check_in?: string | null;
     check_out?: string | null;
@@ -16,6 +17,8 @@ type GenerateItineraryInput = {
     dica_viagem?: string | null;
   }>;
   flights?: Array<{ origem?: string | null; destino?: string | null; data?: string | null }>;
+  transports?: Array<{ tipo?: string | null; origem?: string | null; destino?: string | null; data?: string | null }>;
+  restaurants?: Array<{ nome?: string | null; cidade?: string | null; tipo?: string | null }>;
 };
 
 type ItineraryItem = {
@@ -34,18 +37,39 @@ const LOVABLE_MODEL = 'google/gemini-3-flash-preview';
 const LIMIT_PER_HOUR = 5;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
-const SYSTEM_PROMPT = `Voce é um assistente de viagem que cria roteiros dia-a-dia detalhados.
+const SYSTEM_PROMPT = `Voce é um assistente de viagem que cria roteiros dia-a-dia detalhados e REALISTAS baseados em TODOS os dados fornecidos.
 
-Com base no destino, datas, hospedagens e dicas já geradas, crie um itinerário prático por dia.
+DADOS DISPONÍVEIS:
+- Destino, datas de início e fim da viagem
+- Hospedagens com nome, localização, check-in, check-out, atrações próximas, restaurantes próximos e dicas
+- Voos com origem, destino e data/hora
+- Transportes terrestres/marítimos com tipo, origem, destino e data/hora
+- Restaurantes já salvos pelo usuário (nome, cidade, tipo)
 
-REGRAS:
+REGRAS CRÍTICAS DE HORÁRIO:
+1. No dia de CHEGADA de um voo, as atividades só começam DEPOIS do horário de chegada + 1h (deslocamento aeroporto→hotel). Exemplo: voo chega às 14h → primeira atividade às 15h.
+2. No dia de PARTIDA de um voo, as atividades terminam ANTES do horário do voo - 3h (deslocamento hotel→aeroporto + check-in). Exemplo: voo às 20h → última atividade termina às 17h.
+3. Quando houver troca de cidade (check-out de uma hospedagem + check-in de outra no mesmo dia ou dia seguinte), inclua uma atividade de "Deslocamento [Cidade A] → [Cidade B]" com categoria "transporte" e horário estimado.
+
+REGRAS DE HOSPEDAGEM:
+4. Distribua atrações e restaurantes próximos de cada hospedagem SOMENTE nos dias em que o viajante está hospedado ali (entre check_in e check_out).
+5. No dia do check-in, inclua atividade "Check-in [Nome do Hotel]" com horário estimado.
+6. No dia do check-out, inclua atividade "Check-out [Nome do Hotel]" como primeira atividade do dia.
+
+REGRAS DE GASTRONOMIA:
+7. Se o usuário tem restaurantes salvos, use-os como sugestões PRIORITÁRIAS para almoço/jantar nos dias em que está na mesma cidade.
+8. Inclua o nome exato do restaurante salvo e sua cidade no título.
+9. Complete com sugestões próprias apenas se não houver restaurantes salvos suficientes para cobrir todas as refeições.
+
+REGRAS DE DICAS:
+10. Use as dicas de viagem (dica_viagem) e atrações próximas (atracoes_proximas) das hospedagens como BASE principal para atividades turísticas.
+11. ADICIONE atrações "imperdíveis" do destino mesmo que estejam mais longe.
+
+REGRAS GERAIS:
 - Organize por dia (YYYY-MM-DD) com atividades em ordem cronológica
 - Cada atividade tem: titulo, descricao curta, horario_sugerido (formato "09:00"), categoria, localizacao, link_maps
 - Categorias: "atracoes", "restaurante", "transporte", "livre", "compras"
-- Use as atrações e restaurantes já mencionados nas dicas das hospedagens como BASE
-- ADICIONE atrações "imperdíveis" do destino mesmo que estejam mais longe (Torre Eiffel em Paris, Coliseu em Roma, etc)
 - Considere tempo de deslocamento entre pontos
-- Inclua pausas para almoço e jantar com sugestões de tipo de culinária/região
 - Manhã (09:00-12:00): atrações. Almoço (12:30-14:00). Tarde (14:30-18:00): atrações/compras. Noite (19:00-22:00): jantar/passeio noturno
 - link_maps no formato: https://www.google.com/maps/search/NOME+DO+LUGAR+CIDADE (substitua espaços por +)
 - Gere atividades para TODOS os dias entre startDate e endDate
@@ -97,6 +121,7 @@ Deno.serve(async (req) => {
       endDate: truncate(body.endDate, 32),
       userHomeCity: truncate(body.userHomeCity),
       stays: (body.stays ?? []).slice(0, 10).map((s) => ({
+        nome: truncate(s.nome, 100),
         localizacao: truncate(s.localizacao),
         check_in: truncate(s.check_in, 32),
         check_out: truncate(s.check_out, 32),
@@ -104,7 +129,22 @@ Deno.serve(async (req) => {
         restaurantes_proximos: truncate(s.restaurantes_proximos, 500),
         dica_viagem: truncate(s.dica_viagem),
       })),
-      flights: (body.flights ?? []).slice(0, 10),
+      flights: (body.flights ?? []).slice(0, 10).map((f) => ({
+        origem: truncate(f.origem, 100),
+        destino: truncate(f.destino, 100),
+        data: truncate(f.data, 32),
+      })),
+      transports: (body.transports ?? []).slice(0, 10).map((t) => ({
+        tipo: truncate(t.tipo, 50),
+        origem: truncate(t.origem, 100),
+        destino: truncate(t.destino, 100),
+        data: truncate(t.data, 32),
+      })),
+      restaurants: (body.restaurants ?? []).slice(0, 20).map((r) => ({
+        nome: truncate(r.nome, 100),
+        cidade: truncate(r.cidade, 100),
+        tipo: truncate(r.tipo, 50),
+      })),
     });
 
     const apiKey = Deno.env.get('LOVABLE_API_KEY');
@@ -118,7 +158,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         model: LOVABLE_MODEL,
         temperature: 0.4,
-        max_tokens: 4000,
+        max_tokens: 6000,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: `Contexto da viagem: ${userContent}` },

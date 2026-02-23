@@ -2686,6 +2686,7 @@ export default function Dashboard() {
                               endDate: currentTrip?.data_fim,
                               userHomeCity,
                               stays: staysModule.data.map((s) => ({
+                                nome: s.nome,
                                 localizacao: s.localizacao,
                                 check_in: s.check_in,
                                 check_out: s.check_out,
@@ -2694,6 +2695,8 @@ export default function Dashboard() {
                                 dica_viagem: s.dica_viagem,
                               })),
                               flights: flightsModule.data.map((f) => ({ origem: f.origem, destino: f.destino, data: f.data })),
+                              transports: transportsModule.data.map((t) => ({ tipo: t.tipo, origem: t.origem, destino: t.destino, data: t.data })),
+                              restaurants: restaurantsModule.data.filter((r) => r.salvo).map((r) => ({ nome: r.nome, cidade: r.cidade, tipo: r.tipo })),
                             });
                             if (result.data && result.data.length > 0) {
                               // Remove existing AI-generated items first

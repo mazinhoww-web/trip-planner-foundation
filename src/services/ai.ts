@@ -241,6 +241,7 @@ type GenerateItineraryInput = {
   endDate?: string | null;
   userHomeCity?: string | null;
   stays?: Array<{
+    nome?: string | null;
     localizacao?: string | null;
     check_in?: string | null;
     check_out?: string | null;
@@ -249,6 +250,8 @@ type GenerateItineraryInput = {
     dica_viagem?: string | null;
   }>;
   flights?: Array<{ origem?: string | null; destino?: string | null; data?: string | null }>;
+  transports?: Array<{ tipo?: string | null; origem?: string | null; destino?: string | null; data?: string | null }>;
+  restaurants?: Array<{ nome?: string | null; cidade?: string | null; tipo?: string | null }>;
 };
 
 export type ItineraryItem = {
