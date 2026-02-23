@@ -1,149 +1,174 @@
 
 
-## Plano: Enriquecer dicas de hospedagem com dados reais e contextuais
+## Plano: Localização do usuário como contexto principal + gaps inteligentes
 
-### Problema atual
+### Problema
 
-1. O prompt do `generate-tips` e generico demais: "Gere dicas para estadia no hotel informado" sem contexto de voos, ruas, bairros
-2. O fallback em `src/services/ai.ts` retorna frases template como "Pesquise no mapa por pontos culturais" -- completamente inuteis
-3. Os dados enviados ao backend sao insuficientes: so passam `hotelName`, `location`, `checkIn`, `checkOut`, `tripDestination` -- faltam dados de voos (aeroporto de chegada), endereco detalhado, meio de transporte
-4. O campo `dica_ia` nao tem instrucao clara no prompt -- a IA nao sabe o que colocar ali
-5. Restaurantes no fallback sao inventados ("Sabores do Centro (paris)") -- nomes falsos
+1. **Gaps falsos**: O sistema trata CADA trecho de voo como precisando de transporte terrestre. Para GRU>JFK>AMS>CDG, ele gera 3 gaps falsos:
+   - "A definir → GRU" -- falso porque o usuario mora em SP, GRU e o aeroporto de casa
+   - "A definir → AMS" -- falso porque AMS e apenas conexao (escala)
+   - "21 Bis Rue de Paris → A definir" -- falso/confuso, deveria sugerir transporte publico CDG→hotel
 
-### Correcoes
+2. **Nao detecta conexoes**: Se existe voo GRU→JFK e voo JFK→AMS, JFK e conexao -- nao precisa de transporte terrestre
 
-#### 1. Expandir input do `generate-tips` com dados de contexto da viagem
+3. **Nao conhece a cidade do usuario**: Sem saber que o usuario mora em Sao Paulo, nao pode suprimir o gap "casa → aeroporto"
 
-**Arquivo: `src/services/ai.ts`** e **`src/pages/Dashboard.tsx`** e **`src/components/import/ImportReservationDialog.tsx`**
+4. **Dicas de transporte genericas**: O `como_chegar` nao diferencia cidades com bom transporte publico (Europa, NYC) de cidades onde faz sentido alugar carro (Miami, LA, Vegas)
 
-Adicionar campos ao `StayTipsInput`:
-- `flightOrigin`: aeroporto/cidade de onde o usuario esta vindo (buscar do modulo de voos)
-- `flightDestination`: aeroporto de chegada na cidade do hotel
-- `address`: endereco completo se disponivel (rua, bairro)
-- `transportMode`: se tem voo cadastrado = "aviao", se tem transporte terrestre = "carro/onibus"
+### Solucao
 
-No Dashboard, ao chamar `enrichStay`, buscar tambem os voos da viagem para extrair aeroporto de chegada e origem.
+#### 1. Adicionar `cidade_origem` na tabela `profiles`
 
-#### 2. Reescrever o prompt do `generate-tips` (backend)
+Migration SQL para adicionar o campo:
+```sql
+ALTER TABLE public.profiles ADD COLUMN cidade_origem text;
+```
+
+Isso permite que o sistema saiba de onde o usuario parte. Sera preenchido no perfil do usuario.
+
+#### 2. Detectar voos de conexao no `calculateTransportCoverageGaps`
+
+**Arquivo: `src/services/tripInsights.ts`**
+
+Adicionar funcao `identifyConnectionFlights` que analisa a cadeia de voos e marca quais sao conexao:
+- Se voo A tem destino X e voo B tem origem X (ou match parcial), e a diferenca de tempo entre eles e menor que 24h, B e conexao
+- Voos de conexao NAO geram gaps de transporte terrestre
+- Apenas o aeroporto FINAL da cadeia (CDG no caso) gera gap ate a hospedagem
+
+Logica:
+```text
+Voos ordenados por data: GRU→JFK, JFK→AMS, AMS→CDG
+Conexoes detectadas: JFK (destino=origem seguinte), AMS (destino=origem seguinte)
+Aeroporto final de chegada: CDG
+Aeroporto de partida original: GRU
+```
+
+#### 3. Suprimir gaps da cidade de origem do usuario
+
+**Arquivo: `src/services/tripInsights.ts`**
+
+A funcao `calculateTransportCoverageGaps` passara a receber um parametro opcional `userHomeLocation: string | null`. Quando definido:
+- Gaps onde `from` ou `to` match com `userHomeLocation` sao suprimidos (o usuario sabe como ir ao seu aeroporto local)
+- O gap "hospedagem → aeroporto de partida" tambem e suprimido se o aeroporto de partida esta na cidade do usuario
+
+#### 4. Gerar gap inteligente apenas para aeroporto final → hospedagem
+
+Em vez de gerar gaps para cada trecho de voo, a logica sera:
+- Identificar o aeroporto de CHEGADA final (ultimo destino da cadeia de voos)
+- Verificar se existe transporte registrado desse aeroporto ate a primeira hospedagem
+- Se nao existir, gerar gap com sugestao contextual (transporte publico vs carro)
+
+#### 5. Melhorar `generate-tips` com contexto de transporte local
 
 **Arquivo: `supabase/functions/generate-tips/index.ts`**
 
-Novo prompt muito mais especifico:
+Adicionar ao input e ao prompt:
+- `userHomeCity`: cidade de origem do usuario (para contextualizar "como chegar")
+- Instrucao no prompt para diferenciar cidades:
+  - Europa em geral, NYC, Tokyo, etc: priorizar transporte publico com linhas especificas
+  - Miami, LA, Vegas, cidades do interior: sugerir locacao de veiculo ou Uber com estimativa de custo
+  - Incluir link Google Maps do aeroporto ate o hotel: `https://www.google.com/maps/dir/CDG+Airport/21+Bis+Rue+de+Paris+Clichy`
 
+#### 6. Expor campo `cidade_origem` no perfil
+
+**Arquivo: `src/pages/Dashboard.tsx`** (ou componente de perfil)
+
+Adicionar um campo simples para o usuario informar sua cidade de origem. Isso alimenta toda a logica de gaps e dicas.
+
+### Detalhes tecnicos
+
+**Deteccao de conexoes em `tripInsights.ts`:**
+
+```typescript
+function identifyFinalArrivalAirport(
+  flights: Tables<'voos'>[],
+  userHome: string | null,
+): { arrivalAirport: string | null; departureAirport: string | null } {
+  const active = flights
+    .filter(f => isActiveStatus(f.status) && f.origem && f.destino)
+    .sort((a, b) => {
+      if (!a.data) return 1;
+      if (!b.data) return -1;
+      return new Date(a.data).getTime() - new Date(b.data).getTime();
+    });
+
+  if (active.length === 0) return { arrivalAirport: null, departureAirport: null };
+
+  // Construir cadeia: detectar conexoes
+  const connectionAirports = new Set<string>();
+  for (let i = 0; i < active.length - 1; i++) {
+    const current = active[i];
+    const next = active[i + 1];
+    if (locationsMatch(current.destino, next.origem)) {
+      connectionAirports.add(normalizeTextForMatch(current.destino));
+      connectionAirports.add(normalizeTextForMatch(next.origem));
+    }
+  }
+
+  // Aeroporto de partida = origem do primeiro voo
+  const departureAirport = active[0].origem;
+  // Aeroporto de chegada final = destino do ultimo voo (que nao e conexao de volta)
+  const arrivalAirport = active[active.length - 1].destino;
+
+  return { arrivalAirport, departureAirport };
+}
+```
+
+**Logica de gap revisada:**
+
+Em vez de iterar todos os voos individualmente procurando gaps (linhas 207-252), a nova logica:
+
+1. Identifica aeroporto final de chegada e de partida
+2. Ignora aeroportos de conexao
+3. Ignora aeroporto de partida se match com `userHomeLocation`
+4. Gera gap apenas: aeroporto final → primeira hospedagem (se nao coberto)
+5. Gera gap apenas: ultima hospedagem → aeroporto de partida de volta (se nao e casa do usuario)
+
+**Passagem do `userHomeLocation`:**
+
+```typescript
+// Dashboard.tsx - ao calcular gaps
+const transportCoverageGaps = useMemo(() => {
+  return calculateTransportCoverageGaps(
+    staysModule.data, transportsModule.data, flightsModule.data,
+    profile?.cidade_origem ?? null  // novo parametro
+  );
+}, [flightsModule.data, staysModule.data, transportsModule.data, profile]);
+```
+
+**Prompt atualizado do `generate-tips`:**
+
+Adicionar ao prompt regra de transporte contextual:
 ```text
-Voce e um assistente de viagem especializado. Com base nos dados da hospedagem e do contexto da viagem, gere informacoes REAIS e UTEIS.
-
-Dados disponiveis:
-- Nome do hotel/hospedagem
-- Endereco/localizacao (cidade, bairro, rua)
-- Datas de check-in e check-out
-- Destino da viagem
-- Aeroporto/cidade de origem do viajante (se disponivel)
-- Aeroporto/cidade de chegada (se disponivel)
-- Meio de transporte (aviao, carro, etc)
-
-Entregue:
-
-1) dica_viagem: Dica pratica e especifica sobre a estadia. Ex: "O bairro Marais em Paris tem ruas estreitas -- prefira mala de mao rigida. Supermercado Monoprix a 200m na Rue de Rivoli." Nao repita dados obvios como "confirme check-in".
-
-2) como_chegar: Rota ESPECIFICA do aeroporto/estacao ate o hotel. Se o usuario vem de aviao, descreva o trajeto desde o aeroporto de chegada (ex: "Do aeroporto CDG, pegue o RER B ate Chatelet-Les Halles, depois linha 1 do metro ate Hotel de Ville. Alternativa: taxi/Uber ~50 EUR, 45min."). Se vem de carro, sugira rota e inclua um link Google Maps no formato: https://www.google.com/maps/dir/ORIGEM/DESTINO. Se nao souber o aeroporto, liste as 2-3 opcoes principais de chegada na cidade.
-
-3) atracoes_proximas: Liste 3-4 atracoes REAIS com nomes verdadeiros proximo ao hotel. Use nomes de pontos turisticos, museus, parques, etc que existem de verdade na regiao. Inclua distancia aproximada. Ex: "Musee du Louvre (800m), Place des Vosges (400m), Centre Pompidou (600m)".
-
-4) restaurantes_proximos: Liste 3-4 restaurantes ou tipos de culinaria da REGIAO REAL do hotel. Pode usar nomes de ruas/bairros conhecidos. Ex: "Rue des Rosiers (falafel, 300m), Le Marais cafes na Rue Vieille du Temple, Breizh Cafe (crepes bretones, 500m)".
-
-5) dica_ia: Uma informacao UNICA e util que nao se encaixa nas categorias acima. Pode ser: clima esperado nas datas, evento local acontecendo, dica de seguranca do bairro, costume local, melhor horario para visitar algo, app de transporte local recomendado, etc. Ex: "Em dezembro Paris tem mercados de Natal nos Champs-Elysees. Baixe o app Citymapper para navegacao."
-
-Regras:
-- Portugues do Brasil
-- Use nomes REAIS de lugares, ruas, estacoes de metro/trem
-- Se nao tiver certeza do nome exato, use a regiao/bairro
-- NUNCA invente nomes de restaurantes -- prefira descrever o tipo de culinaria do bairro
-- Inclua distancias aproximadas quando possivel
-- Se tiver dados de voo, use o aeroporto REAL de chegada na resposta
-- Responda APENAS JSON valido no formato especificado
+REGRA DE TRANSPORTE:
+- Em cidades europeias, Tokyo, NYC, Chicago, Toronto, Buenos Aires: SEMPRE priorize transporte publico. 
+  Descreva linhas de metro/trem/onibus especificas do aeroporto ate o hotel.
+- Em cidades como Miami, Los Angeles, Las Vegas, Orlando, cidades pequenas: sugira locacao de veiculo 
+  ou Uber/taxi com estimativa de custo e tempo.
+- SEMPRE inclua link Google Maps: https://www.google.com/maps/dir/AEROPORTO/ENDERECO+DO+HOTEL
+- Se o usuario tem cidade de origem informada, contextualize: "Saindo de Sao Paulo (GRU), voce 
+  chegara em CDG. De la..."
 ```
-
-Aumentar `max_tokens` de 450 para 700 para permitir respostas mais detalhadas.
-
-#### 3. Melhorar o fallback local em `src/services/ai.ts`
-
-**Arquivo: `src/services/ai.ts`**
-
-O fallback nao deve inventar dados -- deve ser honesto que nao conseguiu gerar e sugerir acoes ao usuario:
-
-```typescript
-function fallbackStayTips(input: StayTipsInput): StayTipsOutput {
-  const loc = trimOrNull(input.location) ?? trimOrNull(input.tripDestination) ?? 'sua hospedagem';
-  return {
-    dica_viagem: `Verifique horarios de check-in/check-out diretamente com ${loc}. Salve o endereco no Google Maps offline antes de viajar.`,
-    como_chegar: input.flightOrigin 
-      ? `Pesquise rotas de ${input.flightOrigin} ate ${loc} no Google Maps ou Rome2Rio para opcoes de transporte.`
-      : `Pesquise rotas ate ${loc} no Google Maps ou Rome2Rio para opcoes de transporte com precos.`,
-    atracoes_proximas: `Busque "atracoes perto de ${loc}" no Google Maps para ver pontos turisticos com avaliacoes reais.`,
-    restaurantes_proximos: `Busque "restaurantes perto de ${loc}" no Google Maps para ver opcoes com avaliacoes e precos.`,
-    dica_ia: 'Dicas automaticas indisponiveis no momento. Tente novamente em alguns minutos para obter sugestoes personalizadas.',
-  };
-}
-```
-
-#### 4. Passar dados de voo ao chamar `enrichStay`
-
-**Arquivo: `src/pages/Dashboard.tsx`**
-
-Na funcao `enrichStay`, buscar os voos da viagem atual e encontrar o voo mais proximo ao check-in da hospedagem para extrair aeroporto de origem e destino:
-
-```typescript
-const enrichStay = async (stay) => {
-  // Buscar voos da viagem para contexto
-  const flights = flightsModule.items ?? [];
-  const relevantFlight = flights.find(f => f.destino && stay.localizacao?.toLowerCase().includes(f.destino.toLowerCase()));
-  
-  const result = await generateStayTips({
-    hotelName: stay.nome,
-    location: stay.localizacao,
-    checkIn: stay.check_in,
-    checkOut: stay.check_out,
-    tripDestination: currentTrip?.destino,
-    flightOrigin: relevantFlight?.origem ?? null,
-    flightDestination: relevantFlight?.destino ?? null,
-  });
-  // ...
-};
-```
-
-#### 5. Corrigir build errors existentes
-
-**Arquivo: `supabase/functions/trip-members/index.ts`**
-
-A funcao `requireSupabaseEnv` retorna um union type sem discriminar corretamente. Adicionar type guard com `as const` para que o TS entenda que quando `ok: true`, os campos existem:
-
-```typescript
-function requireSupabaseEnv(): 
-  | { ok: false; message: string; supabaseUrl?: undefined; supabaseAnonKey?: undefined; supabaseServiceRole?: undefined }
-  | { ok: true; message?: undefined; supabaseUrl: string; supabaseAnonKey: string; supabaseServiceRole: string } {
-  // ... mesmo corpo
-}
-```
-
-**Arquivo: `src/components/dashboard/TripUsersPanel.tsx`**
-
-O `onConfirm` retorna `Promise<MutationPayload>` mas espera `void | Promise<void>`. Adicionar `.then(() => {})` ou ajustar para ignorar retorno.
 
 ### Arquivos modificados
 
 | Arquivo | Alteracao |
 |---|---|
-| `supabase/functions/generate-tips/index.ts` | Novo prompt detalhado, novos campos de input, max_tokens 700 |
-| `src/services/ai.ts` | Expandir `StayTipsInput` com `flightOrigin`/`flightDestination`, melhorar fallback |
-| `src/pages/Dashboard.tsx` | Passar dados de voo ao chamar `enrichStay` |
-| `src/components/import/ImportReservationDialog.tsx` | Passar dados de voo ao chamar `generateStayTips` no import |
-| `supabase/functions/trip-members/index.ts` | Fix TS: tipar retorno de `requireSupabaseEnv` como discriminated union |
-| `src/components/dashboard/TripUsersPanel.tsx` | Fix TS: ajustar tipo de retorno dos callbacks `onConfirm` |
+| Migration SQL | Adicionar `cidade_origem` em `profiles` |
+| `src/services/tripInsights.ts` | Detectar conexoes, aceitar `userHomeLocation`, suprimir gaps falsos |
+| `src/pages/Dashboard.tsx` | Passar `cidade_origem` do perfil ao calcular gaps; campo de edicao no perfil |
+| `supabase/functions/generate-tips/index.ts` | Aceitar `userHomeCity` no input, regras de transporte contextual no prompt |
+| `src/services/ai.ts` | Adicionar `userHomeCity` ao `StayTipsInput` |
 
-### O que NAO muda
-- Schema do banco de dados (campos da tabela `hospedagens` continuam iguais)
-- Hierarquia de providers (Arcee -> Gemini -> Lovable AI)
-- Logica de race/paralelo do `extract-reservation`
-- Estrutura do JSON de resposta (mesmos 5 campos)
+### Resultado esperado
+
+Com o usuario morando em Sao Paulo e voos GRU>JFK>AMS>CDG + hospedagem em 21 Bis Rue de Paris, Clichy:
+
+**Antes (3 gaps falsos):**
+- "A definir → GRU" 
+- "A definir → AMS"
+- "21 Bis Rue de Paris → A definir"
+
+**Depois (1 gap real e util):**
+- "CDG (Paris) → 21 Bis Rue de Paris, Clichy: Considere RER B ate Gare du Nord + Metro linha 13 ate Mairie de Clichy (~1h, 11 EUR). Uber ~35-45 EUR, 40min."
 
