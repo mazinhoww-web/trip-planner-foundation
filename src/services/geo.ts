@@ -58,11 +58,23 @@ export function normalizeTextForMatch(value: string | null | undefined) {
   return normalizeLocation(value);
 }
 
+function extractIataCode(value: string): string | null {
+  const match = value.match(/\(([A-Z]{3})\)/i);
+  return match ? match[1].toUpperCase() : null;
+}
+
 export function locationsMatch(a: string | null | undefined, b: string | null | undefined) {
   const left = normalizeTextForMatch(a);
   const right = normalizeTextForMatch(b);
   if (!left || !right) return false;
-  return left.includes(right) || right.includes(left);
+  if (left.includes(right) || right.includes(left)) return true;
+
+  // IATA code comparison (e.g. "CDG (Paris)" vs "Paris, Aeroport Charles de Gaulle (CDG)")
+  const iataA = extractIataCode(a ?? '');
+  const iataB = extractIataCode(b ?? '');
+  if (iataA && iataB && iataA === iataB) return true;
+
+  return false;
 }
 
 export async function geocodeLocation(query: string): Promise<GeoPoint | null> {

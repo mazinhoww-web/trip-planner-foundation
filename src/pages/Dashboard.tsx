@@ -649,9 +649,18 @@ export default function Dashboard() {
       });
   }, [user?.id]);
 
+  // Infer home city from first flight when profile cidade_origem is null
+  const inferredHomeCity = useMemo(() => {
+    if (userHomeCity) return userHomeCity;
+    const firstFlight = flightsModule.data
+      .filter((f) => f.status !== 'cancelado' && f.origem)
+      .sort((a, b) => (a.data ?? '').localeCompare(b.data ?? ''))[0];
+    return firstFlight?.origem ?? null;
+  }, [userHomeCity, flightsModule.data]);
+
   const transportCoverageGaps = useMemo(() => {
-    return calculateTransportCoverageGaps(staysModule.data, transportsModule.data, flightsModule.data, userHomeCity);
-  }, [flightsModule.data, staysModule.data, transportsModule.data, userHomeCity]);
+    return calculateTransportCoverageGaps(staysModule.data, transportsModule.data, flightsModule.data, inferredHomeCity);
+  }, [flightsModule.data, staysModule.data, transportsModule.data, inferredHomeCity]);
 
   const stayGapLines = useMemo(() => {
     return stayCoverageGaps.slice(0, 3).map((gap) => ({
@@ -661,9 +670,9 @@ export default function Dashboard() {
   }, [stayCoverageGaps]);
 
   const transportGapLines = useMemo(() => {
-    return transportCoverageGaps.slice(0, 3).map((gap) => ({
+    return transportCoverageGaps.slice(0, 5).map((gap) => ({
       key: `transport-gap-${gap.from}-${gap.to}-${gap.referenceDate ?? 'sem-data'}`,
-      text: `Transporte: trecho ${gap.from} → ${gap.to} sem cobertura registrada.`,
+      text: `Transporte: ${gap.from} → ${gap.to} — ${gap.reason}`,
     }));
   }, [transportCoverageGaps]);
 
