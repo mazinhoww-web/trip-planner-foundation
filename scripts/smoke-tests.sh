@@ -81,7 +81,7 @@ else
 fi
 
 # 3) Functions deploy + proteção (espera 401 sem Authorization)
-for fn in generate-tips suggest-restaurants ocr-document extract-reservation; do
+for fn in generate-tips suggest-restaurants ocr-document extract-reservation trip-members; do
   code="$(http_code POST "$SUPABASE_URL/functions/v1/$fn" "$tmp_dir/$fn.h" "$tmp_dir/$fn.b" \
     -H "apikey: $SUPABASE_ANON_KEY" \
     -H "Content-Type: application/json" \
@@ -222,6 +222,22 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
   # CRUD mínimo autenticado (opcional com TEST_TRIP_ID)
   if [ -n "${TEST_TRIP_ID:-}" ] && [ -n "${TEST_USER_ID:-}" ]; then
     echo "Executando CRUD básico com TEST_TRIP_ID..."
+
+    code="$(http_code POST "$SUPABASE_URL/functions/v1/trip-members" "$tmp_dir/auth-trip-members.h" "$tmp_dir/auth-trip-members.b" \
+      -H "apikey: $SUPABASE_ANON_KEY" \
+      -H "Authorization: Bearer $TEST_USER_JWT" \
+      -H "Content-Type: application/json" \
+      --data "{\"action\":\"list_members\",\"viagemId\":\"$TEST_TRIP_ID\"}")"
+
+    if [ "$code" = "200" ]; then
+      if grep -q "\"permission\"" "$tmp_dir/auth-trip-members.b"; then
+        pass "trip-members list_members autenticado respondeu com contexto de permissão"
+      else
+        warn "trip-members list_members respondeu 200 sem permission no payload"
+      fi
+    else
+      fail "trip-members list_members autenticado falhou ($code)"
+    fi
 
     create_and_delete_row() {
       local table="$1"

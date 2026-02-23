@@ -2,6 +2,7 @@ import { Suspense, lazy, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTrip } from '@/hooks/useTrip';
 import { useTripSummary } from '@/hooks/useModuleData';
+import { useTripMembers } from '@/hooks/useTripMembers';
 import { ConfirmActionButton } from '@/components/common/ConfirmActionButton';
 import {
   useDocuments,
@@ -19,6 +20,7 @@ import { TripCoverageAlert } from '@/components/dashboard/TripCoverageAlert';
 import { TripHero } from '@/components/dashboard/TripHero';
 import { TripStatsGrid } from '@/components/dashboard/TripStatsGrid';
 import { TripTopActions } from '@/components/dashboard/TripTopActions';
+import { TripUsersPanel } from '@/components/dashboard/TripUsersPanel';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -401,6 +403,7 @@ const emptySupportForms: SupportForms = {
 export default function Dashboard() {
   const { user, signOut } = useAuth();
   const { currentTrip, currentTripId, trips, loading: tripLoading, selectTrip } = useTrip();
+  const tripMembers = useTripMembers(currentTripId);
   const navigate = useNavigate();
   const { data: counts, isLoading: countsLoading } = useTripSummary();
   const flightsModule = useFlights();
@@ -451,10 +454,18 @@ export default function Dashboard() {
   const [isReconciling, setIsReconciling] = useState(false);
   const [openingDocumentPath, setOpeningDocumentPath] = useState<string | null>(null);
   const [downloadingDocumentPath, setDownloadingDocumentPath] = useState<string | null>(null);
+  const fallbackCanEdit = !!currentTrip && currentTrip.user_id === user?.id;
+  const canEditTrip = tripMembers.permission.role ? tripMembers.permission.canEdit : fallbackCanEdit;
 
   const handleLogout = async () => {
     await signOut();
     navigate('/login');
+  };
+
+  const ensureCanEdit = () => {
+    if (canEditTrip) return true;
+    toast.error('Você está com papel de visualização nesta viagem.');
+    return false;
   };
 
   const flightsFiltered = useMemo(() => {
@@ -716,12 +727,14 @@ export default function Dashboard() {
     supportError;
 
   const openCreateFlight = () => {
+    if (!ensureCanEdit()) return;
     setEditingFlight(null);
     setFlightForm(emptyFlight);
     setFlightDialogOpen(true);
   };
 
   const openEditFlight = (flight: Tables<'voos'>) => {
+    if (!ensureCanEdit()) return;
     setEditingFlight(flight);
     setFlightForm({
       numero: flight.numero ?? '',
@@ -737,6 +750,7 @@ export default function Dashboard() {
   };
 
   const submitFlight = async () => {
+    if (!ensureCanEdit()) return;
     const payload: Omit<TablesInsert<'voos'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
       numero: flightForm.numero || null,
       companhia: flightForm.companhia || null,
@@ -759,17 +773,20 @@ export default function Dashboard() {
   };
 
   const removeFlight = async (id: string) => {
+    if (!ensureCanEdit()) return;
     await flightsModule.remove(id);
     if (selectedFlight?.id === id) setFlightDetailOpen(false);
   };
 
   const openCreateStay = () => {
+    if (!ensureCanEdit()) return;
     setEditingStay(null);
     setStayForm(emptyStay);
     setStayDialogOpen(true);
   };
 
   const openEditStay = (stay: Tables<'hospedagens'>) => {
+    if (!ensureCanEdit()) return;
     setEditingStay(stay);
     setStayForm({
       nome: stay.nome ?? '',
@@ -789,6 +806,7 @@ export default function Dashboard() {
   };
 
   const submitStay = async () => {
+    if (!ensureCanEdit()) return;
     const payload: Omit<TablesInsert<'hospedagens'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
       nome: stayForm.nome || null,
       localizacao: stayForm.localizacao || null,
@@ -821,11 +839,13 @@ export default function Dashboard() {
   };
 
   const removeStay = async (id: string) => {
+    if (!ensureCanEdit()) return;
     await staysModule.remove(id);
     if (selectedStay?.id === id) setStayDetailOpen(false);
   };
 
   const enrichStay = async (stay: Tables<'hospedagens'>, silent: boolean = false) => {
+    if (!ensureCanEdit()) return;
     setEnrichingStayId(stay.id);
     try {
       const result = await generateStayTips({
@@ -864,6 +884,7 @@ export default function Dashboard() {
   };
 
   const suggestAndSaveRestaurants = async (stay: Tables<'hospedagens'>) => {
+    if (!ensureCanEdit()) return;
     setSuggestingRestaurantsStayId(stay.id);
     try {
       const result = await suggestRestaurants({
@@ -923,12 +944,14 @@ export default function Dashboard() {
   };
 
   const openCreateTransport = () => {
+    if (!ensureCanEdit()) return;
     setEditingTransport(null);
     setTransportForm(emptyTransport);
     setTransportDialogOpen(true);
   };
 
   const openEditTransport = (transport: Tables<'transportes'>) => {
+    if (!ensureCanEdit()) return;
     setEditingTransport(transport);
     setTransportForm({
       tipo: transport.tipo ?? '',
@@ -944,6 +967,7 @@ export default function Dashboard() {
   };
 
   const submitTransport = async () => {
+    if (!ensureCanEdit()) return;
     const payload: Omit<TablesInsert<'transportes'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
       tipo: transportForm.tipo || null,
       operadora: transportForm.operadora || null,
@@ -966,11 +990,13 @@ export default function Dashboard() {
   };
 
   const removeTransport = async (id: string) => {
+    if (!ensureCanEdit()) return;
     await transportsModule.remove(id);
     if (selectedTransport?.id === id) setTransportDetailOpen(false);
   };
 
   const createTask = async () => {
+    if (!ensureCanEdit()) return;
     if (!taskForm.titulo.trim()) return;
     const payload: Omit<TablesInsert<'tarefas'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
       titulo: taskForm.titulo.trim(),
@@ -983,6 +1009,7 @@ export default function Dashboard() {
   };
 
   const toggleTask = async (task: Tables<'tarefas'>) => {
+    if (!ensureCanEdit()) return;
     await tasksModule.update({
       id: task.id,
       updates: {
@@ -992,10 +1019,12 @@ export default function Dashboard() {
   };
 
   const removeTask = async (id: string) => {
+    if (!ensureCanEdit()) return;
     await tasksModule.remove(id);
   };
 
   const createExpense = async () => {
+    if (!ensureCanEdit()) return;
     if (!expenseForm.titulo.trim() || !expenseForm.valor) return;
     const payload: Omit<TablesInsert<'despesas'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
       titulo: expenseForm.titulo.trim(),
@@ -1010,6 +1039,7 @@ export default function Dashboard() {
   };
 
   const removeExpense = async (id: string) => {
+    if (!ensureCanEdit()) return;
     await expensesModule.remove(id);
   };
 
@@ -1027,6 +1057,8 @@ export default function Dashboard() {
         luggageModule.refetch(),
         travelersModule.refetch(),
         prepModule.refetch(),
+        tripMembers.refetchMembers(),
+        tripMembers.refetchInvites(),
       ]);
       toast.success('Dados reconciliados com o banco.');
     } catch (error) {
@@ -1038,6 +1070,7 @@ export default function Dashboard() {
   };
 
   const createRestaurant = async () => {
+    if (!ensureCanEdit()) return;
     if (!restaurantForm.nome.trim()) return;
     await restaurantsModule.create({
       nome: restaurantForm.nome.trim(),
@@ -1050,6 +1083,7 @@ export default function Dashboard() {
   };
 
   const toggleRestaurantFavorite = async (restaurant: Tables<'restaurantes'>) => {
+    if (!ensureCanEdit()) return;
     await restaurantsModule.update({
       id: restaurant.id,
       updates: { salvo: !restaurant.salvo },
@@ -1057,10 +1091,12 @@ export default function Dashboard() {
   };
 
   const removeRestaurant = async (id: string) => {
+    if (!ensureCanEdit()) return;
     await restaurantsModule.remove(id);
   };
 
   const createDocument = async () => {
+    if (!ensureCanEdit()) return;
     if (!supportForms.documentoNome.trim()) return;
     await documentsModule.create({
       nome: supportForms.documentoNome.trim(),
@@ -1071,6 +1107,7 @@ export default function Dashboard() {
   };
 
   const removeDocument = async (id: string) => {
+    if (!ensureCanEdit()) return;
     await documentsModule.remove(id);
   };
 
@@ -1131,6 +1168,7 @@ export default function Dashboard() {
   };
 
   const createLuggageItem = async () => {
+    if (!ensureCanEdit()) return;
     if (!supportForms.bagagemItem.trim()) return;
     await luggageModule.create({
       item: supportForms.bagagemItem.trim(),
@@ -1141,6 +1179,7 @@ export default function Dashboard() {
   };
 
   const toggleLuggageChecked = async (item: Tables<'bagagem'>) => {
+    if (!ensureCanEdit()) return;
     await luggageModule.update({
       id: item.id,
       updates: { conferido: !item.conferido },
@@ -1148,10 +1187,12 @@ export default function Dashboard() {
   };
 
   const removeLuggageItem = async (id: string) => {
+    if (!ensureCanEdit()) return;
     await luggageModule.remove(id);
   };
 
   const createTraveler = async () => {
+    if (!ensureCanEdit()) return;
     if (!supportForms.viajanteNome.trim()) return;
     await travelersModule.create({
       nome: supportForms.viajanteNome.trim(),
@@ -1162,10 +1203,12 @@ export default function Dashboard() {
   };
 
   const removeTraveler = async (id: string) => {
+    if (!ensureCanEdit()) return;
     await travelersModule.remove(id);
   };
 
   const createPrepItem = async () => {
+    if (!ensureCanEdit()) return;
     if (!supportForms.preparativoTitulo.trim()) return;
     await prepModule.create({
       titulo: supportForms.preparativoTitulo.trim(),
@@ -1176,6 +1219,7 @@ export default function Dashboard() {
   };
 
   const togglePrepDone = async (item: Tables<'preparativos'>) => {
+    if (!ensureCanEdit()) return;
     await prepModule.update({
       id: item.id,
       updates: { concluido: !item.concluido },
@@ -1183,6 +1227,7 @@ export default function Dashboard() {
   };
 
   const removePrepItem = async (id: string) => {
+    if (!ensureCanEdit()) return;
     await prepModule.remove(id);
   };
 
@@ -1269,10 +1314,24 @@ export default function Dashboard() {
             />
 
             <TripTopActions isReconciling={isReconciling} onReconcile={reconcileFromServer}>
-              <Suspense fallback={<Button disabled>Carregando importação...</Button>}>
-                <ImportReservationDialog />
-              </Suspense>
+              {canEditTrip ? (
+                <Suspense fallback={<Button disabled>Carregando importação...</Button>}>
+                  <ImportReservationDialog />
+                </Suspense>
+              ) : (
+                <Button disabled variant="outline">
+                  Importação disponível para owner/editor
+                </Button>
+              )}
             </TripTopActions>
+
+            {tripMembers.permission.role === 'viewer' && !canEditTrip && (
+              <Card className="mt-4 border-slate-300/60 bg-slate-100/60">
+                <CardContent className="p-3 text-sm text-slate-700">
+                  Você está com papel <strong>viewer</strong> nesta viagem. É possível visualizar os dados, mas edições ficam bloqueadas.
+                </CardContent>
+              </Card>
+            )}
 
             <TripCoverageAlert stayGapLines={stayGapLines} transportGapLines={transportGapLines} />
 
@@ -1392,7 +1451,7 @@ export default function Dashboard() {
                       <CardTitle className="font-display text-xl">Gestão de voos</CardTitle>
                       <Dialog open={flightDialogOpen} onOpenChange={setFlightDialogOpen}>
                         <DialogTrigger asChild>
-                          <Button onClick={openCreateFlight}>
+                          <Button onClick={openCreateFlight} disabled={!canEditTrip}>
                             <Plus className="mr-2 h-4 w-4" />
                             Novo voo
                           </Button>
@@ -1447,7 +1506,7 @@ export default function Dashboard() {
                           </div>
                           <DialogFooter>
                             <Button variant="outline" onClick={() => setFlightDialogOpen(false)}>Cancelar</Button>
-                            <Button onClick={submitFlight} disabled={flightsModule.isCreating || flightsModule.isUpdating}>
+                            <Button onClick={submitFlight} disabled={!canEditTrip || flightsModule.isCreating || flightsModule.isUpdating}>
                               Salvar
                             </Button>
                           </DialogFooter>
@@ -1535,7 +1594,7 @@ export default function Dashboard() {
                               </button>
                               <div className="flex items-center gap-2">
                                 {statusBadge(flight.status)}
-                                <Button variant="outline" size="icon" aria-label="Editar voo" onClick={() => openEditFlight(flight)}>
+                                <Button variant="outline" size="icon" aria-label="Editar voo" onClick={() => openEditFlight(flight)} disabled={!canEditTrip}>
                                   <Pencil className="h-4 w-4" />
                                 </Button>
                                 <ConfirmActionButton
@@ -1543,7 +1602,7 @@ export default function Dashboard() {
                                   title="Remover voo"
                                   description="Essa ação remove o voo definitivamente desta viagem."
                                   confirmLabel="Remover"
-                                  disabled={flightsModule.isRemoving}
+                                  disabled={!canEditTrip || flightsModule.isRemoving}
                                   onConfirm={() => removeFlight(flight.id)}
                                 >
                                   <Trash2 className="h-4 w-4" />
@@ -1584,7 +1643,7 @@ export default function Dashboard() {
                       <CardTitle className="font-display text-xl">Gestão de hospedagens</CardTitle>
                       <Dialog open={stayDialogOpen} onOpenChange={setStayDialogOpen}>
                         <DialogTrigger asChild>
-                          <Button onClick={openCreateStay}>
+                          <Button onClick={openCreateStay} disabled={!canEditTrip}>
                             <Plus className="mr-2 h-4 w-4" />
                             Nova hospedagem
                           </Button>
@@ -1655,7 +1714,7 @@ export default function Dashboard() {
                           </div>
                           <DialogFooter>
                             <Button variant="outline" onClick={() => setStayDialogOpen(false)}>Cancelar</Button>
-                            <Button onClick={submitStay} disabled={staysModule.isCreating || staysModule.isUpdating}>
+                            <Button onClick={submitStay} disabled={!canEditTrip || staysModule.isCreating || staysModule.isUpdating}>
                               Salvar
                             </Button>
                           </DialogFooter>
@@ -1770,7 +1829,7 @@ export default function Dashboard() {
                                     variant="outline"
                                     size="sm"
                                     onClick={() => enrichStay(stay)}
-                                    disabled={enrichingStayId === stay.id}
+                                    disabled={!canEditTrip || enrichingStayId === stay.id}
                                   >
                                     {enrichingStayId === stay.id ? 'Gerando...' : 'Gerar dicas IA'}
                                   </Button>
@@ -1778,11 +1837,11 @@ export default function Dashboard() {
                                     variant="outline"
                                     size="sm"
                                     onClick={() => suggestAndSaveRestaurants(stay)}
-                                    disabled={suggestingRestaurantsStayId === stay.id}
+                                    disabled={!canEditTrip || suggestingRestaurantsStayId === stay.id}
                                   >
                                     {suggestingRestaurantsStayId === stay.id ? 'Sugerindo...' : 'Sugerir restaurantes'}
                                   </Button>
-                                  <Button variant="outline" size="icon" aria-label="Editar hospedagem" onClick={() => openEditStay(stay)}>
+                                  <Button variant="outline" size="icon" aria-label="Editar hospedagem" onClick={() => openEditStay(stay)} disabled={!canEditTrip}>
                                     <Pencil className="h-4 w-4" />
                                   </Button>
                                   <ConfirmActionButton
@@ -1790,7 +1849,7 @@ export default function Dashboard() {
                                     title="Remover hospedagem"
                                     description="A hospedagem será removida do roteiro e não poderá ser recuperada."
                                     confirmLabel="Remover"
-                                    disabled={staysModule.isRemoving}
+                                    disabled={!canEditTrip || staysModule.isRemoving}
                                     onConfirm={() => removeStay(stay.id)}
                                   >
                                     <Trash2 className="h-4 w-4" />
@@ -1932,6 +1991,7 @@ export default function Dashboard() {
                                       description="O comprovante será removido da viagem."
                                       confirmLabel="Remover"
                                       onConfirm={() => removeDocument(doc.id)}
+                                      disabled={!canEditTrip}
                                     >
                                       <Trash2 className="h-4 w-4" />
                                     </ConfirmActionButton>
@@ -1947,7 +2007,7 @@ export default function Dashboard() {
                             variant="outline"
                             size="sm"
                             onClick={() => enrichStay(selectedStay)}
-                            disabled={enrichingStayId === selectedStay.id}
+                            disabled={!canEditTrip || enrichingStayId === selectedStay.id}
                           >
                             {enrichingStayId === selectedStay.id ? 'Gerando...' : 'Regenerar dicas IA'}
                           </Button>
@@ -1955,7 +2015,7 @@ export default function Dashboard() {
                             variant="outline"
                             size="sm"
                             onClick={() => suggestAndSaveRestaurants(selectedStay)}
-                            disabled={suggestingRestaurantsStayId === selectedStay.id}
+                            disabled={!canEditTrip || suggestingRestaurantsStayId === selectedStay.id}
                           >
                             {suggestingRestaurantsStayId === selectedStay.id ? 'Sugerindo...' : 'Sugerir restaurantes'}
                           </Button>
@@ -1973,7 +2033,7 @@ export default function Dashboard() {
                       <CardTitle className="font-display text-xl">Linha do tempo de transportes</CardTitle>
                       <Dialog open={transportDialogOpen} onOpenChange={setTransportDialogOpen}>
                         <DialogTrigger asChild>
-                          <Button onClick={openCreateTransport}>
+                          <Button onClick={openCreateTransport} disabled={!canEditTrip}>
                             <Plus className="mr-2 h-4 w-4" />
                             Novo transporte
                           </Button>
@@ -2028,7 +2088,7 @@ export default function Dashboard() {
                           </div>
                           <DialogFooter>
                             <Button variant="outline" onClick={() => setTransportDialogOpen(false)}>Cancelar</Button>
-                            <Button onClick={submitTransport} disabled={transportsModule.isCreating || transportsModule.isUpdating}>
+                            <Button onClick={submitTransport} disabled={!canEditTrip || transportsModule.isCreating || transportsModule.isUpdating}>
                               Salvar
                             </Button>
                           </DialogFooter>
@@ -2128,7 +2188,7 @@ export default function Dashboard() {
                                 </button>
                                 <div className="flex items-center gap-2">
                                   {statusBadge(transport.status)}
-                                  <Button variant="outline" size="icon" aria-label="Editar transporte" onClick={() => openEditTransport(transport)}>
+                                  <Button variant="outline" size="icon" aria-label="Editar transporte" onClick={() => openEditTransport(transport)} disabled={!canEditTrip}>
                                     <Pencil className="h-4 w-4" />
                                   </Button>
                                   <ConfirmActionButton
@@ -2136,7 +2196,7 @@ export default function Dashboard() {
                                     title="Remover transporte"
                                     description="Esse trecho de transporte será excluído da timeline."
                                     confirmLabel="Remover"
-                                    disabled={transportsModule.isRemoving}
+                                    disabled={!canEditTrip || transportsModule.isRemoving}
                                     onConfirm={() => removeTransport(transport.id)}
                                   >
                                     <Trash2 className="h-4 w-4" />
@@ -2259,7 +2319,7 @@ export default function Dashboard() {
                       </Select>
                     </div>
                     <div className="flex justify-end">
-                      <Button onClick={createTask} disabled={!taskForm.titulo.trim() || tasksModule.isCreating}>
+                      <Button onClick={createTask} disabled={!canEditTrip || !taskForm.titulo.trim() || tasksModule.isCreating}>
                         <Plus className="mr-2 h-4 w-4" />
                         Criar tarefa
                       </Button>
@@ -2299,7 +2359,7 @@ export default function Dashboard() {
                                   variant="outline"
                                   size="sm"
                                   onClick={() => toggleTask(task)}
-                                  disabled={tasksModule.isUpdating}
+                                  disabled={!canEditTrip || tasksModule.isUpdating}
                                 >
                                   {task.concluida ? (
                                     <>
@@ -2318,7 +2378,7 @@ export default function Dashboard() {
                                   title="Remover tarefa"
                                   description="Esta tarefa será removida da lista."
                                   confirmLabel="Remover"
-                                  disabled={tasksModule.isRemoving}
+                                  disabled={!canEditTrip || tasksModule.isRemoving}
                                   onConfirm={() => removeTask(task.id)}
                                 >
                                   <Trash2 className="h-4 w-4" />
@@ -2340,7 +2400,7 @@ export default function Dashboard() {
                       <CardTitle className="font-display text-xl">Despesas reais</CardTitle>
                       <Dialog open={expenseDialogOpen} onOpenChange={setExpenseDialogOpen}>
                         <DialogTrigger asChild>
-                          <Button>
+                          <Button disabled={!canEditTrip}>
                             <Plus className="mr-2 h-4 w-4" />
                             Nova despesa
                           </Button>
@@ -2378,7 +2438,7 @@ export default function Dashboard() {
                             <Button variant="outline" onClick={() => setExpenseDialogOpen(false)}>Cancelar</Button>
                             <Button
                               onClick={createExpense}
-                              disabled={!expenseForm.titulo.trim() || !expenseForm.valor || expensesModule.isCreating}
+                              disabled={!canEditTrip || !expenseForm.titulo.trim() || !expenseForm.valor || expensesModule.isCreating}
                             >
                               Salvar despesa
                             </Button>
@@ -2414,7 +2474,7 @@ export default function Dashboard() {
                                 title="Remover despesa"
                                 description="Essa despesa será removida e os totais serão recalculados."
                                 confirmLabel="Remover"
-                                disabled={expensesModule.isRemoving}
+                                disabled={!canEditTrip || expensesModule.isRemoving}
                                 onConfirm={() => removeExpense(expense.id)}
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -2559,7 +2619,7 @@ export default function Dashboard() {
                       />
                     </div>
                     <div className="flex justify-end">
-                      <Button onClick={createRestaurant} disabled={!restaurantForm.nome.trim() || restaurantsModule.isCreating}>
+                      <Button onClick={createRestaurant} disabled={!canEditTrip || !restaurantForm.nome.trim() || restaurantsModule.isCreating}>
                         <Plus className="mr-2 h-4 w-4" />
                         Salvar restaurante
                       </Button>
@@ -2593,7 +2653,7 @@ export default function Dashboard() {
                                   variant={item.salvo ? 'default' : 'outline'}
                                   size="sm"
                                   onClick={() => toggleRestaurantFavorite(item)}
-                                  disabled={restaurantsModule.isUpdating}
+                                  disabled={!canEditTrip || restaurantsModule.isUpdating}
                                 >
                                   <Heart className={`mr-1 h-4 w-4 ${item.salvo ? 'fill-current' : ''}`} />
                                   {item.salvo ? 'Favorito' : 'Favoritar'}
@@ -2603,7 +2663,7 @@ export default function Dashboard() {
                                   title="Remover restaurante"
                                   description="Esse restaurante será removido dos favoritos da viagem."
                                   confirmLabel="Remover"
-                                  disabled={restaurantsModule.isRemoving}
+                                  disabled={!canEditTrip || restaurantsModule.isRemoving}
                                   onConfirm={() => removeRestaurant(item.id)}
                                 >
                                   <Trash2 className="h-4 w-4" />
@@ -2632,8 +2692,11 @@ export default function Dashboard() {
                     <CardContent className="p-8 text-center text-muted-foreground">Carregando módulos de apoio...</CardContent>
                   </Card>
                 ) : (
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    <Card className="border-border/50">
+                  <div className="space-y-4">
+                    <TripUsersPanel tripMembers={tripMembers} currentUserId={user?.id} />
+
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      <Card className="border-border/50">
                       <CardHeader>
                         <CardTitle className="text-base">Documentos</CardTitle>
                       </CardHeader>
@@ -2643,7 +2706,7 @@ export default function Dashboard() {
                           <Input placeholder="Tipo" value={supportForms.documentoTipo} onChange={(e) => setSupportForms((s) => ({ ...s, documentoTipo: e.target.value }))} />
                           <Input placeholder="URL (opcional)" value={supportForms.documentoUrl} onChange={(e) => setSupportForms((s) => ({ ...s, documentoUrl: e.target.value }))} />
                         </div>
-                        <Button onClick={createDocument} disabled={!supportForms.documentoNome.trim() || documentsModule.isCreating}>Adicionar documento</Button>
+                        <Button onClick={createDocument} disabled={!canEditTrip || !supportForms.documentoNome.trim() || documentsModule.isCreating}>Adicionar documento</Button>
                         <div className="space-y-2">
                           {documentsModule.data.length === 0 ? (
                             <p className="text-sm text-muted-foreground">Nenhum documento.</p>
@@ -2673,6 +2736,7 @@ export default function Dashboard() {
                                   description="O documento de apoio será removido da viagem."
                                   confirmLabel="Remover"
                                   onConfirm={() => removeDocument(doc.id)}
+                                  disabled={!canEditTrip}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </ConfirmActionButton>
@@ -2681,9 +2745,9 @@ export default function Dashboard() {
                           ))}
                         </div>
                       </CardContent>
-                    </Card>
+                      </Card>
 
-                    <Card className="border-border/50">
+                      <Card className="border-border/50">
                       <CardHeader>
                         <CardTitle className="text-base">Bagagem</CardTitle>
                       </CardHeader>
@@ -2692,7 +2756,7 @@ export default function Dashboard() {
                           <Input placeholder="Item" value={supportForms.bagagemItem} onChange={(e) => setSupportForms((s) => ({ ...s, bagagemItem: e.target.value }))} />
                           <Input type="number" min="1" placeholder="Qtd" value={supportForms.bagagemQuantidade} onChange={(e) => setSupportForms((s) => ({ ...s, bagagemQuantidade: e.target.value }))} />
                         </div>
-                        <Button onClick={createLuggageItem} disabled={!supportForms.bagagemItem.trim() || luggageModule.isCreating}>Adicionar item</Button>
+                        <Button onClick={createLuggageItem} disabled={!canEditTrip || !supportForms.bagagemItem.trim() || luggageModule.isCreating}>Adicionar item</Button>
                         <div className="space-y-2">
                           {luggageModule.data.length === 0 ? (
                             <p className="text-sm text-muted-foreground">Nenhum item.</p>
@@ -2700,13 +2764,14 @@ export default function Dashboard() {
                             <div key={item.id} className="flex items-center justify-between rounded border p-2 text-sm">
                               <span>{item.item} · {item.quantidade}x</span>
                               <div className="flex gap-1">
-                                <Button variant="outline" size="sm" onClick={() => toggleLuggageChecked(item)}>{item.conferido ? 'Desmarcar' : 'Conferir'}</Button>
+                                <Button variant="outline" size="sm" onClick={() => toggleLuggageChecked(item)} disabled={!canEditTrip}>{item.conferido ? 'Desmarcar' : 'Conferir'}</Button>
                                 <ConfirmActionButton
                                   ariaLabel="Remover item de bagagem"
                                   title="Remover item de bagagem"
                                   description="Esse item será removido da checklist de bagagem."
                                   confirmLabel="Remover"
                                   onConfirm={() => removeLuggageItem(item.id)}
+                                  disabled={!canEditTrip}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </ConfirmActionButton>
@@ -2715,9 +2780,9 @@ export default function Dashboard() {
                           ))}
                         </div>
                       </CardContent>
-                    </Card>
+                      </Card>
 
-                    <Card className="border-border/50">
+                      <Card className="border-border/50">
                       <CardHeader>
                         <CardTitle className="text-base">Viajantes</CardTitle>
                       </CardHeader>
@@ -2727,7 +2792,7 @@ export default function Dashboard() {
                           <Input placeholder="Email" value={supportForms.viajanteEmail} onChange={(e) => setSupportForms((s) => ({ ...s, viajanteEmail: e.target.value }))} />
                           <Input placeholder="Telefone" value={supportForms.viajanteTelefone} onChange={(e) => setSupportForms((s) => ({ ...s, viajanteTelefone: e.target.value }))} />
                         </div>
-                        <Button onClick={createTraveler} disabled={!supportForms.viajanteNome.trim() || travelersModule.isCreating}>Adicionar viajante</Button>
+                        <Button onClick={createTraveler} disabled={!canEditTrip || !supportForms.viajanteNome.trim() || travelersModule.isCreating}>Adicionar viajante</Button>
                         <div className="space-y-2">
                           {travelersModule.data.length === 0 ? (
                             <p className="text-sm text-muted-foreground">Nenhum viajante.</p>
@@ -2740,6 +2805,7 @@ export default function Dashboard() {
                                 description="Esse viajante será removido da lista da viagem."
                                 confirmLabel="Remover"
                                 onConfirm={() => removeTraveler(traveler.id)}
+                                disabled={!canEditTrip}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </ConfirmActionButton>
@@ -2747,16 +2813,16 @@ export default function Dashboard() {
                           ))}
                         </div>
                       </CardContent>
-                    </Card>
+                      </Card>
 
-                    <Card className="border-border/50">
+                      <Card className="border-border/50">
                       <CardHeader>
                         <CardTitle className="text-base">Preparativos</CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-3">
                         <Input placeholder="Título" value={supportForms.preparativoTitulo} onChange={(e) => setSupportForms((s) => ({ ...s, preparativoTitulo: e.target.value }))} />
                         <Textarea placeholder="Descrição (opcional)" value={supportForms.preparativoDescricao} onChange={(e) => setSupportForms((s) => ({ ...s, preparativoDescricao: e.target.value }))} />
-                        <Button onClick={createPrepItem} disabled={!supportForms.preparativoTitulo.trim() || prepModule.isCreating}>Adicionar preparativo</Button>
+                        <Button onClick={createPrepItem} disabled={!canEditTrip || !supportForms.preparativoTitulo.trim() || prepModule.isCreating}>Adicionar preparativo</Button>
                         <div className="space-y-2">
                           {prepModule.data.length === 0 ? (
                             <p className="text-sm text-muted-foreground">Nenhum preparativo.</p>
@@ -2764,13 +2830,14 @@ export default function Dashboard() {
                             <div key={item.id} className="flex items-center justify-between rounded border p-2 text-sm">
                               <span className={item.concluido ? 'line-through text-muted-foreground' : ''}>{item.titulo}</span>
                               <div className="flex gap-1">
-                                <Button variant="outline" size="sm" onClick={() => togglePrepDone(item)}>{item.concluido ? 'Reabrir' : 'Concluir'}</Button>
+                                <Button variant="outline" size="sm" onClick={() => togglePrepDone(item)} disabled={!canEditTrip}>{item.concluido ? 'Reabrir' : 'Concluir'}</Button>
                                 <ConfirmActionButton
                                   ariaLabel="Remover preparativo"
                                   title="Remover preparativo"
                                   description="Este preparativo será removido da checklist."
                                   confirmLabel="Remover"
                                   onConfirm={() => removePrepItem(item.id)}
+                                  disabled={!canEditTrip}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </ConfirmActionButton>
@@ -2779,7 +2846,8 @@ export default function Dashboard() {
                           ))}
                         </div>
                       </CardContent>
-                    </Card>
+                      </Card>
+                    </div>
                   </div>
                 )}
               </TabsContent>

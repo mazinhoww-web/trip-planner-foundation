@@ -48,8 +48,8 @@ export function useModuleData<T extends TripScopedTable>(table: T) {
       const rows = result.data ?? [];
 
       const invalid = rows.find((row) => {
-        const record = row as { user_id?: string; viagem_id?: string };
-        return record.user_id !== user.id || record.viagem_id !== currentTripId;
+        const record = row as { viagem_id?: string };
+        return record.viagem_id !== currentTripId;
       });
 
       if (invalid) {

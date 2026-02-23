@@ -1,20 +1,45 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { acceptTripInvite } from '@/services/tripMembers';
+import { toast } from 'sonner';
 
 export default function AuthCallback() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const { data } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_IN') {
-        navigate('/app', { replace: true });
+    const inviteToken = new URL(window.location.href).searchParams.get('invite_token');
+    let inviteHandled = false;
+
+    const tryAcceptInvite = async () => {
+      if (!inviteToken || inviteHandled) return;
+      inviteHandled = true;
+
+      const result = await acceptTripInvite({ inviteToken });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+
+      toast.success('Convite aceito com sucesso. A viagem compartilhada já está disponível.');
+    };
+
+    const redirectToApp = async () => {
+      if (inviteToken) {
+        await tryAcceptInvite();
+      }
+      navigate('/app', { replace: true });
+    };
+
+    const { data } = supabase.auth.onAuthStateChange(async (event) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        await redirectToApp();
       }
     });
 
-    supabase.auth.getSession().then(({ data: sessionData }) => {
+    supabase.auth.getSession().then(async ({ data: sessionData }) => {
       if (sessionData.session) {
-        navigate('/app', { replace: true });
+        await redirectToApp();
       }
     });
 

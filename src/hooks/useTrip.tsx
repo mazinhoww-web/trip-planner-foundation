@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 interface Viagem {
   id: string;
   nome: string;
+  user_id: string;
   destino: string | null;
   data_inicio: string | null;
   data_fim: string | null;
