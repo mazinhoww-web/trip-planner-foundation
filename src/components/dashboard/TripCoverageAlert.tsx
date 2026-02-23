@@ -1,6 +1,6 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, ExternalLink, Plus } from 'lucide-react';
+import { AlertTriangle, ExternalLink, Plus, X } from 'lucide-react';
 
 type GapSummary = {
   key: string;
@@ -19,9 +19,10 @@ type TripCoverageAlertProps = {
   stayGapLines: GapSummary[];
   transportGapLines: TransportGapSummary[];
   onAddTransport?: (from: string, to: string) => void;
+  onDismissGap?: (key: string) => void;
 };
 
-export function TripCoverageAlert({ stayGapLines, transportGapLines, onAddTransport }: TripCoverageAlertProps) {
+export function TripCoverageAlert({ stayGapLines, transportGapLines, onAddTransport, onDismissGap }: TripCoverageAlertProps) {
   if (stayGapLines.length === 0 && transportGapLines.length === 0) return null;
 
   return (
@@ -37,7 +38,19 @@ export function TripCoverageAlert({ stayGapLines, transportGapLines, onAddTransp
         {stayGapLines.length > 0 && (
           <div className="space-y-1 text-sm text-amber-900/90">
             {stayGapLines.map((gap) => (
-              <p key={gap.key}>{gap.text}</p>
+              <div key={gap.key} className="flex items-start justify-between gap-2">
+                <p>{gap.text}</p>
+                {onDismissGap && (
+                  <button
+                    type="button"
+                    onClick={() => onDismissGap(gap.key)}
+                    className="mt-0.5 shrink-0 rounded p-0.5 text-amber-700/60 hover:bg-amber-200/40 hover:text-amber-900"
+                    title="Ignorar este gap"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}
@@ -46,7 +59,19 @@ export function TripCoverageAlert({ stayGapLines, transportGapLines, onAddTransp
           <div className="space-y-3">
             {transportGapLines.map((gap) => (
               <div key={gap.key} className="rounded-lg border border-amber-400/30 bg-amber-500/5 p-3">
-                <p className="text-sm text-amber-900/90 mb-2">{gap.text}</p>
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <p className="text-sm text-amber-900/90">{gap.text}</p>
+                  {onDismissGap && (
+                    <button
+                      type="button"
+                      onClick={() => onDismissGap(gap.key)}
+                      className="mt-0.5 shrink-0 rounded p-0.5 text-amber-700/60 hover:bg-amber-200/40 hover:text-amber-900"
+                      title="Ignorar este gap"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     variant="outline"

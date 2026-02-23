@@ -662,12 +662,18 @@ export default function Dashboard() {
     return calculateTransportCoverageGaps(staysModule.data, transportsModule.data, flightsModule.data, inferredHomeCity);
   }, [flightsModule.data, staysModule.data, transportsModule.data, inferredHomeCity]);
 
+  const [dismissedGapKeys, setDismissedGapKeys] = useState<Set<string>>(new Set());
+
+  const handleDismissGap = (key: string) => {
+    setDismissedGapKeys((prev) => new Set(prev).add(key));
+  };
+
   const stayGapLines = useMemo(() => {
     return stayCoverageGaps.slice(0, 3).map((gap) => ({
       key: `stay-gap-${gap.start}-${gap.end}`,
       text: `Hospedagem: ${formatDate(gap.start)} até ${formatDate(gap.end)} (${gap.nights} noite(s)) sem reserva.`,
-    }));
-  }, [stayCoverageGaps]);
+    })).filter((g) => !dismissedGapKeys.has(g.key));
+  }, [stayCoverageGaps, dismissedGapKeys]);
 
   const transportGapLines = useMemo(() => {
     return transportCoverageGaps.slice(0, 5).map((gap) => {
@@ -679,8 +685,8 @@ export default function Dashboard() {
         to: gap.to,
         mapsUrl,
       };
-    });
-  }, [transportCoverageGaps]);
+    }).filter((g) => !dismissedGapKeys.has(g.key));
+  }, [transportCoverageGaps, dismissedGapKeys]);
 
   const handleAddTransportFromGap = async (from: string, to: string) => {
     if (!ensureCanEdit()) return;
@@ -1437,7 +1443,7 @@ export default function Dashboard() {
               </Card>
             )}
 
-            <TripCoverageAlert stayGapLines={stayGapLines} transportGapLines={transportGapLines} onAddTransport={handleAddTransportFromGap} />
+            <TripCoverageAlert stayGapLines={stayGapLines} transportGapLines={transportGapLines} onAddTransport={handleAddTransportFromGap} onDismissGap={handleDismissGap} />
 
             <TripStatsGrid cards={statCards} counts={counts as Record<string, number> | undefined} isLoading={countsLoading} />
 
