@@ -49,6 +49,14 @@ const LOVABLE_MODEL = 'google/gemini-3-flash-preview';
 const LIMIT_PER_HOUR = 18;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
+function openRouterApiKey() {
+  return Deno.env.get('open_router_key') ?? Deno.env.get('OPENROUTER_API_KEY');
+}
+
+function geminiApiKey() {
+  return Deno.env.get('gemini_api_key') ?? Deno.env.get('GEMINI_API_KEY');
+}
+
 function truncate(value: string | null | undefined, max = 180) {
   if (!value) return null;
   return value.slice(0, max);
@@ -85,8 +93,8 @@ function extractJson(content: string) {
 // ─── AI Provider Calls ───────────────────────────────────────────
 
 async function callArcee(userContent: string): Promise<string> {
-  const apiKey = Deno.env.get('open_router_key');
-  if (!apiKey) throw new Error('open_router_key not configured');
+  const apiKey = openRouterApiKey();
+  if (!apiKey) throw new Error('OpenRouter API key not configured');
   const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
     headers: {
@@ -108,8 +116,8 @@ async function callArcee(userContent: string): Promise<string> {
 }
 
 async function callGemini(userContent: string): Promise<string> {
-  const apiKey = Deno.env.get('gemini_api_key');
-  if (!apiKey) throw new Error('gemini_api_key not configured');
+  const apiKey = geminiApiKey();
+  if (!apiKey) throw new Error('Gemini API key not configured');
   const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

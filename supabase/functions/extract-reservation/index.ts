@@ -12,6 +12,14 @@ const LOVABLE_MODEL = 'google/gemini-3-flash-preview';
 const LIMIT_PER_HOUR = 20;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
+function openRouterApiKey() {
+  return Deno.env.get('open_router_key') ?? Deno.env.get('OPENROUTER_API_KEY');
+}
+
+function geminiApiKey() {
+  return Deno.env.get('gemini_api_key') ?? Deno.env.get('GEMINI_API_KEY');
+}
+
 const SYSTEM_PROMPT = `Role: Você é o motor de inteligência do "Trip Planner Foundation". Sua função é processar texto bruto de OCR de documentos de viagem e retornar um JSON estruturado.
 
 Diretrizes obrigatórias:
@@ -404,8 +412,8 @@ function fieldConfidenceMap(payload: CanonicalPayload) {
 type AiResult = { content: string; provider: string; usage?: unknown };
 
 async function callArcee(prompt: string, userContent: string): Promise<AiResult> {
-  const apiKey = Deno.env.get('open_router_key');
-  if (!apiKey) throw new Error('open_router_key not configured');
+  const apiKey = openRouterApiKey();
+  if (!apiKey) throw new Error('OpenRouter API key not configured');
 
   const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
@@ -438,8 +446,8 @@ async function callArcee(prompt: string, userContent: string): Promise<AiResult>
 }
 
 async function callGemini(prompt: string, userContent: string): Promise<AiResult> {
-  const apiKey = Deno.env.get('gemini_api_key');
-  if (!apiKey) throw new Error('gemini_api_key not configured');
+  const apiKey = geminiApiKey();
+  if (!apiKey) throw new Error('Gemini API key not configured');
 
   const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
     method: 'POST',

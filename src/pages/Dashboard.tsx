@@ -1,4 +1,4 @@
-import { Suspense, lazy, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTrip } from '@/hooks/useTrip';
 import { useTripSummary } from '@/hooks/useModuleData';
@@ -22,6 +22,7 @@ import { TripHero } from '@/components/dashboard/TripHero';
 import { TripStatsGrid } from '@/components/dashboard/TripStatsGrid';
 import { TripTopActions } from '@/components/dashboard/TripTopActions';
 import { TripUsersPanel } from '@/components/dashboard/TripUsersPanel';
+import { UserSettingsPanel } from '@/components/dashboard/UserSettingsPanel';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -40,6 +41,7 @@ import { toast } from 'sonner';
 import { generateStayTips, suggestRestaurants, generateTripTasks, generateItinerary } from '@/services/ai';
 import { calculateStayCoverageGaps, calculateTransportCoverageGaps } from '@/services/tripInsights';
 import { supabase } from '@/integrations/supabase/client';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
 
 const ImportReservationDialog = lazy(() =>
   import('@/components/import/ImportReservationDialog').then((mod) => ({ default: mod.ImportReservationDialog })),
@@ -480,8 +482,11 @@ export default function Dashboard() {
   const [downloadingDocumentPath, setDownloadingDocumentPath] = useState<string | null>(null);
   const [generatingTasks, setGeneratingTasks] = useState(false);
   const [generatingItinerary, setGeneratingItinerary] = useState(false);
+  const [profile, setProfile] = useState<Tables<'profiles'> | null>(null);
   const fallbackCanEdit = !!currentTrip && currentTrip.user_id === user?.id;
   const canEditTrip = tripMembers.permission.role ? tripMembers.permission.canEdit : fallbackCanEdit;
+  const aiImportGate = useFeatureGate('ff_ai_import_enabled');
+  const collabGate = useFeatureGate('ff_collab_enabled');
 
   const handleLogout = async () => {
     await signOut();
@@ -652,17 +657,30 @@ export default function Dashboard() {
 
   const [userHomeCity, setUserHomeCity] = useState<string | null>(null);
 
-  // Load user profile cidade_origem
-  useMemo(() => {
+  const loadProfile = async () => {
     if (!user?.id) return;
-    supabase
+    const { data, error } = await supabase
       .from('profiles')
-      .select('cidade_origem')
+      .select('*')
       .eq('user_id', user.id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.cidade_origem) setUserHomeCity(data.cidade_origem);
-      });
+      .maybeSingle();
+
+    if (error) {
+      console.error('[dashboard][profile_load_failed]', error);
+      return;
+    }
+
+    if (data) {
+      setProfile(data as Tables<'profiles'>);
+      if (data.cidade_origem) {
+        setUserHomeCity(data.cidade_origem);
+      }
+    }
+  };
+
+  // Load user profile cidade_origem
+  useEffect(() => {
+    void loadProfile();
   }, [user?.id]);
 
   // Infer home city from first flight when profile cidade_origem is null
@@ -840,6 +858,18 @@ export default function Dashboard() {
     expensesModule.error ||
     restaurantsModule.error ||
     supportError;
+
+  useEffect(() => {
+    if (flightDialogOpen) setFlightDetailOpen(false);
+  }, [flightDialogOpen]);
+
+  useEffect(() => {
+    if (stayDialogOpen) setStayDetailOpen(false);
+  }, [stayDialogOpen]);
+
+  useEffect(() => {
+    if (transportDialogOpen) setTransportDetailOpen(false);
+  }, [transportDialogOpen]);
 
   const openCreateFlight = () => {
     if (!ensureCanEdit()) return;
@@ -1439,12 +1469,18 @@ export default function Dashboard() {
 
             <TripTopActions isReconciling={isReconciling} onReconcile={reconcileFromServer}>
               {canEditTrip ? (
-                <Suspense fallback={<Button disabled>Carregando importação...</Button>}>
-                  <div className="flex gap-2 flex-wrap">
-                    <ImportReservationDialog />
-                    <ImportItineraryDialog />
-                  </div>
-                </Suspense>
+                aiImportGate.enabled ? (
+                  <Suspense fallback={<Button disabled>Carregando importação...</Button>}>
+                    <div className="flex gap-2 flex-wrap">
+                      <ImportReservationDialog />
+                      <ImportItineraryDialog />
+                    </div>
+                  </Suspense>
+                ) : (
+                  <Button disabled variant="outline">
+                    Importação IA indisponível no plano atual
+                  </Button>
+                )
               ) : (
                 <Button disabled variant="outline">
                   Importação disponível para owner/editor
@@ -2021,21 +2057,14 @@ export default function Dashboard() {
                         {staysFiltered.map((stay) => (
                           <Card key={stay.id} className="border-border/50">
                             <CardContent className="space-y-2 p-4">
-                              <button
-                                type="button"
-                                className="w-full text-left"
-                                onClick={() => {
-                                  setSelectedStay(stay);
-                                  setStayDetailOpen(true);
-                                }}
-                              >
+                              <div className="w-full text-left">
                                 <p className="font-semibold">{stay.nome || 'Hospedagem sem nome'}</p>
                                 <p className="text-sm text-muted-foreground">{stay.localizacao || 'Localização não informada'}</p>
                                 <p className="text-sm text-muted-foreground">
                                   {formatDate(stay.check_in)} até {formatDate(stay.check_out)}
                                 </p>
                                 <p className="text-sm font-medium">{formatCurrency(stay.valor, stay.moeda ?? 'BRL')}</p>
-                              </button>
+                              </div>
                               {buildMapsUrl('search', { query: [stay.nome, stay.localizacao].filter(Boolean).join(' ') }) && (
                                 <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
                                   <a href={buildMapsUrl('search', { query: [stay.nome, stay.localizacao].filter(Boolean).join(' ') })!} target="_blank" rel="noopener noreferrer">
@@ -2050,7 +2079,10 @@ export default function Dashboard() {
                                   <Button
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => enrichStay(stay)}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void enrichStay(stay);
+                                    }}
                                     disabled={!canEditTrip || enrichingStayId === stay.id}
                                   >
                                     {enrichingStayId === stay.id ? 'Gerando...' : 'Gerar dicas IA'}
@@ -2058,12 +2090,35 @@ export default function Dashboard() {
                                   <Button
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => suggestAndSaveRestaurants(stay)}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void suggestAndSaveRestaurants(stay);
+                                    }}
                                     disabled={!canEditTrip || suggestingRestaurantsStayId === stay.id}
                                   >
                                     {suggestingRestaurantsStayId === stay.id ? 'Sugerindo...' : 'Sugerir restaurantes'}
                                   </Button>
-                                  <Button variant="outline" size="icon" aria-label="Editar hospedagem" onClick={() => openEditStay(stay)} disabled={!canEditTrip}>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setSelectedStay(stay);
+                                      setStayDetailOpen(true);
+                                    }}
+                                  >
+                                    Ver detalhes
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    aria-label="Editar hospedagem"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openEditStay(stay);
+                                    }}
+                                    disabled={!canEditTrip}
+                                  >
                                     <Pencil className="h-4 w-4" />
                                   </Button>
                                   <ConfirmActionButton
@@ -3209,7 +3264,22 @@ export default function Dashboard() {
                   </Card>
                 ) : (
                   <div className="space-y-4">
-                    <TripUsersPanel tripMembers={tripMembers} currentUserId={user?.id} />
+                    <UserSettingsPanel
+                      userId={user?.id}
+                      userEmail={user?.email}
+                      profile={profile}
+                      onProfileRefresh={loadProfile}
+                    />
+
+                    {collabGate.enabled ? (
+                      <TripUsersPanel tripMembers={tripMembers} currentUserId={user?.id} />
+                    ) : (
+                      <Card className="border-border/50">
+                        <CardContent className="p-4 text-sm text-muted-foreground">
+                          Colaboração entre usuários indisponível no plano atual.
+                        </CardContent>
+                      </Card>
+                    )}
 
                     <div className="grid gap-4 xl:grid-cols-2">
                       <Card className="border-border/50">

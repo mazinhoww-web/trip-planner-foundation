@@ -142,6 +142,7 @@ export function ImportItineraryDialog() {
     setStep('saving');
     setStatusText('Salvando itens...');
     const counts: Record<string, number> = {};
+    let failedCount = 0;
 
     for (const item of selected) {
       try {
@@ -153,7 +154,7 @@ export function ImportItineraryDialog() {
 
         if (item.tipo === 'voo') {
           const dataStr = d.data ? `${d.data}T${d.hora || '00:00'}:00` : null;
-          await supabase.from('voos').insert({
+          const { error } = await supabase.from('voos').insert({
             user_id: user.id,
             viagem_id: currentTripId,
             numero: (d.numero as string) ?? null,
@@ -165,9 +166,10 @@ export function ImportItineraryDialog() {
             valor: d.valor != null ? Number(d.valor) : null,
             moeda: (d.moeda as string) ?? 'BRL',
           });
+          if (error) throw error;
           counts.voo = (counts.voo ?? 0) + 1;
         } else if (item.tipo === 'hospedagem') {
-          await supabase.from('hospedagens').insert({
+          const { error } = await supabase.from('hospedagens').insert({
             user_id: user.id,
             viagem_id: currentTripId,
             nome: (d.nome as string) ?? null,
@@ -178,10 +180,11 @@ export function ImportItineraryDialog() {
             valor: d.valor != null ? Number(d.valor) : null,
             moeda: (d.moeda as string) ?? 'BRL',
           });
+          if (error) throw error;
           counts.hospedagem = (counts.hospedagem ?? 0) + 1;
         } else if (item.tipo === 'transporte') {
           const dataStr = d.data ? `${d.data}T${d.hora || '00:00'}:00` : null;
-          await supabase.from('transportes').insert({
+          const { error } = await supabase.from('transportes').insert({
             user_id: user.id,
             viagem_id: currentTripId,
             tipo: (d.tipo as string) ?? null,
@@ -193,19 +196,21 @@ export function ImportItineraryDialog() {
             valor: d.valor != null ? Number(d.valor) : null,
             moeda: (d.moeda as string) ?? 'BRL',
           });
+          if (error) throw error;
           counts.transporte = (counts.transporte ?? 0) + 1;
         } else if (item.tipo === 'restaurante') {
-          await supabase.from('restaurantes').insert({
+          const { error } = await supabase.from('restaurantes').insert({
             user_id: user.id,
             viagem_id: currentTripId,
             nome: (d.nome as string) ?? 'Restaurante',
             cidade: (d.cidade as string) ?? null,
             tipo: (d.tipo as string) ?? null,
           });
+          if (error) throw error;
           counts.restaurante = (counts.restaurante ?? 0) + 1;
         } else if (item.tipo === 'atividade') {
           const dia = (d.dia as string) ?? itinerary.resumo_viagem.data_inicio ?? new Date().toISOString().slice(0, 10);
-          await supabase.from('roteiro_dias').insert({
+          const { error } = await supabase.from('roteiro_dias').insert({
             user_id: user.id,
             viagem_id: currentTripId,
             titulo: (d.titulo as string) ?? 'Atividade',
@@ -216,9 +221,11 @@ export function ImportItineraryDialog() {
             categoria: (d.categoria as string) ?? null,
             ordem: 0,
           });
+          if (error) throw error;
           counts.atividade = (counts.atividade ?? 0) + 1;
         }
       } catch (err: any) {
+        failedCount += 1;
         console.error(`Error saving ${item.tipo}:`, err);
       }
     }
@@ -226,7 +233,12 @@ export function ImportItineraryDialog() {
     setSavedCounts(counts);
     setStep('done');
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
-    toast.success(`${total} item(ns) salvos com sucesso!`);
+    if (total > 0) {
+      toast.success(`${total} item(ns) salvos com sucesso.`);
+    }
+    if (failedCount > 0) {
+      toast.error(`${failedCount} item(ns) falharam ao salvar. Revise e tente novamente.`);
+    }
   };
 
   return (

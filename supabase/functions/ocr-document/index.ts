@@ -18,6 +18,14 @@ const LIMIT_PER_HOUR = 10;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const OCR_SPACE_MAX_BYTES = 1_000_000;
 
+function openRouterApiKey() {
+  return Deno.env.get('open_router_key') ?? Deno.env.get('OPENROUTER_API_KEY');
+}
+
+function geminiApiKey() {
+  return Deno.env.get('gemini_api_key') ?? Deno.env.get('GEMINI_API_KEY');
+}
+
 function extFromName(fileName: string | null | undefined) {
   if (!fileName) return '';
   return fileName.split('.').pop()?.toLowerCase() ?? '';
@@ -110,8 +118,8 @@ async function runOcrSpace(base64: string, mimeType: string | null) {
 
 // 1st vision fallback: Gemma via OpenRouter
 async function runGemmaVision(base64: string, mimeType: string | null) {
-  const apiKey = Deno.env.get('open_router_key');
-  if (!apiKey) return { text: '', error: 'open_router_key não configurada.' };
+  const apiKey = openRouterApiKey();
+  if (!apiKey) return { text: '', error: 'OpenRouter API key não configurada.' };
 
   const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
@@ -148,8 +156,8 @@ async function runGemmaVision(base64: string, mimeType: string | null) {
 
 // 2nd vision fallback: Gemini API direct
 async function runGeminiVision(base64: string, mimeType: string | null) {
-  const apiKey = Deno.env.get('gemini_api_key');
-  if (!apiKey) return { text: '', error: 'gemini_api_key não configurada.' };
+  const apiKey = geminiApiKey();
+  if (!apiKey) return { text: '', error: 'Gemini API key não configurada.' };
 
   const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
     method: 'POST',

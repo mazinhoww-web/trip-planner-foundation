@@ -1,1 +1,2 @@
-ALTER TABLE public.profiles ADD COLUMN cidade_origem text;
+ALTER TABLE public.profiles
+ADD COLUMN IF NOT EXISTS cidade_origem text;

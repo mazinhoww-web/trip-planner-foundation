@@ -615,6 +615,7 @@ export function ImportReservationDialog() {
     if (!item || !user || !currentTripId) return;
 
     const file = item.file;
+    let documentId = item.documentId;
 
     setItem(itemId, (current) => ({
       ...current,
@@ -654,8 +655,11 @@ export function ImportReservationDialog() {
           nome: file.name,
           tipo: `importacao/${upload.ext}`,
           arquivo_url: upload.path ?? null,
+          importado: false,
+          origem_importacao: 'arquivo',
         } as Omit<TablesInsert<'documentos'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'>);
         if (createdDocument?.id) {
+          documentId = createdDocument.id;
           setItem(itemId, (current) => ({ ...current, documentId: createdDocument.id }));
         }
       } catch (metadataError) {
@@ -704,6 +708,25 @@ export function ImportReservationDialog() {
         : null;
       const typeConfidence = typeConfidenceFromCanonical ?? extracted.type_confidence ?? extracted.confidence ?? 0;
       const needsUserConfirmation = true;
+
+      if (documentId) {
+        try {
+          await documentsModule.update({
+            id: documentId,
+            updates: {
+              extracao_tipo: resolvedType,
+              extracao_scope: resolvedScope,
+              extracao_confianca: Math.round(typeConfidence * 100),
+              extracao_payload: extracted.canonical as unknown as TablesInsert<'documentos'>['extracao_payload'],
+              tipo: resolvedScope === 'outside_scope' ? 'fora_escopo' : resolvedType,
+              importado: false,
+            },
+          });
+        } catch (docUpdateError) {
+          console.error('[import][document_preconfirm_update_failed]', docUpdateError);
+          localWarnings.push('Falha ao atualizar metadados da extração.');
+        }
+      }
 
       setItem(itemId, (current) => ({
         ...current,
@@ -805,6 +828,12 @@ export function ImportReservationDialog() {
               id: activeItem.documentId,
               updates: {
                 tipo: 'fora_escopo',
+                extracao_scope: 'outside_scope',
+                extracao_tipo: canonicalType ?? activeItem.identifiedType ?? null,
+                extracao_confianca: canonicalConfidence != null ? Math.round(Number(canonicalConfidence)) : null,
+                extracao_payload: canonical as unknown as TablesInsert<'documentos'>['extracao_payload'],
+                importado: true,
+                origem_importacao: 'arquivo',
               },
             });
           } catch (docUpdateError) {
@@ -966,6 +995,12 @@ export function ImportReservationDialog() {
             id: activeItem.documentId,
             updates: {
               tipo: reviewState?.type ?? activeItem.identifiedType ?? (canonicalType as string | null),
+              extracao_scope: extractionScope,
+              extracao_tipo: canonicalType ?? reviewState?.type ?? activeItem.identifiedType ?? null,
+              extracao_confianca: canonicalConfidence != null ? Math.round(Number(canonicalConfidence)) : null,
+              extracao_payload: canonical as unknown as TablesInsert<'documentos'>['extracao_payload'],
+              importado: true,
+              origem_importacao: 'arquivo',
             },
           });
         } catch (docUpdateError) {
@@ -1088,7 +1123,7 @@ export function ImportReservationDialog() {
         <div className="space-y-4">
           <Card className="border-primary/15 bg-white/95 shadow-sm">
             <CardContent className="pt-4">
-              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_240px] lg:items-end">
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_260px] xl:items-end">
                 <div className="space-y-2">
                   <Label htmlFor={fileInputId}>Arquivos da viagem</Label>
                   <Input
@@ -1103,7 +1138,7 @@ export function ImportReservationDialog() {
                     Você pode subir vários arquivos ao mesmo tempo. Formatos: txt, html, eml, pdf, png, jpg e webp.
                   </p>
                 </div>
-                <div className="grid gap-2">
+                <div className="grid gap-2 xl:self-end">
                   <Button
                     onClick={runBatch}
                     disabled={!canProcess}

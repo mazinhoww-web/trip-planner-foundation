@@ -9,6 +9,10 @@ const LOVABLE_MODEL = 'google/gemini-3-flash-preview';
 const LIMIT_PER_HOUR = 10;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
+function geminiApiKey() {
+  return Deno.env.get('gemini_api_key') ?? Deno.env.get('GEMINI_API_KEY');
+}
+
 const SYSTEM_PROMPT = `Role: Você é o motor de extração multi-item do "Trip Planner". Sua função é processar texto bruto (OCR ou digitado) de um roteiro ou documento de viagem e extrair TODOS os itens de viagem encontrados.
 
 Diretrizes obrigatórias:
@@ -220,8 +224,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 async function callGemini(prompt: string, userContent: string): Promise<string> {
-  const apiKey = Deno.env.get('gemini_api_key');
-  if (!apiKey) throw new Error('gemini_api_key not configured');
+  const apiKey = geminiApiKey();
+  if (!apiKey) throw new Error('Gemini API key not configured');
 
   const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
     method: 'POST',
