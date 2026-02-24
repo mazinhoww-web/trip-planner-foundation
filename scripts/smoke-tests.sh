@@ -127,7 +127,15 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
     -H "Content-Type: application/json" \
     --data '{"hotelName":"Hotel Teste","location":"São Paulo"}')"
   if [[ "$code" =~ ^(200|429|502)$ ]]; then
-    pass "generate-tips autenticado respondeu ($code)"
+    if [ "$code" = "200" ]; then
+      if grep -q "\"provider_meta\"" "$tmp_dir/auth-gen.b"; then
+        pass "generate-tips autenticado respondeu com provider_meta (200)"
+      else
+        warn "generate-tips autenticado respondeu 200 sem provider_meta"
+      fi
+    else
+      pass "generate-tips autenticado respondeu ($code)"
+    fi
   else
     fail "generate-tips autenticado falhou ($code)"
   fi
@@ -141,6 +149,25 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
     pass "extract-reservation autenticado respondeu ($code)"
   else
     fail "extract-reservation autenticado falhou ($code)"
+  fi
+
+  code="$(http_code POST "$SUPABASE_URL/functions/v1/suggest-restaurants" "$tmp_dir/auth-rest.h" "$tmp_dir/auth-rest.b" \
+    -H "apikey: $SUPABASE_ANON_KEY" \
+    -H "Authorization: Bearer $TEST_USER_JWT" \
+    -H "Content-Type: application/json" \
+    --data '{"city":"São Paulo"}')"
+  if [[ "$code" =~ ^(200|429|502)$ ]]; then
+    if [ "$code" = "200" ]; then
+      if grep -q "\"provider_meta\"" "$tmp_dir/auth-rest.b"; then
+        pass "suggest-restaurants autenticado respondeu com provider_meta (200)"
+      else
+        warn "suggest-restaurants autenticado respondeu 200 sem provider_meta"
+      fi
+    else
+      pass "suggest-restaurants autenticado respondeu ($code)"
+    fi
+  else
+    fail "suggest-restaurants autenticado falhou ($code)"
   fi
 
   # Classificação por tipo (voo/hospedagem/restaurante)
@@ -160,6 +187,11 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
       --data "{\"fileName\":\"$sample_name\",\"text\":\"$sample_text\"}")"
 
     if [ "$code" = "200" ]; then
+      if grep -q "\"provider_meta\"" "$body"; then
+        pass "extract-reservation retornou provider_meta no cenário $expected_type"
+      else
+        warn "extract-reservation 200 sem provider_meta no cenário $expected_type"
+      fi
       if grep -q "\"type\":\"$expected_type\"" "$body"; then
         local fields_found=0
         grep -q "$expected_field_1" "$body" && fields_found=$((fields_found + 1))

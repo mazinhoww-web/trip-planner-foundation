@@ -1,30 +1,38 @@
 import { corsHeaders } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/http.ts';
 import { consumeRateLimit, requireAuthenticatedUser } from '../_shared/security.ts';
+import { buildProviderMeta, runParallelVisionText } from '../_shared/ai-providers.ts';
 
 const OCR_PROMPT = `Extraia todo o texto visivel deste documento de viagem.
 Retorne apenas texto bruto.
 Nao invente palavras ilegiveis.
 Se algo estiver ilegivel, simplesmente omita.`;
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 const LOVABLE_AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 
 const GEMMA_VISION_MODEL = 'google/gemma-3-27b-it:free';
+const GEMINI_MODEL = 'gemini-2.0-flash';
 const LOVABLE_VISION_MODEL = 'google/gemini-2.5-flash';
 
 const LIMIT_PER_HOUR = 10;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const OCR_SPACE_MAX_BYTES = 1_000_000;
 
-function openRouterApiKey() {
-  return Deno.env.get('open_router_key') ?? Deno.env.get('OPENROUTER_API_KEY');
-}
+type QualityMetrics = {
+  text_length: number;
+  line_count: number;
+  digit_ratio: number;
+  has_airport_codes: boolean;
+  has_checkin_tokens: boolean;
+  has_structured_density: boolean;
+};
 
-function geminiApiKey() {
-  return Deno.env.get('gemini_api_key') ?? Deno.env.get('GEMINI_API_KEY');
-}
+type VisionCandidate = {
+  provider: 'openrouter' | 'gemini';
+  text: string;
+  metrics: QualityMetrics;
+  score: number;
+};
 
 function extFromName(fileName: string | null | undefined) {
   if (!fileName) return '';
@@ -71,7 +79,7 @@ function extractPdfNativeText(base64: string) {
   }
 }
 
-function qualityMetricsFromText(text: string) {
+function qualityMetricsFromText(text: string): QualityMetrics {
   const normalized = text || '';
   const lines = normalized.split(/\n+/).filter((line) => line.trim().length > 0);
   const digits = normalized.replace(/[^0-9]/g, '').length;
@@ -88,12 +96,43 @@ function qualityMetricsFromText(text: string) {
   };
 }
 
+function scoreQuality(metrics: QualityMetrics) {
+  let score = 0;
+  score += Math.min(220, Math.round(metrics.text_length / 18));
+  score += Math.min(140, metrics.line_count * 8);
+  score += metrics.has_structured_density ? 45 : 0;
+  score += metrics.has_airport_codes ? 25 : 0;
+  score += metrics.has_checkin_tokens ? 20 : 0;
+  if (metrics.digit_ratio < 0.01) score -= 10;
+  if (metrics.digit_ratio > 0.6) score -= 10;
+  return score;
+}
+
+function chooseBestVision(candidates: VisionCandidate[]) {
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.provider === 'openrouter') return -1;
+    if (b.provider === 'openrouter') return 1;
+    return 0;
+  });
+  return candidates[0] ?? null;
+}
+
 function estimateBase64FileSize(base64: string): number {
   const padding = (base64.match(/=+$/) || [''])[0].length;
   return Math.floor((base64.length * 3) / 4) - padding;
 }
 
-// ─── OCR Providers ───────────────────────────────────────────────
+function parseLovableContent(content: unknown): string {
+  if (typeof content === 'string') return content.trim();
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+      .join('\n')
+      .trim();
+  }
+  return '';
+}
 
 async function runOcrSpace(base64: string, mimeType: string | null) {
   const apiKey = Deno.env.get('OCR_SPACE_API_KEY');
@@ -116,75 +155,6 @@ async function runOcrSpace(base64: string, mimeType: string | null) {
   return { text, error: null as string | null };
 }
 
-// 1st vision fallback: Gemma via OpenRouter
-async function runGemmaVision(base64: string, mimeType: string | null) {
-  const apiKey = openRouterApiKey();
-  if (!apiKey) return { text: '', error: 'OpenRouter API key não configurada.' };
-
-  const res = await fetch(OPENROUTER_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': Deno.env.get('APP_ORIGIN') ?? 'https://trip-planner-foundation.local',
-      'X-Title': 'Trip Planner Foundation',
-    },
-    body: JSON.stringify({
-      model: GEMMA_VISION_MODEL,
-      temperature: 0,
-      max_tokens: 2000,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: OCR_PROMPT },
-          { type: 'image_url', image_url: { url: `data:${mimeType || 'image/png'};base64,${base64}` } },
-        ],
-      }],
-    }),
-  });
-
-  if (!res.ok) {
-    const raw = await res.text();
-    return { text: '', error: `Gemma vision ${res.status}: ${raw.slice(0, 120)}` };
-  }
-
-  const json = await res.json();
-  const text = (json?.choices?.[0]?.message?.content || '').trim();
-  if (!text) return { text: '', error: 'Gemma vision sem texto extraído.' };
-  return { text, error: null as string | null };
-}
-
-// 2nd vision fallback: Gemini API direct
-async function runGeminiVision(base64: string, mimeType: string | null) {
-  const apiKey = geminiApiKey();
-  if (!apiKey) return { text: '', error: 'Gemini API key não configurada.' };
-
-  const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: OCR_PROMPT },
-          { inline_data: { mime_type: mimeType || 'image/png', data: base64 } },
-        ],
-      }],
-      generationConfig: { temperature: 0, maxOutputTokens: 2000 },
-    }),
-  });
-
-  if (!res.ok) {
-    const raw = await res.text();
-    return { text: '', error: `Gemini vision ${res.status}: ${raw.slice(0, 120)}` };
-  }
-
-  const json = await res.json();
-  const text = (json?.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
-  if (!text) return { text: '', error: 'Gemini vision sem texto extraído.' };
-  return { text, error: null as string | null };
-}
-
-// 3rd vision fallback: Lovable AI
 async function runLovableVision(base64: string, mimeType: string | null) {
   const apiKey = Deno.env.get('LOVABLE_API_KEY');
   if (!apiKey) return { text: '', error: 'LOVABLE_API_KEY não configurada.' };
@@ -217,12 +187,10 @@ async function runLovableVision(base64: string, mimeType: string | null) {
   }
 
   const json = await res.json();
-  const text = (json?.choices?.[0]?.message?.content || '').trim();
+  const text = parseLovableContent(json?.choices?.[0]?.message?.content);
   if (!text) return { text: '', error: 'Lovable AI vision sem texto extraído.' };
   return { text, error: null as string | null };
 }
-
-// ─── Main handler ─────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -265,13 +233,11 @@ Deno.serve(async (req) => {
     const nativePdfText = isPdf ? extractPdfNativeText(fileBase64) : '';
     const nativeMetrics = nativePdfText ? qualityMetricsFromText(nativePdfText) : null;
 
-    // 1. Try native PDF if good quality
     if (nativePdfText && nativeMetrics?.has_structured_density) {
       console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: 'native_pdf_preferred', remaining: rate.remaining });
       return successResponse({ text: nativePdfText, method: 'native_pdf_preferred', warnings, qualityMetrics: nativeMetrics });
     }
 
-    // 2. Try OCR.space only if within size limit
     if (!exceedsOcrSpaceLimit) {
       const ocrResult = await runOcrSpace(fileBase64, mimeType);
       if (!ocrResult.error && ocrResult.text) {
@@ -282,7 +248,6 @@ Deno.serve(async (req) => {
       warnings.push(ocrResult.error || 'OCR.space indisponível.');
     }
 
-    // 3. Fallback: native PDF text (lower quality)
     if (nativePdfText) {
       const metrics = qualityMetricsFromText(nativePdfText);
       if (metrics.text_length > 24) {
@@ -292,45 +257,99 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 4. Vision parallel race: all providers compete, first valid wins
     if (isImage || isPdf) {
       const visionMime = mimeType || (isImage ? 'image/png' : 'application/pdf');
-      const VISION_TIMEOUT = 10_000;
+      const parallelVision = await runParallelVisionText({
+        prompt: OCR_PROMPT,
+        base64: fileBase64,
+        mimeType: visionMime,
+        openRouterModel: GEMMA_VISION_MODEL,
+        geminiModel: GEMINI_MODEL,
+        timeoutMs: 15_000,
+        maxTokens: 2000,
+      });
 
-      const withVisionTimeout = <T>(p: Promise<T>, label: string): Promise<T> =>
-        new Promise((resolve, reject) => {
-          const timer = setTimeout(() => reject(new Error(`${label} timeout ${VISION_TIMEOUT}ms`)), VISION_TIMEOUT);
-          p.then(
-            (v) => { clearTimeout(timer); resolve(v); },
-            (e) => { clearTimeout(timer); reject(e); },
-          );
+      const candidates: VisionCandidate[] = [];
+
+      if (parallelVision.openrouter.ok && parallelVision.openrouter.rawText) {
+        const metrics = qualityMetricsFromText(parallelVision.openrouter.rawText);
+        candidates.push({
+          provider: 'openrouter',
+          text: parallelVision.openrouter.rawText,
+          metrics,
+          score: scoreQuality(metrics),
+        });
+      } else {
+        warnings.push(parallelVision.openrouter.error || 'OpenRouter vision indisponível.');
+      }
+
+      if (parallelVision.gemini.ok && parallelVision.gemini.rawText) {
+        const metrics = qualityMetricsFromText(parallelVision.gemini.rawText);
+        candidates.push({
+          provider: 'gemini',
+          text: parallelVision.gemini.rawText,
+          metrics,
+          score: scoreQuality(metrics),
+        });
+      } else {
+        warnings.push(parallelVision.gemini.error || 'Gemini vision indisponível.');
+      }
+
+      const selected = chooseBestVision(candidates);
+      if (selected) {
+        const providerMeta = buildProviderMeta(selected.provider, {
+          openrouter: parallelVision.openrouter,
+          gemini: parallelVision.gemini,
         });
 
-      try {
-        const result = await Promise.any([
-          withVisionTimeout(runGemmaVision(fileBase64, visionMime), 'gemma').then(r => {
-            if (!r.text) throw new Error('gemma empty');
-            return { ...r, method: 'gemma_vision' as const };
-          }),
-          withVisionTimeout(runGeminiVision(fileBase64, visionMime), 'gemini').then(r => {
-            if (!r.text) throw new Error('gemini empty');
-            return { ...r, method: 'gemini_vision' as const };
-          }),
-          withVisionTimeout(runLovableVision(fileBase64, visionMime), 'lovable').then(r => {
-            if (!r.text) throw new Error('lovable empty');
-            return { ...r, method: 'lovable_ai_vision' as const };
-          }),
-        ]);
-        const metrics = qualityMetricsFromText(result.text);
-        console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: result.method, remaining: rate.remaining });
-        return successResponse({ text: result.text, method: result.method, warnings, qualityMetrics: metrics });
-      } catch (aggError) {
-        const errors = aggError instanceof AggregateError ? aggError.errors : [aggError];
-        for (const e of errors) {
-          const msg = e instanceof Error ? e.message : String(e);
-          warnings.push(msg);
-          console.warn(`[ocr-document] ${requestId} vision_provider failed:`, msg);
-        }
+        const method =
+          selected.provider === 'openrouter'
+            ? 'vision_parallel_selected_openrouter'
+            : 'vision_parallel_selected_gemini';
+
+        console.info('[ocr-document]', requestId, 'success', {
+          userId: auth.userId,
+          method,
+          remaining: rate.remaining,
+          provider_meta: providerMeta,
+        });
+
+        return successResponse({
+          text: selected.text,
+          method,
+          warnings,
+          qualityMetrics: selected.metrics,
+          provider_meta: providerMeta,
+        });
+      }
+
+      const lovable = await runLovableVision(fileBase64, visionMime);
+      if (lovable.text) {
+        const metrics = qualityMetricsFromText(lovable.text);
+        const providerMeta = buildProviderMeta('lovable_ai', {
+          openrouter: parallelVision.openrouter,
+          gemini: parallelVision.gemini,
+        });
+        providerMeta.fallback_used = true;
+
+        console.info('[ocr-document]', requestId, 'success', {
+          userId: auth.userId,
+          method: 'lovable_ai_vision',
+          remaining: rate.remaining,
+          provider_meta: providerMeta,
+        });
+
+        return successResponse({
+          text: lovable.text,
+          method: 'lovable_ai_vision',
+          warnings,
+          qualityMetrics: metrics,
+          provider_meta: providerMeta,
+        });
+      }
+
+      if (lovable.error) {
+        warnings.push(lovable.error);
       }
     }
 

@@ -1,6 +1,7 @@
 import { corsHeaders } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/http.ts';
 import { consumeRateLimit, requireAuthenticatedUser } from '../_shared/security.ts';
+import { buildProviderMeta, extractJsonObject, runParallelJsonInference } from '../_shared/ai-providers.ts';
 
 type SuggestRestaurantsInput = {
   city?: string | null;
@@ -40,22 +41,23 @@ Responda APENAS JSON no formato:
   ]
 }`;
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 const LOVABLE_AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 
-const ARCEE_MODEL = 'arcee-ai/trinity-large-preview:free';
+const OPENROUTER_MODEL = 'arcee-ai/trinity-large-preview:free';
+const GEMINI_MODEL = 'gemini-2.0-flash';
 const LOVABLE_MODEL = 'google/gemini-3-flash-preview';
 const LIMIT_PER_HOUR = 18;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
-function openRouterApiKey() {
-  return Deno.env.get('open_router_key') ?? Deno.env.get('OPENROUTER_API_KEY');
-}
+type SuggestRestaurantPayload = {
+  items: SuggestRestaurantItem[];
+};
 
-function geminiApiKey() {
-  return Deno.env.get('gemini_api_key') ?? Deno.env.get('GEMINI_API_KEY');
-}
+type RestaurantCandidate = {
+  provider: 'openrouter' | 'gemini' | 'lovable_ai';
+  payload: SuggestRestaurantPayload;
+  score: number;
+};
 
 function truncate(value: string | null | undefined, max = 180) {
   if (!value) return null;
@@ -77,95 +79,111 @@ function sanitizeItems(raw: unknown): SuggestRestaurantItem[] {
         if (typeof value !== 'string') return null;
         return value.trim() || null;
       };
-      return { nome, cidade: optional('cidade'), tipo: optional('tipo'), faixa_preco: optional('faixa_preco'), especialidade: optional('especialidade'), bairro_regiao: optional('bairro_regiao') } as SuggestRestaurantItem;
+      return {
+        nome,
+        cidade: optional('cidade'),
+        tipo: optional('tipo'),
+        faixa_preco: optional('faixa_preco'),
+        especialidade: optional('especialidade'),
+        bairro_regiao: optional('bairro_regiao'),
+      } as SuggestRestaurantItem;
     })
     .filter((entry): entry is SuggestRestaurantItem => entry !== null)
     .slice(0, 6);
 }
 
-function extractJson(content: string) {
-  const start = content.indexOf('{');
-  const end = content.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) return null;
-  try { return JSON.parse(content.slice(start, end + 1)) as Record<string, unknown>; } catch { return null; }
+function parseRestaurants(rawText: string): SuggestRestaurantPayload | null {
+  const parsed = extractJsonObject(rawText);
+  if (!parsed) return null;
+  const items = sanitizeItems(parsed);
+  if (items.length === 0) return null;
+  return { items };
 }
 
-// ─── AI Provider Calls ───────────────────────────────────────────
+function scoreRestaurants(payload: SuggestRestaurantPayload) {
+  const items = payload.items;
+  if (items.length === 0) return 0;
 
-async function callArcee(userContent: string): Promise<string> {
-  const apiKey = openRouterApiKey();
-  if (!apiKey) throw new Error('OpenRouter API key not configured');
-  const res = await fetch(OPENROUTER_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': Deno.env.get('APP_ORIGIN') ?? 'https://trip-planner-foundation.local',
-      'X-Title': 'Trip Planner Foundation',
-    },
-    body: JSON.stringify({
-      model: ARCEE_MODEL, temperature: 0.3, max_tokens: 650,
-      messages: [{ role: 'system', content: PROMPT }, { role: 'user', content: userContent }],
-    }),
+  let score = items.length * 18;
+
+  const uniqueNames = new Set(items.map((item) => item.nome.toLowerCase()));
+  score += Math.min(20, uniqueNames.size * 4);
+
+  const uniqueTypes = new Set(items.map((item) => (item.tipo ?? '').toLowerCase()).filter(Boolean));
+  score += Math.min(18, uniqueTypes.size * 6);
+
+  const uniquePrices = new Set(items.map((item) => (item.faixa_preco ?? '').toLowerCase()).filter(Boolean));
+  score += Math.min(12, uniquePrices.size * 4);
+
+  const withNeighborhood = items.filter((item) => !!item.bairro_regiao).length;
+  score += Math.min(12, withNeighborhood * 3);
+
+  if (uniqueNames.size < items.length) score -= 15;
+  if (items.length < 3) score -= 10;
+
+  return score;
+}
+
+function pickBestCandidate(candidates: RestaurantCandidate[]) {
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.provider === 'openrouter') return -1;
+    if (b.provider === 'openrouter') return 1;
+    return 0;
   });
-  if (!res.ok) throw new Error(`Arcee ${res.status}`);
-  const json = await res.json();
-  const content = json?.choices?.[0]?.message?.content;
-  if (typeof content !== 'string' || !content.trim()) throw new Error('Arcee empty');
-  return content;
+  return candidates[0] ?? null;
 }
 
-async function callGemini(userContent: string): Promise<string> {
-  const apiKey = geminiApiKey();
-  if (!apiKey) throw new Error('Gemini API key not configured');
-  const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: `${PROMPT}\n\n${userContent}` }] }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: 650 },
-    }),
-  });
-  if (!res.ok) throw new Error(`Gemini ${res.status}`);
-  const json = await res.json();
-  const content = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (typeof content !== 'string' || !content.trim()) throw new Error('Gemini empty');
-  return content;
-}
-
-async function callLovableAi(userContent: string): Promise<string> {
+async function callLovableRestaurants(userContent: string) {
   const apiKey = Deno.env.get('LOVABLE_API_KEY');
-  if (!apiKey) throw new Error('LOVABLE_API_KEY not configured');
+  if (!apiKey) {
+    return {
+      ok: false,
+      payload: null as SuggestRestaurantPayload | null,
+      usage: null as unknown,
+      error: 'LOVABLE_API_KEY not configured',
+    };
+  }
+
   const res = await fetch(LOVABLE_AI_URL, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: LOVABLE_MODEL, temperature: 0.3, max_tokens: 650,
+      model: LOVABLE_MODEL,
+      temperature: 0.3,
+      max_tokens: 650,
       messages: [{ role: 'system', content: PROMPT }, { role: 'user', content: userContent }],
     }),
   });
-  if (!res.ok) throw new Error(`LovableAI ${res.status}`);
+
+  if (!res.ok) {
+    const raw = await res.text();
+    return {
+      ok: false,
+      payload: null as SuggestRestaurantPayload | null,
+      usage: null as unknown,
+      error: `LovableAI ${res.status}: ${raw.slice(0, 120)}`,
+    };
+  }
+
   const json = await res.json();
   const content = json?.choices?.[0]?.message?.content;
-  if (typeof content !== 'string' || !content.trim()) throw new Error('LovableAI empty');
-  return content;
-}
-
-async function callWithFallback(userContent: string, requestId: string): Promise<{ content: string; provider: string }> {
-  const providers = [
-    { fn: () => callArcee(userContent), name: 'arcee' },
-    { fn: () => callGemini(userContent), name: 'gemini' },
-    { fn: () => callLovableAi(userContent), name: 'lovable_ai' },
-  ];
-  for (const { fn, name } of providers) {
-    try {
-      const content = await fn();
-      return { content, provider: name };
-    } catch (err) {
-      console.warn(`[suggest-restaurants] ${requestId} ${name} failed:`, (err as Error).message);
-    }
+  if (typeof content !== 'string' || !content.trim()) {
+    return {
+      ok: false,
+      payload: null as SuggestRestaurantPayload | null,
+      usage: json?.usage as unknown,
+      error: 'LovableAI empty response',
+    };
   }
-  throw new Error('All AI providers failed');
+
+  const parsed = parseRestaurants(content);
+  return {
+    ok: !!parsed,
+    payload: parsed,
+    usage: json?.usage as unknown,
+    error: parsed ? null : 'LovableAI invalid JSON payload',
+  };
 }
 
 Deno.serve(async (req) => {
@@ -194,17 +212,76 @@ Deno.serve(async (req) => {
     }
 
     const userContent = `Cidade/Região: ${target}`;
-    const { content, provider } = await callWithFallback(userContent, requestId);
 
-    const parsed = extractJson(content);
-    if (!parsed) {
-      return errorResponse(requestId, 'UPSTREAM_ERROR', 'IA retornou formato inválido.', 502);
+    const parallel = await runParallelJsonInference<SuggestRestaurantPayload>({
+      prompt: PROMPT,
+      userPayload: userContent,
+      openRouterModel: OPENROUTER_MODEL,
+      geminiModel: GEMINI_MODEL,
+      timeoutMs: 15_000,
+      temperature: 0.3,
+      maxTokens: 650,
+      parser: parseRestaurants,
+    });
+
+    const candidates: RestaurantCandidate[] = [];
+
+    if (parallel.openrouter.ok && parallel.openrouter.parsed) {
+      candidates.push({
+        provider: 'openrouter',
+        payload: parallel.openrouter.parsed,
+        score: scoreRestaurants(parallel.openrouter.parsed),
+      });
+    } else {
+      console.warn(`[suggest-restaurants] ${requestId} openrouter failed: ${parallel.openrouter.error}`);
     }
 
-    const items = sanitizeItems(parsed);
-    console.info('[suggest-restaurants]', requestId, 'success', { userId: auth.userId, remaining: rate.remaining, provider, count: items.length });
+    if (parallel.gemini.ok && parallel.gemini.parsed) {
+      candidates.push({
+        provider: 'gemini',
+        payload: parallel.gemini.parsed,
+        score: scoreRestaurants(parallel.gemini.parsed),
+      });
+    } else {
+      console.warn(`[suggest-restaurants] ${requestId} gemini failed: ${parallel.gemini.error}`);
+    }
 
-    return successResponse({ items });
+    let selected = pickBestCandidate(candidates);
+
+    if (!selected) {
+      const lovable = await callLovableRestaurants(userContent);
+      if (lovable.ok && lovable.payload) {
+        selected = {
+          provider: 'lovable_ai',
+          payload: lovable.payload,
+          score: scoreRestaurants(lovable.payload),
+        };
+      } else {
+        console.warn(`[suggest-restaurants] ${requestId} lovable_ai failed: ${lovable.error}`);
+      }
+    }
+
+    if (!selected) {
+      return errorResponse(requestId, 'UPSTREAM_ERROR', 'IA indisponível no momento para sugerir restaurantes.', 502);
+    }
+
+    const providerMeta = buildProviderMeta(selected.provider, {
+      openrouter: parallel.openrouter,
+      gemini: parallel.gemini,
+    });
+
+    if (selected.provider === 'lovable_ai') {
+      providerMeta.fallback_used = true;
+    }
+
+    console.info('[suggest-restaurants]', requestId, 'success', {
+      userId: auth.userId,
+      remaining: rate.remaining,
+      count: selected.payload.items.length,
+      provider_meta: providerMeta,
+    });
+
+    return successResponse({ items: selected.payload.items, provider_meta: providerMeta });
   } catch (error) {
     console.error('[suggest-restaurants]', requestId, 'unexpected_error', error);
     return errorResponse(requestId, 'INTERNAL_ERROR', 'Erro inesperado ao processar IA.', 500);

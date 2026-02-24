@@ -1,9 +1,8 @@
 import { corsHeaders } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/http.ts';
 import { consumeRateLimit, requireAuthenticatedUser } from '../_shared/security.ts';
+import { buildProviderMeta, runParallelJsonInference } from '../_shared/ai-providers.ts';
 
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 const LOVABLE_AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 
 const ARCEE_MODEL = 'arcee-ai/trinity-large-preview:free';
@@ -11,14 +10,6 @@ const LOVABLE_MODEL = 'google/gemini-3-flash-preview';
 
 const LIMIT_PER_HOUR = 20;
 const ONE_HOUR_MS = 60 * 60 * 1000;
-
-function openRouterApiKey() {
-  return Deno.env.get('open_router_key') ?? Deno.env.get('OPENROUTER_API_KEY');
-}
-
-function geminiApiKey() {
-  return Deno.env.get('gemini_api_key') ?? Deno.env.get('GEMINI_API_KEY');
-}
 
 const SYSTEM_PROMPT = `Role: Você é o motor de inteligência do "Trip Planner Foundation". Sua função é processar texto bruto de OCR de documentos de viagem e retornar um JSON estruturado.
 
@@ -407,76 +398,62 @@ function fieldConfidenceMap(payload: CanonicalPayload) {
   };
 }
 
-// ─── AI Provider Calls ───────────────────────────────────────────
+// ─── AI Provider Orchestration ────────────────────────────────────
 
-type AiResult = { content: string; provider: string; usage?: unknown };
+type Candidate = {
+  canonical: CanonicalPayload;
+  scope: 'trip_related' | 'outside_scope';
+  provider: 'openrouter' | 'gemini' | 'lovable_ai';
+  usage: unknown;
+  score: number;
+  missingCount: number;
+};
 
-async function callArcee(prompt: string, userContent: string): Promise<AiResult> {
-  const apiKey = openRouterApiKey();
-  if (!apiKey) throw new Error('OpenRouter API key not configured');
-
-  const res = await fetch(OPENROUTER_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': Deno.env.get('APP_ORIGIN') ?? 'https://trip-planner-foundation.local',
-      'X-Title': 'Trip Planner Foundation',
-    },
-    body: JSON.stringify({
-      model: ARCEE_MODEL,
-      temperature: 0.05,
-      max_tokens: 1300,
-      messages: [
-        { role: 'system', content: prompt },
-        { role: 'user', content: userContent },
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    const raw = await res.text();
-    throw new Error(`Arcee ${res.status}: ${raw.slice(0, 120)}`);
-  }
-
-  const json = await res.json();
-  const content = json?.choices?.[0]?.message?.content;
-  if (typeof content !== 'string' || !content.trim()) throw new Error('Arcee empty content');
-  return { content, provider: 'arcee', usage: json?.usage };
+function providerTieBreak(provider: Candidate['provider']) {
+  if (provider === 'openrouter') return 3;
+  if (provider === 'gemini') return 2;
+  return 1;
 }
 
-async function callGemini(prompt: string, userContent: string): Promise<AiResult> {
-  const apiKey = geminiApiKey();
-  if (!apiKey) throw new Error('Gemini API key not configured');
-
-  const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{
-        parts: [{ text: `${prompt}\n\n${userContent}` }],
-      }],
-      generationConfig: {
-        temperature: 0.05,
-        maxOutputTokens: 1300,
-      },
-    }),
-  });
-
-  if (!res.ok) {
-    const raw = await res.text();
-    throw new Error(`Gemini ${res.status}: ${raw.slice(0, 120)}`);
+function scoreCandidate(payload: CanonicalPayload, scope: 'trip_related' | 'outside_scope', missingCount: number) {
+  let score = 0;
+  score += payload.metadata.tipo ? 25 : 0;
+  score += Math.round(payload.metadata.confianca * 0.2);
+  score += Math.max(0, 40 - missingCount * 8);
+  if (scope === 'outside_scope') score += 15;
+  if (payload.financeiro.valor_total != null && payload.financeiro.valor_total < 0) score -= 10;
+  if (payload.dados_principais.data_inicio && payload.dados_principais.data_fim && payload.dados_principais.data_inicio > payload.dados_principais.data_fim) {
+    score -= 15;
   }
-
-  const json = await res.json();
-  const content = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (typeof content !== 'string' || !content.trim()) throw new Error('Gemini empty content');
-  return { content, provider: 'gemini', usage: json?.usageMetadata };
+  return score;
 }
 
-async function callLovableAi(prompt: string, userContent: string): Promise<AiResult> {
+function toCandidate(
+  raw: Record<string, unknown>,
+  provider: Candidate['provider'],
+  usage: unknown,
+  text: string,
+  fileName: string,
+): Candidate {
+  const normalized = normalizeCanonical(raw, text, fileName);
+  const scope = normalized.scope as 'trip_related' | 'outside_scope';
+  const missingCount = missingFromCanonical(normalized.canonical, scope).length;
+  const score = scoreCandidate(normalized.canonical, scope, missingCount);
+  return {
+    canonical: normalized.canonical,
+    scope,
+    provider,
+    usage,
+    score,
+    missingCount,
+  };
+}
+
+async function callLovableAi(prompt: string, userContent: string) {
   const apiKey = Deno.env.get('LOVABLE_API_KEY');
-  if (!apiKey) throw new Error('LOVABLE_API_KEY not configured');
+  if (!apiKey) {
+    return { ok: false, parsed: null as Record<string, unknown> | null, usage: null as unknown, error: 'LOVABLE_API_KEY not configured' };
+  }
 
   const res = await fetch(LOVABLE_AI_URL, {
     method: 'POST',
@@ -497,39 +474,15 @@ async function callLovableAi(prompt: string, userContent: string): Promise<AiRes
 
   if (!res.ok) {
     const raw = await res.text();
-    throw new Error(`LovableAI ${res.status}: ${raw.slice(0, 120)}`);
+    return { ok: false, parsed: null as Record<string, unknown> | null, usage: null as unknown, error: `LovableAI ${res.status}: ${raw.slice(0, 120)}` };
   }
 
   const json = await res.json();
   const content = json?.choices?.[0]?.message?.content;
-  if (typeof content !== 'string' || !content.trim()) throw new Error('LovableAI empty content');
-  return { content, provider: 'lovable_ai', usage: json?.usage };
-}
-
-// ─── Race extraction: Gemini prioritário + early accept ───────────
-
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label} timeout ${ms}ms`)), ms);
-    promise.then(
-      (v) => { clearTimeout(timer); resolve(v); },
-      (e) => { clearTimeout(timer); reject(e); },
-    );
-  });
-}
-
-type Candidate = { canonical: CanonicalPayload; scope: string; provider: string; usage: unknown };
-
-function tryParseCandidate(
-  result: AiResult, text: string, fileName: string, requestId: string,
-): Candidate | null {
-  const parsed = extractJson(result.content);
-  if (!parsed) {
-    console.warn(`[extract-reservation] ${requestId} ${result.provider} invalid_json`);
-    return null;
+  if (typeof content !== 'string' || !content.trim()) {
+    return { ok: false, parsed: null as Record<string, unknown> | null, usage: json?.usage as unknown, error: 'LovableAI empty content' };
   }
-  const { canonical, scope } = normalizeCanonical(parsed, text, fileName);
-  return { canonical, scope, provider: result.provider, usage: result.usage };
+  return { ok: true, parsed: extractJson(content), usage: json?.usage as unknown, error: null as string | null };
 }
 
 async function extractWithBestProvider(
@@ -537,66 +490,62 @@ async function extractWithBestProvider(
   text: string,
   fileName: string,
   requestId: string,
-): Promise<{ canonical: CanonicalPayload; scope: string; provider: string; usage: unknown }> {
-  const TIMEOUT_MS = 8000;
-  const EARLY_ACCEPT_MS = 4000;
-  const EARLY_ACCEPT_THRESHOLD = 60;
+) {
+  const parallel = await runParallelJsonInference({
+    prompt: SYSTEM_PROMPT,
+    userPayload: userContent,
+    openRouterModel: ARCEE_MODEL,
+    geminiModel: 'gemini-2.0-flash',
+    timeoutMs: 15_000,
+    temperature: 0.05,
+    maxTokens: 1300,
+  });
 
-  // Dispatch both with timeout
-  const geminiPromise = withTimeout(callGemini(SYSTEM_PROMPT, userContent), TIMEOUT_MS, 'gemini');
-  const arceePromise = withTimeout(callArcee(SYSTEM_PROMPT, userContent), TIMEOUT_MS, 'arcee');
+  const candidates: Candidate[] = [];
 
-  // 1. Try early accept: if Gemini returns fast with good confidence, use it immediately
-  try {
-    const geminiEarly = await withTimeout(geminiPromise, EARLY_ACCEPT_MS, 'gemini_early');
-    const candidate = tryParseCandidate(geminiEarly, text, fileName, requestId);
-    if (candidate && candidate.canonical.metadata.confianca >= EARLY_ACCEPT_THRESHOLD) {
-      console.info(`[extract-reservation] ${requestId} early_accept provider=gemini confianca=${candidate.canonical.metadata.confianca}`);
-      return candidate;
-    }
-    // Gemini returned but low confidence — wait for Arcee too
-    const candidates: Candidate[] = candidate ? [candidate] : [];
-    try {
-      const arceeResult = await arceePromise;
-      const arceeCand = tryParseCandidate(arceeResult, text, fileName, requestId);
-      if (arceeCand) candidates.push(arceeCand);
-    } catch (e) {
-      console.warn(`[extract-reservation] ${requestId} arcee failed:`, (e as Error).message);
-    }
-    if (candidates.length > 0) {
-      candidates.sort((a, b) => b.canonical.metadata.confianca - a.canonical.metadata.confianca);
-      const best = candidates[0];
-      console.info(`[extract-reservation] ${requestId} selected_provider=${best.provider} confianca=${best.canonical.metadata.confianca}`);
-      return best;
-    }
-  } catch {
-    // Gemini didn't return in time — wait for both to settle
-    const [arceeResult, geminiResult] = await Promise.allSettled([arceePromise, geminiPromise]);
-    const candidates: Candidate[] = [];
+  if (parallel.openrouter.ok && parallel.openrouter.parsed) {
+    candidates.push(toCandidate(parallel.openrouter.parsed, 'openrouter', parallel.openrouter.usage, text, fileName));
+  } else {
+    console.warn(`[extract-reservation] ${requestId} openrouter failed: ${parallel.openrouter.error}`);
+  }
 
-    for (const [result, name] of [[geminiResult, 'gemini'], [arceeResult, 'arcee']] as const) {
-      if (result.status === 'fulfilled') {
-        const c = tryParseCandidate(result.value, text, fileName, requestId);
-        if (c) candidates.push(c);
-      } else {
-        console.warn(`[extract-reservation] ${requestId} ${name} failed:`, result.reason?.message);
-      }
-    }
+  if (parallel.gemini.ok && parallel.gemini.parsed) {
+    candidates.push(toCandidate(parallel.gemini.parsed, 'gemini', parallel.gemini.usage, text, fileName));
+  } else {
+    console.warn(`[extract-reservation] ${requestId} gemini failed: ${parallel.gemini.error}`);
+  }
 
-    if (candidates.length > 0) {
-      candidates.sort((a, b) => b.canonical.metadata.confianca - a.canonical.metadata.confianca);
-      const best = candidates[0];
-      console.info(`[extract-reservation] ${requestId} selected_provider=${best.provider} confianca=${best.canonical.metadata.confianca}`);
-      return best;
+  let lovableUsed = false;
+  if (candidates.length === 0) {
+    const lovable = await callLovableAi(SYSTEM_PROMPT, userContent);
+    if (lovable.ok && lovable.parsed) {
+      candidates.push(toCandidate(lovable.parsed, 'lovable_ai', lovable.usage, text, fileName));
+      lovableUsed = true;
+    } else {
+      console.warn(`[extract-reservation] ${requestId} lovable_ai failed: ${lovable.error}`);
     }
   }
 
-  // 2. Fallback: Lovable AI
-  console.warn(`[extract-reservation] ${requestId} falling_back_to_lovable_ai`);
-  const lovableResult = await callLovableAi(SYSTEM_PROMPT, userContent);
-  const candidate = tryParseCandidate(lovableResult, text, fileName, requestId);
-  if (!candidate) throw new Error('All AI providers returned invalid JSON');
-  return candidate;
+  if (candidates.length === 0) {
+    throw new Error('All AI providers returned invalid JSON');
+  }
+
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return providerTieBreak(b.provider) - providerTieBreak(a.provider);
+  });
+
+  const winner = candidates[0];
+  const providerMeta = buildProviderMeta(winner.provider, {
+    openrouter: parallel.openrouter,
+    gemini: parallel.gemini,
+  });
+
+  if (lovableUsed && winner.provider === 'lovable_ai') {
+    providerMeta.fallback_used = true;
+  }
+
+  return { ...winner, providerMeta };
 }
 
 // ─── Main handler ─────────────────────────────────────────────────
@@ -630,7 +579,7 @@ Deno.serve(async (req) => {
 
     const userContent = `Arquivo: ${fileName}\n\nTexto OCR:\n${text}`;
 
-    const { canonical, scope, provider, usage } = await extractWithBestProvider(userContent, text, fileName, requestId);
+    const { canonical, scope, provider, usage, providerMeta } = await extractWithBestProvider(userContent, text, fileName, requestId);
 
     const tipoLegacy = mapTipoToLegacy(canonical.metadata.tipo);
     const missingFields = missingFromCanonical(canonical, scope as 'trip_related' | 'outside_scope');
@@ -652,7 +601,7 @@ Deno.serve(async (req) => {
       missingFields,
       data: toLegacyData(canonical),
       canonical,
-      ai_provider: provider,
+      provider_meta: providerMeta,
     };
 
     console.info('[extract-reservation]', requestId, 'success', {
@@ -663,6 +612,7 @@ Deno.serve(async (req) => {
       confianca: canonical.metadata.confianca,
       missing_count: missingFields.length,
       provider,
+      provider_meta: providerMeta,
       usage,
     });
 
