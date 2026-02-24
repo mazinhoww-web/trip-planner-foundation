@@ -487,6 +487,14 @@ export default function Dashboard() {
   const canEditTrip = tripMembers.permission.role ? tripMembers.permission.canEdit : fallbackCanEdit;
   const aiImportGate = useFeatureGate('ff_ai_import_enabled');
   const collabGate = useFeatureGate('ff_collab_enabled');
+  const isAnyCrudDialogOpen =
+    flightDialogOpen ||
+    flightDetailOpen ||
+    stayDialogOpen ||
+    stayDetailOpen ||
+    transportDialogOpen ||
+    transportDetailOpen ||
+    expenseDialogOpen;
 
   const handleLogout = async () => {
     await signOut();
@@ -926,6 +934,7 @@ export default function Dashboard() {
   const openCreateStay = () => {
     if (!ensureCanEdit()) return;
     setStayDetailOpen(false);
+    setSelectedStay(null);
     setEditingStay(null);
     setStayForm(emptyStay);
     setStayDialogOpen(true);
@@ -934,6 +943,7 @@ export default function Dashboard() {
   const openEditStay = (stay: Tables<'hospedagens'>) => {
     if (!ensureCanEdit()) return;
     setStayDetailOpen(false);
+    setSelectedStay(null);
     setEditingStay(stay);
     setStayForm({
       nome: stay.nome ?? '',
@@ -1401,18 +1411,18 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-background via-slate-50/70 to-slate-100/70">
       <header className="sticky top-0 z-20 border-b border-primary/15 bg-white/92 backdrop-blur-lg">
-        <div className="mx-auto flex max-w-[1220px] items-center justify-between px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-[1220px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
           <div className="flex min-w-0 items-center gap-3">
             <BrandLogo className="shrink-0" />
             <div className="min-w-0">
-              <h1 className="truncate text-base font-bold font-display leading-none sm:text-xl">Trip Planner Foundation</h1>
-              <p className="mt-1 truncate text-[11px] text-muted-foreground sm:text-xs">Experiência co-brand LATAM Airlines + LATAM Pass</p>
+              <h1 className="truncate text-sm font-bold font-display leading-none sm:text-xl">Trip Planner Foundation</h1>
+              <p className="mt-1 hidden truncate text-[11px] text-muted-foreground sm:block sm:text-xs">Experiência co-brand LATAM Airlines + LATAM Pass</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex w-full items-center justify-end gap-2 sm:w-auto sm:gap-3">
             {trips.length > 1 && (
               <Select value={currentTripId ?? ''} onValueChange={selectTrip}>
-                <SelectTrigger className="w-[200px] hidden sm:flex">
+                <SelectTrigger className="h-9 w-[160px] sm:w-[200px]">
                   <SelectValue placeholder="Selecionar viagem" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1423,7 +1433,7 @@ export default function Dashboard() {
               </Select>
             )}
             <span className="hidden text-sm text-muted-foreground lg:block">{user?.email}</span>
-            <Button variant="outline" size="sm" onClick={handleLogout}>
+            <Button variant="outline" size="sm" className="h-9 px-3" onClick={handleLogout}>
               <LogOut className="mr-2 h-4 w-4" />
               Sair
             </Button>
@@ -1533,14 +1543,14 @@ export default function Dashboard() {
             <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-8">
               <div className="overflow-x-auto pb-1 tp-scroll">
                 <TabsList
-                  className="inline-flex h-auto w-max min-w-full items-center gap-2 rounded-2xl border border-primary/15 bg-white/90 p-2 shadow-sm"
+                  className="inline-flex h-auto w-max min-w-full snap-x snap-mandatory items-center gap-2 rounded-2xl border border-primary/15 bg-white/90 p-2 shadow-sm"
                   aria-label="Navegação entre módulos da viagem"
                 >
                   {DASHBOARD_TABS.map((tab) => (
                     <TabsTrigger
                       key={tab.key}
                       value={tab.key}
-                      className="shrink-0 gap-2 rounded-xl px-3 py-2 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm sm:min-h-10 sm:px-4 sm:text-sm"
+                      className="min-h-9 shrink-0 snap-start whitespace-nowrap gap-2 rounded-xl px-3 py-2 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm sm:min-h-10 sm:px-4 sm:text-sm"
                     >
                       <tab.icon className="h-4 w-4" />
                       {tab.label}
@@ -1623,6 +1633,7 @@ export default function Dashboard() {
                         transports={transportsModule.data}
                         flights={flightsModule.data}
                         height="clamp(220px, 42vh, 320px)"
+                        disabled={isAnyCrudDialogOpen}
                       />
                     </Suspense>
                     <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -2025,6 +2036,7 @@ export default function Dashboard() {
                         transports={transportsModule.data}
                         flights={flightsModule.data}
                         height="clamp(200px, 36vh, 280px)"
+                        disabled={isAnyCrudDialogOpen}
                       />
                     </Suspense>
 
@@ -2075,10 +2087,11 @@ export default function Dashboard() {
                               )}
                               <div className="flex items-center justify-between">
                                 {statusBadge(stay.status)}
-                                <div className="flex flex-wrap justify-end gap-2">
+                                <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
                                   <Button
                                     variant="outline"
                                     size="sm"
+                                    className="w-full sm:w-auto"
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       void enrichStay(stay);
@@ -2090,6 +2103,7 @@ export default function Dashboard() {
                                   <Button
                                     variant="outline"
                                     size="sm"
+                                    className="w-full sm:w-auto"
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       void suggestAndSaveRestaurants(stay);
@@ -2101,6 +2115,7 @@ export default function Dashboard() {
                                   <Button
                                     variant="outline"
                                     size="sm"
+                                    className="w-full sm:w-auto"
                                     onClick={(event) => {
                                       event.stopPropagation();
                                       setSelectedStay(stay);
@@ -2141,7 +2156,7 @@ export default function Dashboard() {
                   </CardContent>
                 </Card>
 
-                <Dialog open={stayDetailOpen} onOpenChange={setStayDetailOpen}>
+                <Dialog open={stayDetailOpen && !stayDialogOpen} onOpenChange={setStayDetailOpen}>
                   <DialogContent className="max-h-[90vh] w-[calc(100vw-1rem)] overflow-y-auto sm:w-full sm:max-w-3xl">
                     <DialogHeader>
                       <DialogTitle>Detalhes da hospedagem</DialogTitle>
@@ -2443,6 +2458,7 @@ export default function Dashboard() {
                         transports={transportFiltered}
                         flights={flightsModule.data}
                         height="clamp(200px, 34vh, 260px)"
+                        disabled={isAnyCrudDialogOpen}
                       />
                     </Suspense>
 

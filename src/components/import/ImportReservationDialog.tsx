@@ -1123,7 +1123,7 @@ export function ImportReservationDialog() {
         <div className="space-y-4">
           <Card className="border-primary/15 bg-white/95 shadow-sm">
             <CardContent className="pt-4">
-              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_260px] xl:items-end">
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(220px,280px)] lg:items-end">
                 <div className="space-y-2">
                   <Label htmlFor={fileInputId}>Arquivos da viagem</Label>
                   <Input
@@ -1132,23 +1132,23 @@ export function ImportReservationDialog() {
                     multiple
                     accept=".txt,.html,.eml,.pdf,.png,.jpg,.jpeg,.webp"
                     onChange={(event) => onSelectFiles(event.target.files)}
-                    className="h-11"
+                    className="h-11 text-sm"
                   />
                   <p className="text-xs text-muted-foreground">
                     Você pode subir vários arquivos ao mesmo tempo. Formatos: txt, html, eml, pdf, png, jpg e webp.
                   </p>
                 </div>
-                <div className="grid gap-2 xl:self-end">
+                <div className="flex flex-col gap-2 lg:self-end">
                   <Button
                     onClick={runBatch}
                     disabled={!canProcess}
                     aria-label="Analisar arquivos selecionados"
-                    className="h-11 w-full bg-primary hover:bg-primary/90"
+                    className="h-12 w-full bg-primary text-base hover:bg-primary/90 sm:h-11 sm:text-sm"
                   >
                     {isProcessingBatch ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
                     Analisar arquivos
                   </Button>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-[11px] text-muted-foreground lg:text-right">
                     OCR + IA classifica cada arquivo e prepara confirmação final.
                   </p>
                 </div>
