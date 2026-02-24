@@ -16,6 +16,9 @@ export type TripFeatureGateContext = {
   seatLimit: number;
   source: 'database' | 'fallback';
   entitlements: Record<string, boolean>;
+  rolloutCohort?: boolean;
+  rolloutPercent?: number;
+  rolloutFeatures?: string[];
 };
 
 export type TripMember = {

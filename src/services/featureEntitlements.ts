@@ -30,6 +30,19 @@ export type FeatureUsageSummaryPayload = {
     lastEventAt: string;
   }>;
   activeFeatures: Array<FeatureKey | string>;
+  aiMetrics: {
+    requestCount: number;
+    successCount: number;
+    failedCount: number;
+    blockedCount: number;
+    successRate: number | null;
+  };
+  conversionMetrics: {
+    upgradeCount: number;
+    downgradeCount: number;
+    events: number;
+    lastPlanChangeAt: string | null;
+  };
   generatedAt: string;
 };
 

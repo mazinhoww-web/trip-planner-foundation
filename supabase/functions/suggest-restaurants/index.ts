@@ -208,6 +208,11 @@ Deno.serve(async (req) => {
 
     const featureContext = await loadFeatureGateContext(auth.userId);
     if (!isFeatureEnabled(featureContext, 'ff_ai_import_enabled')) {
+      await trackFeatureUsage({
+        userId: auth.userId,
+        featureKey: 'ff_ai_import_enabled',
+        metadata: { operation: 'suggest-restaurants', status: 'blocked', reason: 'feature_disabled' },
+      });
       return errorResponse(
         requestId,
         'UNAUTHORIZED',
@@ -220,6 +225,11 @@ Deno.serve(async (req) => {
     const timeoutMs = resolveAiTimeout(15_000, featureContext);
     const rate = consumeRateLimit(auth.userId, 'suggest-restaurants', limitPerHour, ONE_HOUR_MS);
     if (!rate.allowed) {
+      await trackFeatureUsage({
+        userId: auth.userId,
+        featureKey: 'ff_ai_import_enabled',
+        metadata: { operation: 'suggest-restaurants', status: 'blocked', reason: 'rate_limit' },
+      });
       return errorResponse(requestId, 'RATE_LIMITED', 'Limite de sugestões atingido. Tente novamente mais tarde.', 429, { resetAt: rate.resetAt });
     }
 
@@ -281,6 +291,11 @@ Deno.serve(async (req) => {
     }
 
     if (!selected) {
+      await trackFeatureUsage({
+        userId: auth.userId,
+        featureKey: 'ff_ai_import_enabled',
+        metadata: { operation: 'suggest-restaurants', status: 'failed', reason: 'providers_unavailable' },
+      });
       return errorResponse(requestId, 'UPSTREAM_ERROR', 'IA indisponível no momento para sugerir restaurantes.', 502);
     }
 
@@ -306,6 +321,7 @@ Deno.serve(async (req) => {
       featureKey: 'ff_ai_import_enabled',
       metadata: {
         operation: 'suggest-restaurants',
+        status: 'success',
         selected_provider: providerMeta.selected,
         count: selected.payload.items.length,
       },

@@ -574,6 +574,11 @@ Deno.serve(async (req) => {
 
     const featureContext = await loadFeatureGateContext(auth.userId);
     if (!isFeatureEnabled(featureContext, 'ff_ai_import_enabled')) {
+      await trackFeatureUsage({
+        userId: auth.userId,
+        featureKey: 'ff_ai_import_enabled',
+        metadata: { operation: 'extract-reservation', status: 'blocked', reason: 'feature_disabled' },
+      });
       return errorResponse(
         requestId,
         'UNAUTHORIZED',
@@ -587,6 +592,11 @@ Deno.serve(async (req) => {
 
     const rate = consumeRateLimit(auth.userId, 'extract-reservation', limitPerHour, ONE_HOUR_MS);
     if (!rate.allowed) {
+      await trackFeatureUsage({
+        userId: auth.userId,
+        featureKey: 'ff_ai_import_enabled',
+        metadata: { operation: 'extract-reservation', status: 'blocked', reason: 'rate_limit' },
+      });
       return errorResponse(requestId, 'RATE_LIMITED', 'Limite de extrações atingido. Tente novamente mais tarde.', 429, { resetAt: rate.resetAt });
     }
 
@@ -650,6 +660,7 @@ Deno.serve(async (req) => {
       viagemId: typeof body?.viagemId === 'string' ? body.viagemId : null,
       metadata: {
         operation: 'extract-reservation',
+        status: 'success',
         provider,
         scope,
         confidence: canonical.metadata.confianca,
@@ -658,6 +669,9 @@ Deno.serve(async (req) => {
 
     return successResponse(responsePayload);
   } catch (error) {
+    if (error instanceof Error && error.message) {
+      console.warn('[extract-reservation]', requestId, 'track_failed_event', error.message);
+    }
     console.error('[extract-reservation]', requestId, 'unexpected_error', error);
     return errorResponse(requestId, 'INTERNAL_ERROR', 'Erro inesperado na extração.', 500);
   }

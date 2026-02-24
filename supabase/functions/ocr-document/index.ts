@@ -214,6 +214,11 @@ Deno.serve(async (req) => {
 
     const featureContext = await loadFeatureGateContext(auth.userId);
     if (!isFeatureEnabled(featureContext, 'ff_ai_import_enabled')) {
+      await trackFeatureUsage({
+        userId: auth.userId,
+        featureKey: 'ff_ai_import_enabled',
+        metadata: { operation: 'ocr-document', status: 'blocked', reason: 'feature_disabled' },
+      });
       return errorResponse(
         requestId,
         'UNAUTHORIZED',
@@ -226,6 +231,11 @@ Deno.serve(async (req) => {
     const timeoutMs = resolveAiTimeout(15_000, featureContext);
     const rate = consumeRateLimit(auth.userId, 'ocr-document', limitPerHour, ONE_HOUR_MS);
     if (!rate.allowed) {
+      await trackFeatureUsage({
+        userId: auth.userId,
+        featureKey: 'ff_ai_import_enabled',
+        metadata: { operation: 'ocr-document', status: 'blocked', reason: 'rate_limit' },
+      });
       return errorResponse(requestId, 'RATE_LIMITED', 'Limite de OCR atingido. Tente novamente mais tarde.', 429, { resetAt: rate.resetAt });
     }
 
@@ -258,7 +268,7 @@ Deno.serve(async (req) => {
         userId: auth.userId,
         featureKey: 'ff_ai_import_enabled',
         viagemId: typeof body?.viagemId === 'string' ? body.viagemId : null,
-        metadata: { operation: 'ocr-document', method: 'native_pdf_preferred' },
+        metadata: { operation: 'ocr-document', status: 'success', method: 'native_pdf_preferred' },
       });
       return successResponse({ text: nativePdfText, method: 'native_pdf_preferred', warnings, qualityMetrics: nativeMetrics });
     }
@@ -272,7 +282,7 @@ Deno.serve(async (req) => {
           userId: auth.userId,
           featureKey: 'ff_ai_import_enabled',
           viagemId: typeof body?.viagemId === 'string' ? body.viagemId : null,
-          metadata: { operation: 'ocr-document', method: 'ocr_space' },
+          metadata: { operation: 'ocr-document', status: 'success', method: 'ocr_space' },
         });
         return successResponse({ text: ocrResult.text, method: 'ocr_space', warnings, qualityMetrics: metrics });
       }
@@ -288,7 +298,7 @@ Deno.serve(async (req) => {
           userId: auth.userId,
           featureKey: 'ff_ai_import_enabled',
           viagemId: typeof body?.viagemId === 'string' ? body.viagemId : null,
-          metadata: { operation: 'ocr-document', method: 'native_pdf_fallback' },
+          metadata: { operation: 'ocr-document', status: 'success', method: 'native_pdf_fallback' },
         });
         return successResponse({ text: nativePdfText, method: 'native_pdf_fallback', warnings, qualityMetrics: metrics });
       }
@@ -356,7 +366,7 @@ Deno.serve(async (req) => {
           userId: auth.userId,
           featureKey: 'ff_ai_import_enabled',
           viagemId: typeof body?.viagemId === 'string' ? body.viagemId : null,
-          metadata: { operation: 'ocr-document', method, selected_provider: selected.provider },
+          metadata: { operation: 'ocr-document', status: 'success', method, selected_provider: selected.provider },
         });
 
         return successResponse({
@@ -389,7 +399,7 @@ Deno.serve(async (req) => {
           userId: auth.userId,
           featureKey: 'ff_ai_import_enabled',
           viagemId: typeof body?.viagemId === 'string' ? body.viagemId : null,
-          metadata: { operation: 'ocr-document', method: 'lovable_ai_vision' },
+          metadata: { operation: 'ocr-document', status: 'success', method: 'lovable_ai_vision' },
         });
 
         return successResponse({
@@ -406,6 +416,12 @@ Deno.serve(async (req) => {
       }
     }
 
+    await trackFeatureUsage({
+      userId: auth.userId,
+      featureKey: 'ff_ai_import_enabled',
+      viagemId: typeof body?.viagemId === 'string' ? body.viagemId : null,
+      metadata: { operation: 'ocr-document', status: 'failed', reason: 'all_layers_failed' },
+    });
     return errorResponse(requestId, 'UPSTREAM_ERROR', 'Falha no OCR em todas as camadas.', 502, { method: 'none', warnings });
   } catch (error) {
     console.error('[ocr-document]', requestId, 'unexpected_error', error);

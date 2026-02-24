@@ -646,6 +646,36 @@ export type Database = {
         }
         Relationships: []
       }
+      user_plan_tier_events: {
+        Row: {
+          created_at: string
+          id: string
+          metadata: Json | null
+          new_tier: Database["public"]["Enums"]["plan_tier"]
+          previous_tier: Database["public"]["Enums"]["plan_tier"]
+          source: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          new_tier: Database["public"]["Enums"]["plan_tier"]
+          previous_tier: Database["public"]["Enums"]["plan_tier"]
+          source?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          new_tier?: Database["public"]["Enums"]["plan_tier"]
+          previous_tier?: Database["public"]["Enums"]["plan_tier"]
+          source?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       viagem_convites: {
         Row: {
           accepted_at: string | null

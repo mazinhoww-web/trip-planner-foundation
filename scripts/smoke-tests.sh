@@ -191,10 +191,12 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
     -H "Content-Type: application/json" \
     --data '{"action":"usage_summary","days":7}')"
   if [ "$code" = "200" ]; then
-    if grep -q "\"usageSummary\"" "$tmp_dir/auth-ent-usage.b"; then
-      pass "feature-entitlements usage_summary retornou métricas"
+    if grep -q "\"usageSummary\"" "$tmp_dir/auth-ent-usage.b" && \
+       grep -q "\"aiMetrics\"" "$tmp_dir/auth-ent-usage.b" && \
+       grep -q "\"conversionMetrics\"" "$tmp_dir/auth-ent-usage.b"; then
+      pass "feature-entitlements usage_summary retornou métricas operacionais"
     else
-      warn "feature-entitlements usage_summary respondeu 200 sem usageSummary"
+      warn "feature-entitlements usage_summary respondeu 200 sem blocos completos de métricas"
     fi
   else
     fail "feature-entitlements usage_summary falhou ($code)"

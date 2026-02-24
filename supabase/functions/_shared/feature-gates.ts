@@ -407,6 +407,7 @@ export async function trackFeatureUsage(
 export async function setUserPlanTier(
   userId: string,
   planTier: PlanTier,
+  source = 'self_service',
   serviceClient?: SupabaseClient,
 ) {
   const client = getServiceClient(serviceClient);
@@ -414,6 +415,17 @@ export async function setUserPlanTier(
     throw new Error('SUPABASE_SERVICE_ROLE_KEY não configurada para atualizar plano.');
   }
 
+  const { data: previousPlanRow, error: previousPlanError } = await client
+    .from('user_plan_tiers')
+    .select('plan_tier')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (previousPlanError) {
+    throw new Error('Não foi possível carregar o plano atual do usuário.');
+  }
+
+  const previousTier = normalizePlanTier(previousPlanRow?.plan_tier ?? 'free');
   const nowIso = new Date().toISOString();
   const { error } = await client
     .from('user_plan_tiers')
@@ -428,6 +440,27 @@ export async function setUserPlanTier(
 
   if (error) {
     throw new Error('Não foi possível atualizar o plano do usuário.');
+  }
+
+  if (previousTier !== planTier) {
+    const { error: eventError } = await client
+      .from('user_plan_tier_events')
+      .insert({
+        user_id: userId,
+        previous_tier: previousTier,
+        new_tier: planTier,
+        source,
+        metadata: { source },
+      });
+
+    if (eventError) {
+      console.warn('[feature-gates] plan_tier_event_failed', {
+        userId,
+        previousTier,
+        planTier,
+        error: eventError.message,
+      });
+    }
   }
 }
 

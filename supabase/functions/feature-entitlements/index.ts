@@ -79,6 +79,19 @@ function createServiceClient() {
   });
 }
 
+const AI_OPERATIONS = new Set([
+  'extract-reservation',
+  'ocr-document',
+  'generate-tips',
+  'suggest-restaurants',
+]);
+
+function normalizeTierOrder(tier: PlanTier) {
+  if (tier === 'team') return 3;
+  if (tier === 'pro') return 2;
+  return 1;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -163,11 +176,18 @@ Deno.serve(async (req) => {
 
       const byFeature = new Map<string, { featureKey: string; clusterKey: string; count: number; lastEventAt: string }>();
       const byCluster = new Map<string, { clusterKey: string; count: number; lastEventAt: string }>();
+      let aiRequestCount = 0;
+      let aiSuccessCount = 0;
+      let aiFailedCount = 0;
+      let aiBlockedCount = 0;
 
       for (const row of usageRows ?? []) {
         const featureKey = row.feature_key as string;
         const clusterKey = row.cluster_key as string;
         const createdAt = row.created_at as string;
+        const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+        const operation = typeof metadata.operation === 'string' ? metadata.operation : null;
+        const status = typeof metadata.status === 'string' ? metadata.status : 'success';
 
         const featureCurrent = byFeature.get(featureKey);
         if (!featureCurrent) {
@@ -184,9 +204,51 @@ Deno.serve(async (req) => {
           clusterCurrent.count += 1;
           if (createdAt > clusterCurrent.lastEventAt) clusterCurrent.lastEventAt = createdAt;
         }
+
+        if (operation && AI_OPERATIONS.has(operation)) {
+          aiRequestCount += 1;
+          if (status === 'failed') {
+            aiFailedCount += 1;
+          } else if (status === 'blocked') {
+            aiBlockedCount += 1;
+          } else {
+            aiSuccessCount += 1;
+          }
+        }
       }
 
       const totalEvents = (usageRows ?? []).length;
+      const aiSuccessRate = aiSuccessCount + aiFailedCount > 0
+        ? Number((aiSuccessCount / (aiSuccessCount + aiFailedCount)).toFixed(4))
+        : null;
+
+      const { data: tierEventsRaw, error: tierEventsError } = await serviceClient
+        .from('user_plan_tier_events')
+        .select('previous_tier,new_tier,source,created_at')
+        .eq('user_id', auth.userId)
+        .gte('created_at', sinceIso)
+        .order('created_at', { ascending: false });
+
+      let tierEvents = tierEventsRaw ?? [];
+      if (tierEventsError) {
+        if ((tierEventsError as { code?: string }).code === '42P01') {
+          console.warn('[feature-entitlements]', requestId, 'plan_events_table_missing');
+          tierEvents = [];
+        } else {
+          return errorResponse(requestId, 'INTERNAL_ERROR', 'Não foi possível carregar histórico de plano.', 500);
+        }
+      }
+
+      let upgradeCount = 0;
+      let downgradeCount = 0;
+      for (const event of tierEvents) {
+        const previous = event.previous_tier as PlanTier;
+        const next = event.new_tier as PlanTier;
+        const previousOrder = normalizeTierOrder(previous);
+        const nextOrder = normalizeTierOrder(next);
+        if (nextOrder > previousOrder) upgradeCount += 1;
+        if (nextOrder < previousOrder) downgradeCount += 1;
+      }
 
       return successResponse({
         ...serializeContext(context),
@@ -196,6 +258,19 @@ Deno.serve(async (req) => {
           byFeature: Array.from(byFeature.values()).sort((a, b) => b.count - a.count),
           byCluster: Array.from(byCluster.values()).sort((a, b) => b.count - a.count),
           activeFeatures: Array.from(byFeature.keys()),
+          aiMetrics: {
+            requestCount: aiRequestCount,
+            successCount: aiSuccessCount,
+            failedCount: aiFailedCount,
+            blockedCount: aiBlockedCount,
+            successRate: aiSuccessRate,
+          },
+          conversionMetrics: {
+            upgradeCount,
+            downgradeCount,
+            events: tierEvents.length,
+            lastPlanChangeAt: tierEvents[0]?.created_at ?? null,
+          },
           generatedAt: new Date().toISOString(),
         },
       });

@@ -259,6 +259,34 @@ async function ensureOwnerRole(role: TripRole | null) {
   }
 }
 
+async function trackCollabBlocked(params: {
+  serviceClient: ReturnType<typeof createServiceClient>;
+  tripOwnerId: string;
+  viagemId: string;
+  featureKey: 'ff_collab_enabled' | 'ff_collab_editor_role' | 'ff_collab_seat_limit_enforced';
+  reason: string;
+  action: TripMembersAction;
+  actorId: string;
+  extra?: Record<string, unknown>;
+}) {
+  await trackFeatureUsage(
+    {
+      userId: params.tripOwnerId,
+      featureKey: params.featureKey,
+      viagemId: params.viagemId,
+      metadata: {
+        operation: 'trip-members',
+        status: 'blocked',
+        reason: params.reason,
+        action: params.action,
+        actor_id: params.actorId,
+        ...(params.extra ?? {}),
+      },
+    },
+    params.serviceClient,
+  );
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -347,6 +375,15 @@ Deno.serve(async (req) => {
 
       const ownerFeatureContext = await loadFeatureGateContext(tripOwnerId, serviceClient);
       if (!isFeatureEnabled(ownerFeatureContext, 'ff_collab_enabled')) {
+        await trackCollabBlocked({
+          serviceClient,
+          tripOwnerId,
+          viagemId: convite.viagem_id,
+          featureKey: 'ff_collab_enabled',
+          reason: 'feature_disabled',
+          action,
+          actorId: auth.userId,
+        });
         return errorResponse(
           requestId,
           'UNAUTHORIZED',
@@ -356,6 +393,15 @@ Deno.serve(async (req) => {
       }
 
       if (convite.role === 'editor' && !isFeatureEnabled(ownerFeatureContext, 'ff_collab_editor_role')) {
+        await trackCollabBlocked({
+          serviceClient,
+          tripOwnerId,
+          viagemId: convite.viagem_id,
+          featureKey: 'ff_collab_editor_role',
+          reason: 'editor_role_disabled',
+          action,
+          actorId: auth.userId,
+        });
         return errorResponse(
           requestId,
           'UNAUTHORIZED',
@@ -372,6 +418,19 @@ Deno.serve(async (req) => {
         Number.isFinite(ownerFeatureContext.seatLimit) &&
         existingMembersBeforeAccept.length >= ownerFeatureContext.seatLimit
       ) {
+        await trackCollabBlocked({
+          serviceClient,
+          tripOwnerId,
+          viagemId: convite.viagem_id,
+          featureKey: 'ff_collab_seat_limit_enforced',
+          reason: 'seat_limit_reached',
+          action,
+          actorId: auth.userId,
+          extra: {
+            seat_limit: ownerFeatureContext.seatLimit,
+            member_count: existingMembersBeforeAccept.length,
+          },
+        });
         return errorResponse(
           requestId,
           'UNAUTHORIZED',
@@ -447,6 +506,8 @@ Deno.serve(async (req) => {
           featureKey: 'ff_collab_enabled',
           viagemId: convite.viagem_id,
           metadata: {
+            operation: 'trip-members',
+            status: 'success',
             action,
             invited_user_id: userInfo.user.id,
             role: convite.role,
@@ -480,6 +541,15 @@ Deno.serve(async (req) => {
 
     const featureContext = await loadFeatureGateContext(tripOwnerId, serviceClient);
     if (!isFeatureEnabled(featureContext, 'ff_collab_enabled')) {
+      await trackCollabBlocked({
+        serviceClient,
+        tripOwnerId,
+        viagemId,
+        featureKey: 'ff_collab_enabled',
+        reason: 'feature_disabled',
+        action,
+        actorId: auth.userId,
+      });
       return errorResponse(
         requestId,
         'UNAUTHORIZED',
@@ -503,6 +573,9 @@ Deno.serve(async (req) => {
           seatLimit: featureContext.seatLimit,
           source: featureContext.source,
           entitlements: featureContext.entitlements,
+          rolloutCohort: featureContext.rolloutCohort,
+          rolloutPercent: featureContext.rolloutPercent,
+          rolloutFeatures: featureContext.rolloutFeatures,
         },
       });
     }
@@ -538,6 +611,15 @@ Deno.serve(async (req) => {
         return errorResponse(requestId, 'BAD_REQUEST', 'Nesta fase, convites só podem ser editor ou viewer.', 400);
       }
       if (role === 'editor' && !isFeatureEnabled(featureContext, 'ff_collab_editor_role')) {
+        await trackCollabBlocked({
+          serviceClient,
+          tripOwnerId,
+          viagemId,
+          featureKey: 'ff_collab_editor_role',
+          reason: 'editor_role_disabled',
+          action,
+          actorId: auth.userId,
+        });
         return errorResponse(
           requestId,
           'UNAUTHORIZED',
@@ -552,6 +634,19 @@ Deno.serve(async (req) => {
         return errorResponse(requestId, 'BAD_REQUEST', 'Este e-mail já possui acesso à viagem.', 400);
       }
       if (Number.isFinite(featureContext.seatLimit) && existingMembers.length >= featureContext.seatLimit) {
+        await trackCollabBlocked({
+          serviceClient,
+          tripOwnerId,
+          viagemId,
+          featureKey: 'ff_collab_seat_limit_enforced',
+          reason: 'seat_limit_reached',
+          action,
+          actorId: auth.userId,
+          extra: {
+            seat_limit: featureContext.seatLimit,
+            member_count: existingMembers.length,
+          },
+        });
         return errorResponse(
           requestId,
           'UNAUTHORIZED',
@@ -646,7 +741,13 @@ Deno.serve(async (req) => {
           userId: tripOwnerId,
           featureKey: 'ff_collab_enabled',
           viagemId,
-          metadata: { action, invite_role: role, invite_email: email },
+          metadata: {
+            operation: 'trip-members',
+            status: 'success',
+            action,
+            invite_role: role,
+            invite_email: email,
+          },
         },
         serviceClient,
       );
@@ -666,6 +767,15 @@ Deno.serve(async (req) => {
         return errorResponse(requestId, 'BAD_REQUEST', 'Dados inválidos para atualização de papel.', 400);
       }
       if (role === 'editor' && !isFeatureEnabled(featureContext, 'ff_collab_editor_role')) {
+        await trackCollabBlocked({
+          serviceClient,
+          tripOwnerId,
+          viagemId,
+          featureKey: 'ff_collab_editor_role',
+          reason: 'editor_role_disabled',
+          action,
+          actorId: auth.userId,
+        });
         return errorResponse(
           requestId,
           'UNAUTHORIZED',
@@ -706,7 +816,7 @@ Deno.serve(async (req) => {
           userId: tripOwnerId,
           featureKey: 'ff_collab_enabled',
           viagemId,
-          metadata: { action, role },
+          metadata: { operation: 'trip-members', status: 'success', action, role },
         },
         serviceClient,
       );
@@ -755,7 +865,7 @@ Deno.serve(async (req) => {
           userId: tripOwnerId,
           featureKey: 'ff_collab_enabled',
           viagemId,
-          metadata: { action, member_id: memberId },
+          metadata: { operation: 'trip-members', status: 'success', action, member_id: memberId },
         },
         serviceClient,
       );

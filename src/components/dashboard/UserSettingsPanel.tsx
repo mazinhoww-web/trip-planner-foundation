@@ -324,6 +324,30 @@ export function UserSettingsPanel({ userId, userEmail, profile, onProfileRefresh
             <p className="text-[11px] text-muted-foreground">
               Eventos no período: {usageSummaryQuery.data?.totalEvents ?? 0}
             </p>
+            {usageSummaryQuery.data && (
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <div className="rounded-md border border-border/50 bg-white/80 p-2">
+                  <p className="text-muted-foreground">Taxa sucesso IA</p>
+                  <p className="text-sm font-semibold">
+                    {usageSummaryQuery.data.aiMetrics.successRate == null
+                      ? '--'
+                      : `${Math.round(usageSummaryQuery.data.aiMetrics.successRate * 100)}%`}
+                  </p>
+                </div>
+                <div className="rounded-md border border-border/50 bg-white/80 p-2">
+                  <p className="text-muted-foreground">IA bloqueada</p>
+                  <p className="text-sm font-semibold">{usageSummaryQuery.data.aiMetrics.blockedCount}</p>
+                </div>
+                <div className="rounded-md border border-border/50 bg-white/80 p-2">
+                  <p className="text-muted-foreground">Upgrades</p>
+                  <p className="text-sm font-semibold">{usageSummaryQuery.data.conversionMetrics.upgradeCount}</p>
+                </div>
+                <div className="rounded-md border border-border/50 bg-white/80 p-2">
+                  <p className="text-muted-foreground">Downgrades</p>
+                  <p className="text-sm font-semibold">{usageSummaryQuery.data.conversionMetrics.downgradeCount}</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

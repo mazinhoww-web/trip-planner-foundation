@@ -22,6 +22,8 @@ ENTITLEMENTS_ROLLOUT_FEATURES=ff_export_pdf,ff_ai_priority_inference
 4. Monitorar por 24h:
    - erros 4xx/5xx nas functions de IA
    - `usageSummary.totalEvents`
+   - `usageSummary.aiMetrics.successRate`
+   - `usageSummary.conversionMetrics.upgradeCount`
    - distribuicao por cluster (M1-M4)
 5. Expandir para 25%, 50%, 100%.
 
