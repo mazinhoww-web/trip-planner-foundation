@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +9,9 @@ import { Switch } from '@/components/ui/switch';
 import { supabase } from '@/integrations/supabase/client';
 import { Tables } from '@/integrations/supabase/types';
 import { toast } from 'sonner';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
+import { PlanTier } from '@/services/entitlements';
+import { getFeatureUsageSummary, setFeaturePlanTier } from '@/services/featureEntitlements';
 
 type UserSettingsPanelProps = {
   userId?: string;
@@ -55,10 +59,26 @@ function savePrefs(userId: string | undefined, prefs: LocalPreferences) {
 }
 
 export function UserSettingsPanel({ userId, userEmail, profile, onProfileRefresh }: UserSettingsPanelProps) {
+  const collabGate = useFeatureGate('ff_collab_enabled');
   const [nome, setNome] = useState(profile?.nome ?? '');
   const [cidadeOrigem, setCidadeOrigem] = useState(profile?.cidade_origem ?? '');
   const [preferences, setPreferences] = useState<LocalPreferences>(() => loadPrefs(userId));
+  const [planTier, setPlanTier] = useState<PlanTier>('free');
   const [isSaving, setIsSaving] = useState(false);
+  const [usageWindowDays, setUsageWindowDays] = useState<7 | 30>(7);
+
+  const usageSummaryQuery = useQuery({
+    queryKey: ['feature-usage-summary', userId ?? null, usageWindowDays],
+    queryFn: async () => {
+      const result = await getFeatureUsageSummary(usageWindowDays);
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      return result.data;
+    },
+    enabled: !!userId,
+    staleTime: 60_000,
+  });
 
   useEffect(() => {
     setNome(profile?.nome ?? '');
@@ -69,6 +89,10 @@ export function UserSettingsPanel({ userId, userEmail, profile, onProfileRefresh
     setPreferences(loadPrefs(userId));
   }, [userId]);
 
+  useEffect(() => {
+    setPlanTier(collabGate.planTier);
+  }, [collabGate.planTier]);
+
   const hasProfileChanges = useMemo(() => {
     return nome !== (profile?.nome ?? '') || cidadeOrigem !== (profile?.cidade_origem ?? '');
   }, [cidadeOrigem, nome, profile?.cidade_origem, profile?.nome]);
@@ -77,6 +101,40 @@ export function UserSettingsPanel({ userId, userEmail, profile, onProfileRefresh
     const current = loadPrefs(userId);
     return JSON.stringify(current) !== JSON.stringify(preferences);
   }, [preferences, userId]);
+
+  const hasPlanChanges = useMemo(() => {
+    return planTier !== collabGate.planTier;
+  }, [planTier, collabGate.planTier]);
+
+  const monetizableFlags = useMemo(() => {
+    const entries: Array<{ key: string; label: string; enabled: boolean; cluster: 'M1' | 'M2' | 'M3' | 'M4' }> = [
+      { key: 'ff_collab_enabled', label: 'Colaboração base', enabled: collabGate.entitlements.ff_collab_enabled, cluster: 'M1' },
+      { key: 'ff_collab_seat_limit_enforced', label: 'Seat limit por plano', enabled: collabGate.entitlements.ff_collab_seat_limit_enforced, cluster: 'M1' },
+      { key: 'ff_ai_batch_high_volume', label: 'Lote IA de alto volume', enabled: collabGate.entitlements.ff_ai_batch_high_volume, cluster: 'M2' },
+      { key: 'ff_ai_priority_inference', label: 'Prioridade de inferência', enabled: collabGate.entitlements.ff_ai_priority_inference, cluster: 'M2' },
+      { key: 'ff_export_pdf', label: 'Exportação PDF', enabled: collabGate.entitlements.ff_export_pdf, cluster: 'M3' },
+      { key: 'ff_public_api_access', label: 'API pública', enabled: collabGate.entitlements.ff_public_api_access, cluster: 'M4' },
+    ];
+    return entries;
+  }, [collabGate.entitlements]);
+
+  const usageClusters = useMemo(() => {
+    const summary = usageSummaryQuery.data;
+    if (!summary) {
+      return [
+        { clusterKey: 'M1', count: 0 },
+        { clusterKey: 'M2', count: 0 },
+        { clusterKey: 'M3', count: 0 },
+        { clusterKey: 'M4', count: 0 },
+      ];
+    }
+
+    const byCluster = new Map(summary.byCluster.map((item) => [item.clusterKey, item.count]));
+    return ['M1', 'M2', 'M3', 'M4'].map((clusterKey) => ({
+      clusterKey,
+      count: byCluster.get(clusterKey) ?? 0,
+    }));
+  }, [usageSummaryQuery.data]);
 
   const saveSettings = async () => {
     if (!userId) {
@@ -101,6 +159,13 @@ export function UserSettingsPanel({ userId, userEmail, profile, onProfileRefresh
 
       if (hasPreferenceChanges) {
         savePrefs(userId, preferences);
+      }
+
+      if (hasPlanChanges && collabGate.selfServiceEnabled) {
+        const planResult = await setFeaturePlanTier(planTier);
+        if (planResult.error) {
+          throw new Error(planResult.error);
+        }
       }
 
       if (onProfileRefresh) {
@@ -185,6 +250,81 @@ export function UserSettingsPanel({ userId, userEmail, profile, onProfileRefresh
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="settings-plan">Plano</Label>
+            <Select
+              value={planTier}
+              onValueChange={(value: PlanTier) => setPlanTier(value)}
+              disabled={!collabGate.selfServiceEnabled || collabGate.isLoading}
+            >
+              <SelectTrigger id="settings-plan"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="free">Free</SelectItem>
+                <SelectItem value="pro">Pro</SelectItem>
+                <SelectItem value="team">Team</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {collabGate.selfServiceEnabled
+                ? 'Plano aplicado em tempo real para testes de recursos.'
+                : 'Mudança de plano desativada neste ambiente (somente leitura).'}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr]">
+          <div className="space-y-2 rounded-lg border border-border/60 bg-muted/10 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium">Rollout progressivo</p>
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                  collabGate.rolloutCohort
+                    ? 'bg-emerald-500/15 text-emerald-700'
+                    : 'bg-slate-500/15 text-slate-700'
+                }`}
+              >
+                {collabGate.rolloutCohort ? 'Em coorte piloto' : 'Fora da coorte'}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Percentual configurado: {collabGate.rolloutPercent}%.
+              {' '}
+              Features piloto: {collabGate.rolloutFeatures.length > 0 ? collabGate.rolloutFeatures.join(', ') : 'nenhuma'}.
+            </p>
+          </div>
+
+          <div className="space-y-2 rounded-lg border border-border/60 bg-muted/10 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-medium">Uso por cluster</p>
+              <Select
+                value={String(usageWindowDays)}
+                onValueChange={(value: '7' | '30') => setUsageWindowDays(value === '30' ? 30 : 7)}
+              >
+                <SelectTrigger className="h-8 w-[110px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7">7 dias</SelectItem>
+                  <SelectItem value="30">30 dias</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {usageSummaryQuery.isLoading ? (
+              <p className="text-xs text-muted-foreground">Carregando métricas de uso...</p>
+            ) : usageSummaryQuery.error instanceof Error ? (
+              <p className="text-xs text-rose-600">{usageSummaryQuery.error.message}</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {usageClusters.map((cluster) => (
+                  <div key={cluster.clusterKey} className="rounded-md border border-border/50 bg-white/80 p-2">
+                    <p className="text-[11px] text-muted-foreground">{cluster.clusterKey}</p>
+                    <p className="text-sm font-semibold">{cluster.count}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              Eventos no período: {usageSummaryQuery.data?.totalEvents ?? 0}
+            </p>
+          </div>
         </div>
 
         <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 p-3">
@@ -199,8 +339,34 @@ export function UserSettingsPanel({ userId, userEmail, profile, onProfileRefresh
           />
         </div>
 
+        <div className="space-y-2 rounded-lg border border-border/60 bg-muted/10 p-3">
+          <p className="text-sm font-medium">Feature clusters (monetização ready)</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {monetizableFlags.map((flag) => (
+              <div key={flag.key} className="flex items-center justify-between rounded-md border border-border/50 bg-white/80 px-2.5 py-2">
+                <div>
+                  <p className="text-xs font-medium">{flag.label}</p>
+                  <p className="text-[11px] text-muted-foreground">{flag.cluster}</p>
+                </div>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                    flag.enabled
+                      ? 'bg-emerald-500/15 text-emerald-700'
+                      : 'bg-slate-500/15 text-slate-700'
+                  }`}
+                >
+                  {flag.enabled ? 'ON' : 'OFF'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="flex justify-end">
-          <Button onClick={saveSettings} disabled={isSaving || (!hasProfileChanges && !hasPreferenceChanges)}>
+          <Button
+            onClick={saveSettings}
+            disabled={isSaving || (!hasProfileChanges && !hasPreferenceChanges && !hasPlanChanges)}
+          >
             {isSaving ? 'Salvando...' : 'Salvar configurações'}
           </Button>
         </div>

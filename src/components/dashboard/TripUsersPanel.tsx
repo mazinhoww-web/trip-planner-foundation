@@ -8,7 +8,6 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TripMembersState } from '@/hooks/useTripMembers';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
-import { resolveSeatLimit } from '@/services/entitlements';
 
 type TripUsersPanelProps = {
   tripMembers: TripMembersState;
@@ -41,10 +40,17 @@ export function TripUsersPanel({ tripMembers, currentUserId }: TripUsersPanelPro
   const editorRoleGate = useFeatureGate('ff_collab_editor_role');
 
   const seatLimit = useMemo(
-    () => resolveSeatLimit(seatLimitGate.planTier, seatLimitGate.runtimeOverrides).hardLimit,
-    [seatLimitGate.planTier, seatLimitGate.runtimeOverrides],
+    () => tripMembers.featureGate?.seatLimit ?? seatLimitGate.seatLimit,
+    [tripMembers.featureGate?.seatLimit, seatLimitGate.seatLimit],
   );
-  const canUseEditorRole = editorRoleGate.enabled;
+  const canUseEditorRole = useMemo(
+    () => {
+      const ownerEntitlement = tripMembers.featureGate?.entitlements?.ff_collab_editor_role;
+      return typeof ownerEntitlement === 'boolean' ? ownerEntitlement : editorRoleGate.enabled;
+    },
+    [tripMembers.featureGate?.entitlements, editorRoleGate.enabled],
+  );
+  const effectivePlanTier = tripMembers.featureGate?.planTier ?? seatLimitGate.planTier;
   const memberSeats = tripMembers.members.length;
   const hasSeatLimit = Number.isFinite(seatLimit);
   const canInviteBySeat = !hasSeatLimit || memberSeats < seatLimit;
@@ -91,7 +97,7 @@ export function TripUsersPanel({ tripMembers, currentUserId }: TripUsersPanelPro
         </div>
         {hasSeatLimit && (
           <p className="text-xs text-muted-foreground">
-            Assentos do plano {seatLimitGate.planTier}: {memberSeats}/{seatLimit}
+            Assentos do plano {effectivePlanTier}: {memberSeats}/{seatLimit}
           </p>
         )}
       </CardHeader>

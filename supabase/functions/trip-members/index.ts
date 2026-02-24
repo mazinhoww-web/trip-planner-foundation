@@ -2,6 +2,11 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/http.ts';
 import { requireAuthenticatedUser } from '../_shared/security.ts';
+import {
+  isFeatureEnabled,
+  loadFeatureGateContext,
+  trackFeatureUsage,
+} from '../_shared/feature-gates.ts';
 
 type TripRole = 'owner' | 'editor' | 'viewer';
 type InviteStatus = 'pending' | 'accepted' | 'revoked' | 'expired';
@@ -163,6 +168,23 @@ async function getTripRoleForActor(client: ReturnType<typeof createAuthedClient>
   return 'owner';
 }
 
+async function getTripOwnerId(
+  serviceClient: ReturnType<typeof createServiceClient>,
+  viagemId: string,
+) {
+  const { data: trip, error } = await serviceClient
+    .from('viagens')
+    .select('user_id')
+    .eq('id', viagemId)
+    .maybeSingle();
+
+  if (error || !trip?.user_id) {
+    return null;
+  }
+
+  return trip.user_id as string;
+}
+
 function makeInviteToken() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return Array.from(bytes)
@@ -318,6 +340,46 @@ Deno.serve(async (req) => {
         return errorResponse(requestId, 'BAD_REQUEST', 'Este convite pertence a outro e-mail.', 400);
       }
 
+      const tripOwnerId = await getTripOwnerId(serviceClient, convite.viagem_id);
+      if (!tripOwnerId) {
+        return errorResponse(requestId, 'BAD_REQUEST', 'Viagem do convite não encontrada.', 400);
+      }
+
+      const ownerFeatureContext = await loadFeatureGateContext(tripOwnerId, serviceClient);
+      if (!isFeatureEnabled(ownerFeatureContext, 'ff_collab_enabled')) {
+        return errorResponse(
+          requestId,
+          'UNAUTHORIZED',
+          'Colaboração desativada para esta viagem no plano atual.',
+          403,
+        );
+      }
+
+      if (convite.role === 'editor' && !isFeatureEnabled(ownerFeatureContext, 'ff_collab_editor_role')) {
+        return errorResponse(
+          requestId,
+          'UNAUTHORIZED',
+          'Este plano não permite novos convites com papel de editor.',
+          403,
+        );
+      }
+
+      const existingMembersBeforeAccept = await loadTripMembers(serviceClient, convite.viagem_id);
+      const alreadyMember = existingMembersBeforeAccept.some((member) => member.user_id === userInfo.user.id);
+
+      if (
+        !alreadyMember &&
+        Number.isFinite(ownerFeatureContext.seatLimit) &&
+        existingMembersBeforeAccept.length >= ownerFeatureContext.seatLimit
+      ) {
+        return errorResponse(
+          requestId,
+          'UNAUTHORIZED',
+          'Limite de assentos da viagem atingido para o plano atual.',
+          403,
+        );
+      }
+
       const joinedAt = new Date().toISOString();
       const { error: upsertMemberError } = await serviceClient
         .from('viagem_membros')
@@ -379,6 +441,20 @@ Deno.serve(async (req) => {
         actorId: auth.userId,
       });
 
+      await trackFeatureUsage(
+        {
+          userId: tripOwnerId,
+          featureKey: 'ff_collab_enabled',
+          viagemId: convite.viagem_id,
+          metadata: {
+            action,
+            invited_user_id: userInfo.user.id,
+            role: convite.role,
+          },
+        },
+        serviceClient,
+      );
+
       return successResponse({
         permission,
         viagemId: convite.viagem_id,
@@ -397,6 +473,21 @@ Deno.serve(async (req) => {
       return errorResponse(requestId, 'UNAUTHORIZED', 'Você não tem acesso a esta viagem.', 403);
     }
 
+    const tripOwnerId = await getTripOwnerId(serviceClient, viagemId);
+    if (!tripOwnerId) {
+      return errorResponse(requestId, 'BAD_REQUEST', 'Viagem não encontrada para esta operação.', 400);
+    }
+
+    const featureContext = await loadFeatureGateContext(tripOwnerId, serviceClient);
+    if (!isFeatureEnabled(featureContext, 'ff_collab_enabled')) {
+      return errorResponse(
+        requestId,
+        'UNAUTHORIZED',
+        'Colaboração desativada para esta viagem no plano atual.',
+        403,
+      );
+    }
+
     if (action === 'list_members') {
       const members = await loadTripMembers(serviceClient, viagemId);
       console.info('[trip-members]', requestId, 'list_members', {
@@ -404,7 +495,16 @@ Deno.serve(async (req) => {
         actorId: auth.userId,
         actorRole,
       });
-      return successResponse({ members, permission });
+      return successResponse({
+        members,
+        permission,
+        featureGate: {
+          planTier: featureContext.planTier,
+          seatLimit: featureContext.seatLimit,
+          source: featureContext.source,
+          entitlements: featureContext.entitlements,
+        },
+      });
     }
 
     if (action === 'list_invites') {
@@ -437,11 +537,27 @@ Deno.serve(async (req) => {
       if (role === 'owner') {
         return errorResponse(requestId, 'BAD_REQUEST', 'Nesta fase, convites só podem ser editor ou viewer.', 400);
       }
+      if (role === 'editor' && !isFeatureEnabled(featureContext, 'ff_collab_editor_role')) {
+        return errorResponse(
+          requestId,
+          'UNAUTHORIZED',
+          'Este plano não permite novos convites com papel de editor.',
+          403,
+        );
+      }
 
       const existingMembers = await loadTripMembers(serviceClient, viagemId);
       const alreadyMember = existingMembers.some((member) => normalizeEmail(member.email) === email);
       if (alreadyMember) {
         return errorResponse(requestId, 'BAD_REQUEST', 'Este e-mail já possui acesso à viagem.', 400);
+      }
+      if (Number.isFinite(featureContext.seatLimit) && existingMembers.length >= featureContext.seatLimit) {
+        return errorResponse(
+          requestId,
+          'UNAUTHORIZED',
+          'Limite de assentos da viagem atingido para o plano atual.',
+          403,
+        );
       }
 
       const token = makeInviteToken();
@@ -525,6 +641,16 @@ Deno.serve(async (req) => {
         actorId: auth.userId,
       });
 
+      await trackFeatureUsage(
+        {
+          userId: tripOwnerId,
+          featureKey: 'ff_collab_enabled',
+          viagemId,
+          metadata: { action, invite_role: role, invite_email: email },
+        },
+        serviceClient,
+      );
+
       return successResponse({
         invite: savedInvite,
         permission,
@@ -538,6 +664,14 @@ Deno.serve(async (req) => {
       const role = normalizeRole(body.role);
       if (!memberId || !role || role === 'owner') {
         return errorResponse(requestId, 'BAD_REQUEST', 'Dados inválidos para atualização de papel.', 400);
+      }
+      if (role === 'editor' && !isFeatureEnabled(featureContext, 'ff_collab_editor_role')) {
+        return errorResponse(
+          requestId,
+          'UNAUTHORIZED',
+          'Este plano não permite papel de editor.',
+          403,
+        );
       }
 
       const { data: member, error: memberError } = await serviceClient
@@ -566,6 +700,16 @@ Deno.serve(async (req) => {
       if (updatedError || !updatedMember) {
         return errorResponse(requestId, 'INTERNAL_ERROR', 'Não foi possível atualizar o papel do membro.', 500);
       }
+
+      await trackFeatureUsage(
+        {
+          userId: tripOwnerId,
+          featureKey: 'ff_collab_enabled',
+          viagemId,
+          metadata: { action, role },
+        },
+        serviceClient,
+      );
 
       return successResponse({
         member: updatedMember,
@@ -605,6 +749,16 @@ Deno.serve(async (req) => {
       if (deleteError) {
         return errorResponse(requestId, 'INTERNAL_ERROR', 'Não foi possível remover o membro da viagem.', 500);
       }
+
+      await trackFeatureUsage(
+        {
+          userId: tripOwnerId,
+          featureKey: 'ff_collab_enabled',
+          viagemId,
+          metadata: { action, member_id: memberId },
+        },
+        serviceClient,
+      );
 
       return successResponse({
         permission,

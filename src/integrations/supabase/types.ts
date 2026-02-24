@@ -161,6 +161,71 @@ export type Database = {
           },
         ]
       }
+      feature_entitlements: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          feature_key: string
+          limit_value: number | null
+          plan_tier: Database["public"]["Enums"]["plan_tier"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          feature_key: string
+          limit_value?: number | null
+          plan_tier: Database["public"]["Enums"]["plan_tier"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          feature_key?: string
+          limit_value?: number | null
+          plan_tier?: Database["public"]["Enums"]["plan_tier"]
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      feature_usage_events: {
+        Row: {
+          cluster_key: string
+          created_at: string
+          feature_key: string
+          id: string
+          metadata: Json | null
+          user_id: string
+          viagem_id: string | null
+        }
+        Insert: {
+          cluster_key: string
+          created_at?: string
+          feature_key: string
+          id?: string
+          metadata?: Json | null
+          user_id: string
+          viagem_id?: string | null
+        }
+        Update: {
+          cluster_key?: string
+          created_at?: string
+          feature_key?: string
+          id?: string
+          metadata?: Json | null
+          user_id?: string
+          viagem_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "feature_usage_events_viagem_id_fkey"
+            columns: ["viagem_id"]
+            isOneToOne: false
+            referencedRelation: "viagens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hospedagens: {
         Row: {
           atracoes_proximas: string | null
@@ -533,6 +598,54 @@ export type Database = {
           },
         ]
       }
+      user_feature_overrides: {
+        Row: {
+          created_at: string
+          enabled: boolean | null
+          feature_key: string
+          limit_value: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean | null
+          feature_key: string
+          limit_value?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean | null
+          feature_key?: string
+          limit_value?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_plan_tiers: {
+        Row: {
+          created_at: string
+          plan_tier: Database["public"]["Enums"]["plan_tier"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          plan_tier?: Database["public"]["Enums"]["plan_tier"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          plan_tier?: Database["public"]["Enums"]["plan_tier"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       viagem_convites: {
         Row: {
           accepted_at: string | null
@@ -799,6 +912,7 @@ export type Database = {
     }
     Enums: {
       convite_status: "pending" | "accepted" | "revoked" | "expired"
+      plan_tier: "free" | "pro" | "team"
       reserva_status: "confirmado" | "pendente" | "cancelado"
       tarefa_prioridade: "baixa" | "media" | "alta"
       viagem_role: "owner" | "editor" | "viewer"

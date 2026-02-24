@@ -11,6 +11,13 @@ export type TripPermissionContext = {
   isOwner: boolean;
 };
 
+export type TripFeatureGateContext = {
+  planTier: 'free' | 'pro' | 'team';
+  seatLimit: number;
+  source: 'database' | 'fallback';
+  entitlements: Record<string, boolean>;
+};
+
 export type TripMember = {
   id: string;
   viagem_id: string;
@@ -46,6 +53,7 @@ type FunctionEnvelope<T> = {
 type MembersPayload = {
   members: TripMember[];
   permission: TripPermissionContext;
+  featureGate?: TripFeatureGateContext;
 };
 
 type InvitesPayload = {

@@ -2,13 +2,20 @@ import { corsHeaders } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/http.ts';
 import { consumeRateLimit, requireAuthenticatedUser } from '../_shared/security.ts';
 import { buildProviderMeta, runParallelJsonInference } from '../_shared/ai-providers.ts';
+import {
+  isFeatureEnabled,
+  loadFeatureGateContext,
+  resolveAiRateLimit,
+  resolveAiTimeout,
+  trackFeatureUsage,
+} from '../_shared/feature-gates.ts';
 
 const LOVABLE_AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 
 const ARCEE_MODEL = 'arcee-ai/trinity-large-preview:free';
 const LOVABLE_MODEL = 'google/gemini-3-flash-preview';
 
-const LIMIT_PER_HOUR = 20;
+const BASE_LIMIT_PER_HOUR = 20;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
 const SYSTEM_PROMPT = `Role: Você é o motor de inteligência do "Trip Planner Foundation". Sua função é processar texto bruto de OCR de documentos de viagem e retornar um JSON estruturado.
@@ -490,13 +497,14 @@ async function extractWithBestProvider(
   text: string,
   fileName: string,
   requestId: string,
+  timeoutMs: number,
 ) {
   const parallel = await runParallelJsonInference({
     prompt: SYSTEM_PROMPT,
     userPayload: userContent,
     openRouterModel: ARCEE_MODEL,
     geminiModel: 'gemini-2.0-flash',
-    timeoutMs: 15_000,
+    timeoutMs,
     temperature: 0.05,
     maxTokens: 1300,
   });
@@ -564,7 +572,20 @@ Deno.serve(async (req) => {
       return errorResponse(requestId, 'UNAUTHORIZED', 'Faça login novamente para usar extração.', 401);
     }
 
-    const rate = consumeRateLimit(auth.userId, 'extract-reservation', LIMIT_PER_HOUR, ONE_HOUR_MS);
+    const featureContext = await loadFeatureGateContext(auth.userId);
+    if (!isFeatureEnabled(featureContext, 'ff_ai_import_enabled')) {
+      return errorResponse(
+        requestId,
+        'UNAUTHORIZED',
+        'Seu plano atual não permite novas extrações com IA.',
+        403,
+      );
+    }
+
+    const limitPerHour = resolveAiRateLimit(BASE_LIMIT_PER_HOUR, featureContext);
+    const timeoutMs = resolveAiTimeout(15_000, featureContext);
+
+    const rate = consumeRateLimit(auth.userId, 'extract-reservation', limitPerHour, ONE_HOUR_MS);
     if (!rate.allowed) {
       return errorResponse(requestId, 'RATE_LIMITED', 'Limite de extrações atingido. Tente novamente mais tarde.', 429, { resetAt: rate.resetAt });
     }
@@ -579,7 +600,13 @@ Deno.serve(async (req) => {
 
     const userContent = `Arquivo: ${fileName}\n\nTexto OCR:\n${text}`;
 
-    const { canonical, scope, provider, usage, providerMeta } = await extractWithBestProvider(userContent, text, fileName, requestId);
+    const { canonical, scope, provider, usage, providerMeta } = await extractWithBestProvider(
+      userContent,
+      text,
+      fileName,
+      requestId,
+      timeoutMs,
+    );
 
     const tipoLegacy = mapTipoToLegacy(canonical.metadata.tipo);
     const missingFields = missingFromCanonical(canonical, scope as 'trip_related' | 'outside_scope');
@@ -607,6 +634,7 @@ Deno.serve(async (req) => {
     console.info('[extract-reservation]', requestId, 'success', {
       userId: auth.userId,
       remaining: rate.remaining,
+      limit_per_hour: limitPerHour,
       tipo: canonical.metadata.tipo,
       scope,
       confianca: canonical.metadata.confianca,
@@ -614,6 +642,18 @@ Deno.serve(async (req) => {
       provider,
       provider_meta: providerMeta,
       usage,
+    });
+
+    await trackFeatureUsage({
+      userId: auth.userId,
+      featureKey: 'ff_ai_import_enabled',
+      viagemId: typeof body?.viagemId === 'string' ? body.viagemId : null,
+      metadata: {
+        operation: 'extract-reservation',
+        provider,
+        scope,
+        confidence: canonical.metadata.confianca,
+      },
     });
 
     return successResponse(responsePayload);

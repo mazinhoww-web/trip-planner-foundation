@@ -30,6 +30,7 @@ export function useTripMembers(viagemId: string | null) {
         return {
           members: [] as TripMember[],
           permission: EMPTY_PERMISSION,
+          featureGate: null,
         };
       }
 
@@ -145,6 +146,7 @@ export function useTripMembers(viagemId: string | null) {
 
   const state = {
     members: membersQuery.data?.members ?? [],
+    featureGate: membersQuery.data?.featureGate ?? null,
     invites: invitesQuery.data?.invites ?? [],
     permission,
     isLoadingMembers: membersQuery.isLoading,

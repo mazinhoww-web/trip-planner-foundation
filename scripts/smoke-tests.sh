@@ -81,7 +81,7 @@ else
 fi
 
 # 3) Functions deploy + proteção (espera 401 sem Authorization)
-for fn in generate-tips suggest-restaurants ocr-document extract-reservation trip-members; do
+for fn in generate-tips suggest-restaurants ocr-document extract-reservation trip-members feature-entitlements; do
   code="$(http_code POST "$SUPABASE_URL/functions/v1/$fn" "$tmp_dir/$fn.h" "$tmp_dir/$fn.b" \
     -H "apikey: $SUPABASE_ANON_KEY" \
     -H "Content-Type: application/json" \
@@ -168,6 +168,36 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
     fi
   else
     fail "suggest-restaurants autenticado falhou ($code)"
+  fi
+
+  code="$(http_code POST "$SUPABASE_URL/functions/v1/feature-entitlements" "$tmp_dir/auth-ent.h" "$tmp_dir/auth-ent.b" \
+    -H "apikey: $SUPABASE_ANON_KEY" \
+    -H "Authorization: Bearer $TEST_USER_JWT" \
+    -H "Content-Type: application/json" \
+    --data '{"action":"get_context"}')"
+  if [ "$code" = "200" ]; then
+    if grep -q "\"planTier\"" "$tmp_dir/auth-ent.b"; then
+      pass "feature-entitlements autenticado respondeu com contexto de plano"
+    else
+      warn "feature-entitlements respondeu 200 sem planTier"
+    fi
+  else
+    fail "feature-entitlements autenticado falhou ($code)"
+  fi
+
+  code="$(http_code POST "$SUPABASE_URL/functions/v1/feature-entitlements" "$tmp_dir/auth-ent-usage.h" "$tmp_dir/auth-ent-usage.b" \
+    -H "apikey: $SUPABASE_ANON_KEY" \
+    -H "Authorization: Bearer $TEST_USER_JWT" \
+    -H "Content-Type: application/json" \
+    --data '{"action":"usage_summary","days":7}')"
+  if [ "$code" = "200" ]; then
+    if grep -q "\"usageSummary\"" "$tmp_dir/auth-ent-usage.b"; then
+      pass "feature-entitlements usage_summary retornou métricas"
+    else
+      warn "feature-entitlements usage_summary respondeu 200 sem usageSummary"
+    fi
+  else
+    fail "feature-entitlements usage_summary falhou ($code)"
   fi
 
   # Classificação por tipo (voo/hospedagem/restaurante)

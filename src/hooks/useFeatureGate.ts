@@ -1,14 +1,13 @@
 import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import {
   buildEntitlements,
   FeatureEntitlements,
   FeatureKey,
-  isFeatureEnabled,
-  normalizePlanTier,
   readStoredOverrides,
-  readStoredPlanTier,
 } from '@/services/entitlements';
+import { getFeatureGateContext } from '@/services/featureEntitlements';
 
 function userScopedKey(prefix: string, userId?: string | null) {
   return userId ? `${prefix}:${userId}` : prefix;
@@ -17,11 +16,25 @@ function userScopedKey(prefix: string, userId?: string | null) {
 export function useFeatureGate(featureKey: FeatureKey) {
   const { user } = useAuth();
 
-  return useMemo(() => {
-    const planKey = userScopedKey('tp_plan_tier', user?.id ?? null);
-    const overridesKey = userScopedKey('tp_feature_overrides', user?.id ?? null);
+  const featureContextQuery = useQuery({
+    queryKey: ['feature-entitlements', user?.id ?? null],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const result = await getFeatureGateContext(user.id);
+      if (!result.data) {
+        throw new Error(result.error ?? 'Falha ao carregar recursos do plano.');
+      }
+      return {
+        ...result.data,
+        warning: result.error,
+      };
+    },
+    enabled: !!user?.id,
+    staleTime: 60_000,
+  });
 
-    const planTier = readStoredPlanTier(planKey);
+  return useMemo(() => {
+    const overridesKey = userScopedKey('tp_feature_overrides', user?.id ?? null);
     const storedOverrides = readStoredOverrides(overridesKey);
     const queryParamOverrides = typeof window !== 'undefined'
       ? normalizeDebugOverrides(new URLSearchParams(window.location.search).get('ff'))
@@ -32,14 +45,31 @@ export function useFeatureGate(featureKey: FeatureKey) {
       ...queryParamOverrides,
     };
 
+    const planTier = featureContextQuery.data?.planTier ?? 'free';
+    const dbEntitlements = featureContextQuery.data?.entitlements ?? buildEntitlements(planTier);
+    const mergedEntitlements = {
+      ...dbEntitlements,
+      ...runtimeOverrides,
+    };
+    const seatLimit = featureContextQuery.data?.seatLimit ?? Number.POSITIVE_INFINITY;
+
     return {
       featureKey,
-      enabled: isFeatureEnabled(featureKey, planTier, runtimeOverrides),
+      enabled: !!mergedEntitlements[featureKey],
       planTier,
-      entitlements: buildEntitlements(planTier, runtimeOverrides),
+      entitlements: mergedEntitlements,
       runtimeOverrides,
+      seatLimit,
+      limits: featureContextQuery.data?.limits ?? {},
+      source: featureContextQuery.data?.source ?? 'fallback',
+      selfServiceEnabled: featureContextQuery.data?.selfServiceEnabled ?? false,
+      rolloutCohort: featureContextQuery.data?.rolloutCohort ?? false,
+      rolloutPercent: featureContextQuery.data?.rolloutPercent ?? 0,
+      rolloutFeatures: featureContextQuery.data?.rolloutFeatures ?? [],
+      warning: featureContextQuery.data?.warning ?? null,
+      isLoading: featureContextQuery.isLoading,
     };
-  }, [featureKey, user?.id]);
+  }, [featureContextQuery.data, featureContextQuery.isLoading, featureKey, user?.id]);
 }
 
 function normalizeDebugOverrides(raw: string | null): Partial<FeatureEntitlements> {

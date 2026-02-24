@@ -2,6 +2,13 @@ import { corsHeaders } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/http.ts';
 import { consumeRateLimit, requireAuthenticatedUser } from '../_shared/security.ts';
 import { buildProviderMeta, extractJsonObject, runParallelJsonInference } from '../_shared/ai-providers.ts';
+import {
+  isFeatureEnabled,
+  loadFeatureGateContext,
+  resolveAiRateLimit,
+  resolveAiTimeout,
+  trackFeatureUsage,
+} from '../_shared/feature-gates.ts';
 
 type SuggestRestaurantsInput = {
   city?: string | null;
@@ -46,7 +53,7 @@ const LOVABLE_AI_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 const OPENROUTER_MODEL = 'arcee-ai/trinity-large-preview:free';
 const GEMINI_MODEL = 'gemini-2.0-flash';
 const LOVABLE_MODEL = 'google/gemini-3-flash-preview';
-const LIMIT_PER_HOUR = 18;
+const BASE_LIMIT_PER_HOUR = 18;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
 type SuggestRestaurantPayload = {
@@ -199,7 +206,19 @@ Deno.serve(async (req) => {
       return errorResponse(requestId, 'UNAUTHORIZED', 'Faça login novamente para usar sugestões de IA.', 401);
     }
 
-    const rate = consumeRateLimit(auth.userId, 'suggest-restaurants', LIMIT_PER_HOUR, ONE_HOUR_MS);
+    const featureContext = await loadFeatureGateContext(auth.userId);
+    if (!isFeatureEnabled(featureContext, 'ff_ai_import_enabled')) {
+      return errorResponse(
+        requestId,
+        'UNAUTHORIZED',
+        'Seu plano atual não permite sugestões com IA.',
+        403,
+      );
+    }
+
+    const limitPerHour = resolveAiRateLimit(BASE_LIMIT_PER_HOUR, featureContext);
+    const timeoutMs = resolveAiTimeout(15_000, featureContext);
+    const rate = consumeRateLimit(auth.userId, 'suggest-restaurants', limitPerHour, ONE_HOUR_MS);
     if (!rate.allowed) {
       return errorResponse(requestId, 'RATE_LIMITED', 'Limite de sugestões atingido. Tente novamente mais tarde.', 429, { resetAt: rate.resetAt });
     }
@@ -218,7 +237,7 @@ Deno.serve(async (req) => {
       userPayload: userContent,
       openRouterModel: OPENROUTER_MODEL,
       geminiModel: GEMINI_MODEL,
-      timeoutMs: 15_000,
+      timeoutMs,
       temperature: 0.3,
       maxTokens: 650,
       parser: parseRestaurants,
@@ -277,8 +296,19 @@ Deno.serve(async (req) => {
     console.info('[suggest-restaurants]', requestId, 'success', {
       userId: auth.userId,
       remaining: rate.remaining,
+      limit_per_hour: limitPerHour,
       count: selected.payload.items.length,
       provider_meta: providerMeta,
+    });
+
+    await trackFeatureUsage({
+      userId: auth.userId,
+      featureKey: 'ff_ai_import_enabled',
+      metadata: {
+        operation: 'suggest-restaurants',
+        selected_provider: providerMeta.selected,
+        count: selected.payload.items.length,
+      },
     });
 
     return successResponse({ items: selected.payload.items, provider_meta: providerMeta });

@@ -2,6 +2,13 @@ import { corsHeaders } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/http.ts';
 import { consumeRateLimit, requireAuthenticatedUser } from '../_shared/security.ts';
 import { buildProviderMeta, runParallelVisionText } from '../_shared/ai-providers.ts';
+import {
+  isFeatureEnabled,
+  loadFeatureGateContext,
+  resolveAiRateLimit,
+  resolveAiTimeout,
+  trackFeatureUsage,
+} from '../_shared/feature-gates.ts';
 
 const OCR_PROMPT = `Extraia todo o texto visivel deste documento de viagem.
 Retorne apenas texto bruto.
@@ -14,7 +21,7 @@ const GEMMA_VISION_MODEL = 'google/gemma-3-27b-it:free';
 const GEMINI_MODEL = 'gemini-2.0-flash';
 const LOVABLE_VISION_MODEL = 'google/gemini-2.5-flash';
 
-const LIMIT_PER_HOUR = 10;
+const BASE_LIMIT_PER_HOUR = 10;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const OCR_SPACE_MAX_BYTES = 1_000_000;
 
@@ -205,7 +212,19 @@ Deno.serve(async (req) => {
       return errorResponse(requestId, 'UNAUTHORIZED', 'Faça login novamente para usar OCR.', 401);
     }
 
-    const rate = consumeRateLimit(auth.userId, 'ocr-document', LIMIT_PER_HOUR, ONE_HOUR_MS);
+    const featureContext = await loadFeatureGateContext(auth.userId);
+    if (!isFeatureEnabled(featureContext, 'ff_ai_import_enabled')) {
+      return errorResponse(
+        requestId,
+        'UNAUTHORIZED',
+        'Seu plano atual não permite novas análises de arquivo com IA.',
+        403,
+      );
+    }
+
+    const limitPerHour = resolveAiRateLimit(BASE_LIMIT_PER_HOUR, featureContext);
+    const timeoutMs = resolveAiTimeout(15_000, featureContext);
+    const rate = consumeRateLimit(auth.userId, 'ocr-document', limitPerHour, ONE_HOUR_MS);
     if (!rate.allowed) {
       return errorResponse(requestId, 'RATE_LIMITED', 'Limite de OCR atingido. Tente novamente mais tarde.', 429, { resetAt: rate.resetAt });
     }
@@ -234,7 +253,13 @@ Deno.serve(async (req) => {
     const nativeMetrics = nativePdfText ? qualityMetricsFromText(nativePdfText) : null;
 
     if (nativePdfText && nativeMetrics?.has_structured_density) {
-      console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: 'native_pdf_preferred', remaining: rate.remaining });
+      console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: 'native_pdf_preferred', remaining: rate.remaining, limit_per_hour: limitPerHour });
+      await trackFeatureUsage({
+        userId: auth.userId,
+        featureKey: 'ff_ai_import_enabled',
+        viagemId: typeof body?.viagemId === 'string' ? body.viagemId : null,
+        metadata: { operation: 'ocr-document', method: 'native_pdf_preferred' },
+      });
       return successResponse({ text: nativePdfText, method: 'native_pdf_preferred', warnings, qualityMetrics: nativeMetrics });
     }
 
@@ -242,7 +267,13 @@ Deno.serve(async (req) => {
       const ocrResult = await runOcrSpace(fileBase64, mimeType);
       if (!ocrResult.error && ocrResult.text) {
         const metrics = qualityMetricsFromText(ocrResult.text);
-        console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: 'ocr_space', remaining: rate.remaining });
+        console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: 'ocr_space', remaining: rate.remaining, limit_per_hour: limitPerHour });
+        await trackFeatureUsage({
+          userId: auth.userId,
+          featureKey: 'ff_ai_import_enabled',
+          viagemId: typeof body?.viagemId === 'string' ? body.viagemId : null,
+          metadata: { operation: 'ocr-document', method: 'ocr_space' },
+        });
         return successResponse({ text: ocrResult.text, method: 'ocr_space', warnings, qualityMetrics: metrics });
       }
       warnings.push(ocrResult.error || 'OCR.space indisponível.');
@@ -252,7 +283,13 @@ Deno.serve(async (req) => {
       const metrics = qualityMetricsFromText(nativePdfText);
       if (metrics.text_length > 24) {
         warnings.push('OCR provider indisponível. Texto nativo de PDF usado como fallback.');
-        console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: 'native_pdf_fallback', remaining: rate.remaining });
+        console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: 'native_pdf_fallback', remaining: rate.remaining, limit_per_hour: limitPerHour });
+        await trackFeatureUsage({
+          userId: auth.userId,
+          featureKey: 'ff_ai_import_enabled',
+          viagemId: typeof body?.viagemId === 'string' ? body.viagemId : null,
+          metadata: { operation: 'ocr-document', method: 'native_pdf_fallback' },
+        });
         return successResponse({ text: nativePdfText, method: 'native_pdf_fallback', warnings, qualityMetrics: metrics });
       }
     }
@@ -265,7 +302,7 @@ Deno.serve(async (req) => {
         mimeType: visionMime,
         openRouterModel: GEMMA_VISION_MODEL,
         geminiModel: GEMINI_MODEL,
-        timeoutMs: 15_000,
+        timeoutMs,
         maxTokens: 2000,
       });
 
@@ -311,7 +348,15 @@ Deno.serve(async (req) => {
           userId: auth.userId,
           method,
           remaining: rate.remaining,
+          limit_per_hour: limitPerHour,
           provider_meta: providerMeta,
+        });
+
+        await trackFeatureUsage({
+          userId: auth.userId,
+          featureKey: 'ff_ai_import_enabled',
+          viagemId: typeof body?.viagemId === 'string' ? body.viagemId : null,
+          metadata: { operation: 'ocr-document', method, selected_provider: selected.provider },
         });
 
         return successResponse({
@@ -336,7 +381,15 @@ Deno.serve(async (req) => {
           userId: auth.userId,
           method: 'lovable_ai_vision',
           remaining: rate.remaining,
+          limit_per_hour: limitPerHour,
           provider_meta: providerMeta,
+        });
+
+        await trackFeatureUsage({
+          userId: auth.userId,
+          featureKey: 'ff_ai_import_enabled',
+          viagemId: typeof body?.viagemId === 'string' ? body.viagemId : null,
+          metadata: { operation: 'ocr-document', method: 'lovable_ai_vision' },
         });
 
         return successResponse({
