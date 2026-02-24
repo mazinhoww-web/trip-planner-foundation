@@ -16,6 +16,10 @@ export type FeatureKey =
   | 'ff_webhooks_enabled';
 
 export type FeatureEntitlements = Record<FeatureKey, boolean>;
+export type SeatLimit = {
+  hardLimit: number;
+  planTier: PlanTier;
+};
 
 const BASE_FLAGS: FeatureEntitlements = {
   ff_collab_enabled: true,
@@ -56,6 +60,12 @@ const PLAN_OVERRIDES: Record<PlanTier, Partial<FeatureEntitlements>> = {
   },
 };
 
+const PLAN_SEAT_LIMITS: Record<PlanTier, number> = {
+  free: 2,
+  pro: 6,
+  team: 20,
+};
+
 export function normalizePlanTier(value: string | null | undefined): PlanTier {
   if (value === 'pro' || value === 'team') return value;
   return 'free';
@@ -94,4 +104,18 @@ export function isFeatureEnabled(
 ): boolean {
   const entitlements = buildEntitlements(planTier, runtimeOverrides);
   return !!entitlements[featureKey];
+}
+
+export function resolveSeatLimit(planTier: PlanTier, entitlements?: Partial<FeatureEntitlements>): SeatLimit {
+  const effective = buildEntitlements(planTier, entitlements);
+  if (!effective.ff_collab_seat_limit_enforced) {
+    return {
+      hardLimit: Number.POSITIVE_INFINITY,
+      planTier,
+    };
+  }
+  return {
+    hardLimit: PLAN_SEAT_LIMITS[planTier],
+    planTier,
+  };
 }

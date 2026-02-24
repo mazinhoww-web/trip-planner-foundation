@@ -57,6 +57,7 @@ type MutationPayload = {
   member?: TripMember;
   invite?: TripInvite;
   permission: TripPermissionContext;
+  viagemId?: string;
 };
 
 function normalizeTripMembersError(message: string) {

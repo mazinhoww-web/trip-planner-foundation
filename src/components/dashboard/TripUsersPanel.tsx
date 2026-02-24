@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ConfirmActionButton } from '@/components/common/ConfirmActionButton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TripMembersState } from '@/hooks/useTripMembers';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
+import { resolveSeatLimit } from '@/services/entitlements';
 
 type TripUsersPanelProps = {
   tripMembers: TripMembersState;
@@ -35,6 +37,23 @@ function formatDateTime(value: string) {
 export function TripUsersPanel({ tripMembers, currentUserId }: TripUsersPanelProps) {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'editor' | 'viewer'>('viewer');
+  const seatLimitGate = useFeatureGate('ff_collab_seat_limit_enforced');
+  const editorRoleGate = useFeatureGate('ff_collab_editor_role');
+
+  const seatLimit = useMemo(
+    () => resolveSeatLimit(seatLimitGate.planTier, seatLimitGate.runtimeOverrides).hardLimit,
+    [seatLimitGate.planTier, seatLimitGate.runtimeOverrides],
+  );
+  const canUseEditorRole = editorRoleGate.enabled;
+  const memberSeats = tripMembers.members.length;
+  const hasSeatLimit = Number.isFinite(seatLimit);
+  const canInviteBySeat = !hasSeatLimit || memberSeats < seatLimit;
+
+  useEffect(() => {
+    if (!canUseEditorRole && inviteRole === 'editor') {
+      setInviteRole('viewer');
+    }
+  }, [canUseEditorRole, inviteRole]);
 
   const pendingInvites = useMemo(
     () => tripMembers.invites.filter((invite) => invite.status === 'pending'),
@@ -70,6 +89,11 @@ export function TripUsersPanel({ tripMembers, currentUserId }: TripUsersPanelPro
             {roleLabel}
           </Badge>
         </div>
+        {hasSeatLimit && (
+          <p className="text-xs text-muted-foreground">
+            Assentos do plano {seatLimitGate.planTier}: {memberSeats}/{seatLimit}
+          </p>
+        )}
       </CardHeader>
 
       <CardContent className="space-y-4">
@@ -110,20 +134,25 @@ export function TripUsersPanel({ tripMembers, currentUserId }: TripUsersPanelPro
                       <SelectTrigger id="invite-role"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="viewer">Viewer</SelectItem>
-                        <SelectItem value="editor">Editor</SelectItem>
+                        {canUseEditorRole && <SelectItem value="editor">Editor</SelectItem>}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="flex items-end">
                     <Button
                       onClick={submitInvite}
-                      disabled={!inviteEmail.trim() || tripMembers.isInviting}
+                      disabled={!inviteEmail.trim() || tripMembers.isInviting || !canInviteBySeat}
                       className="w-full sm:w-auto"
                     >
                       Enviar convite
                     </Button>
                   </div>
                 </div>
+                {!canInviteBySeat && (
+                  <p className="mt-2 text-xs text-amber-700">
+                    Limite de assentos atingido para o plano atual. Faça upgrade para convidar mais usuários.
+                  </p>
+                )}
               </div>
             )}
 
@@ -152,6 +181,9 @@ export function TripUsersPanel({ tripMembers, currentUserId }: TripUsersPanelPro
                             <Select
                               value={member.role}
                               onValueChange={(value: 'editor' | 'viewer') => {
+                                if (value === 'editor' && !canUseEditorRole) {
+                                  return;
+                                }
                                 if (value !== member.role) {
                                   void tripMembers.updateMemberRole({ memberId: member.id, role: value });
                                 }
@@ -161,7 +193,7 @@ export function TripUsersPanel({ tripMembers, currentUserId }: TripUsersPanelPro
                               <SelectTrigger><SelectValue /></SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="viewer">Viewer</SelectItem>
-                                <SelectItem value="editor">Editor</SelectItem>
+                                {canUseEditorRole && <SelectItem value="editor">Editor</SelectItem>}
                               </SelectContent>
                             </Select>
                           ) : (

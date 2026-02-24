@@ -10,6 +10,8 @@ export default function AuthCallback() {
   useEffect(() => {
     const inviteToken = new URL(window.location.href).searchParams.get('invite_token');
     let inviteHandled = false;
+    let redirected = false;
+    let inviteTripId: string | null = null;
 
     const tryAcceptInvite = async () => {
       if (!inviteToken || inviteHandled) return;
@@ -21,25 +23,36 @@ export default function AuthCallback() {
         return;
       }
 
+      inviteTripId = result.data?.viagemId ?? null;
+
       toast.success('Convite aceito com sucesso. A viagem compartilhada já está disponível.');
     };
 
-    const redirectToApp = async () => {
+    const redirectToApp = async (userId?: string) => {
+      if (redirected) return;
+      redirected = true;
+
       if (inviteToken) {
         await tryAcceptInvite();
       }
+
+      if (userId && inviteTripId) {
+        window.localStorage.setItem(`tripplanner_current_trip_${userId}`, inviteTripId);
+      }
+
       navigate('/app', { replace: true });
     };
 
     const { data } = supabase.auth.onAuthStateChange(async (event) => {
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        await redirectToApp();
+        const { data: sessionData } = await supabase.auth.getSession();
+        await redirectToApp(sessionData.session?.user?.id);
       }
     });
 
     supabase.auth.getSession().then(async ({ data: sessionData }) => {
       if (sessionData.session) {
-        await redirectToApp();
+        await redirectToApp(sessionData.session.user.id);
       }
     });
 
