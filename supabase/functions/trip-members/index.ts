@@ -145,27 +145,44 @@ function buildPermission(role: TripRole | null): TripPermissionContext {
   };
 }
 
-async function getTripRoleForActor(client: ReturnType<typeof createAuthedClient>, viagemId: string): Promise<TripRole | null> {
-  // Try the RPC function first (requires viagem_membros table + trip_role function)
-  const { data, error } = await client.rpc('trip_role', { _viagem_id: viagemId });
-
-  if (!error) {
-    return normalizeRole(data);
+async function getTripRoleForActor(
+  authedClient: ReturnType<typeof createAuthedClient>,
+  serviceClient: ReturnType<typeof createServiceClient>,
+  viagemId: string,
+  actorId: string,
+): Promise<TripRole | null> {
+  // Path 1: preferred role lookup via RPC.
+  const { data, error } = await authedClient.rpc('trip_role', { _viagem_id: viagemId });
+  const rpcRole = !error ? normalizeRole(data) : null;
+  if (rpcRole) {
+    return rpcRole;
   }
 
-  // Fallback: check if the user is the trip owner via viagens table
-  const { data: trip, error: tripError } = await client
+  // Path 2: resilient fallback via service-role query for member rows.
+  const { data: member, error: memberError } = await serviceClient
+    .from('viagem_membros')
+    .select('role')
+    .eq('viagem_id', viagemId)
+    .eq('user_id', actorId)
+    .maybeSingle();
+
+  if (!memberError) {
+    const memberRole = normalizeRole(member?.role);
+    if (memberRole) return memberRole;
+  }
+
+  // Path 3: owner fallback (legacy trips / temporary migration drift).
+  const { data: trip, error: tripError } = await serviceClient
     .from('viagens')
     .select('user_id')
     .eq('id', viagemId)
     .maybeSingle();
 
-  if (tripError || !trip) {
+  if (tripError || !trip?.user_id) {
     return null;
   }
 
-  // If the RLS lets them read the trip, they're the owner (RLS policy: auth.uid() = user_id)
-  return 'owner';
+  return trip.user_id === actorId ? 'owner' : null;
 }
 
 async function getTripOwnerId(
@@ -490,7 +507,7 @@ Deno.serve(async (req) => {
         });
       }
 
-      const role = await getTripRoleForActor(authedClient, convite.viagem_id);
+      const role = await getTripRoleForActor(authedClient, serviceClient, convite.viagem_id, auth.userId);
       const permission = buildPermission(role);
 
       console.info('[trip-members]', requestId, 'accept_invite', {
@@ -527,7 +544,7 @@ Deno.serve(async (req) => {
       return errorResponse(requestId, 'BAD_REQUEST', 'Viagem inválida para esta operação.', 400);
     }
 
-    const actorRole = await getTripRoleForActor(authedClient, viagemId);
+    const actorRole = await getTripRoleForActor(authedClient, serviceClient, viagemId, auth.userId);
     const permission = buildPermission(actorRole);
 
     if (!permission.canView) {

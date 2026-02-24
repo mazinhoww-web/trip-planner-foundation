@@ -36,6 +36,7 @@ type TripOpenMapProps = {
   className?: string;
   height?: number | string;
   disabled?: boolean;
+  background?: boolean;
 };
 
 const LEAFLET_CSS_ID = 'tripplanner-leaflet-css';
@@ -110,7 +111,15 @@ function normalizeDate(value: string | null | undefined) {
   return parsed.toISOString().slice(0, 10);
 }
 
-export function TripOpenMap({ stays, transports, flights = [], className, height = 320, disabled = false }: TripOpenMapProps) {
+export function TripOpenMap({
+  stays,
+  transports,
+  flights = [],
+  className,
+  height = 320,
+  disabled = false,
+  background = false,
+}: TripOpenMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -412,7 +421,11 @@ export function TripOpenMap({ stays, transports, flights = [], className, height
   }, [disabled, mapData]);
 
   return (
-    <div className={`tp-map-root ${className ?? ''}`} data-disabled={disabled ? 'true' : 'false'}>
+    <div
+      className={`tp-map-root ${className ?? ''}`}
+      data-disabled={disabled ? 'true' : 'false'}
+      data-background={background ? 'true' : 'false'}
+    >
       <div
         ref={containerRef}
         style={{ height, minHeight: 220 }}

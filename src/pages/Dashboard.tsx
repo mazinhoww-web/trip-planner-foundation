@@ -496,6 +496,14 @@ export default function Dashboard() {
     transportDetailOpen ||
     expenseDialogOpen;
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.body.classList.toggle('tp-any-dialog-open', isAnyCrudDialogOpen);
+    return () => {
+      document.body.classList.remove('tp-any-dialog-open');
+    };
+  }, [isAnyCrudDialogOpen]);
+
   const handleLogout = async () => {
     await signOut();
     navigate('/login');
@@ -1634,6 +1642,7 @@ export default function Dashboard() {
                         flights={flightsModule.data}
                         height="clamp(220px, 42vh, 320px)"
                         disabled={isAnyCrudDialogOpen}
+                        background
                       />
                     </Suspense>
                     <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -2037,6 +2046,7 @@ export default function Dashboard() {
                         flights={flightsModule.data}
                         height="clamp(200px, 36vh, 280px)"
                         disabled={isAnyCrudDialogOpen}
+                        background
                       />
                     </Suspense>
 
@@ -2459,6 +2469,7 @@ export default function Dashboard() {
                         flights={flightsModule.data}
                         height="clamp(200px, 34vh, 260px)"
                         disabled={isAnyCrudDialogOpen}
+                        background
                       />
                     </Suspense>
 

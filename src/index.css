@@ -154,6 +154,11 @@
     pointer-events: none;
     opacity: 0.94;
   }
+
+  body.tp-any-dialog-open .tp-map-root[data-background='true'] {
+    pointer-events: none;
+    visibility: hidden;
+  }
 }
 
 @layer utilities {
