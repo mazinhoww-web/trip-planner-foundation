@@ -24,6 +24,7 @@ import { TripTopActions } from '@/components/dashboard/TripTopActions';
 import { TripUsersPanel } from '@/components/dashboard/TripUsersPanel';
 import { UserSettingsPanel } from '@/components/dashboard/UserSettingsPanel';
 import { BrandLogo } from '@/components/brand/BrandLogo';
+import { BudgetExportActions } from '@/components/dashboard/BudgetExportActions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -42,12 +43,13 @@ import { generateStayTips, suggestRestaurants, generateTripTasks, generateItiner
 import { calculateStayCoverageGaps, calculateTransportCoverageGaps } from '@/services/tripInsights';
 import { supabase } from '@/integrations/supabase/client';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
+import { buildTripSnapshot } from '@/services/tripSnapshot';
+import { exportTripSnapshotJson, exportTripSnapshotPdf } from '@/services/exports';
+import { trackProductEvent } from '@/services/productAnalytics';
+import { fetchPublicTripSnapshot } from '@/services/publicApi';
 
 const ImportReservationDialog = lazy(() =>
   import('@/components/import/ImportReservationDialog').then((mod) => ({ default: mod.ImportReservationDialog })),
-);
-const ImportItineraryDialog = lazy(() =>
-  import('@/components/import/ImportItineraryDialog').then((mod) => ({ default: mod.ImportItineraryDialog })),
 );
 const TripOpenMap = lazy(() =>
   import('@/components/map/TripOpenMap').then((mod) => ({ default: mod.TripOpenMap })),
@@ -487,6 +489,12 @@ export default function Dashboard() {
   const canEditTrip = tripMembers.permission.role ? tripMembers.permission.canEdit : fallbackCanEdit;
   const aiImportGate = useFeatureGate('ff_ai_import_enabled');
   const collabGate = useFeatureGate('ff_collab_enabled');
+  const exportPdfGate = useFeatureGate('ff_export_pdf');
+  const exportJsonGate = useFeatureGate('ff_export_json_full');
+  const publicApiGate = useFeatureGate('ff_public_api_access');
+  const [isExportingData, setIsExportingData] = useState(false);
+  const [isLoadingPublicApiSnapshot, setIsLoadingPublicApiSnapshot] = useState(false);
+  const [publicApiSnapshotPreview, setPublicApiSnapshotPreview] = useState<string | null>(null);
   const isAnyCrudDialogOpen =
     flightDialogOpen ||
     flightDetailOpen ||
@@ -1491,7 +1499,6 @@ export default function Dashboard() {
                   <Suspense fallback={<Button disabled>Carregando importação...</Button>}>
                     <div className="flex gap-2 flex-wrap">
                       <ImportReservationDialog />
-                      <ImportItineraryDialog />
                     </div>
                   </Suspense>
                 ) : (
@@ -3081,7 +3088,80 @@ export default function Dashboard() {
                 </Card>
               </TabsContent>
 
-               <TabsContent value="orcamento" className="space-y-4">
+              <TabsContent value="orcamento" className="space-y-4">
+                <BudgetExportActions
+                  canExportPdf={exportPdfGate.enabled}
+                  canExportJson={exportJsonGate.enabled}
+                  isExporting={isExportingData}
+                  planTier={collabGate.planTier}
+                  onExportJson={async () => {
+                    if (!currentTrip) return;
+                    setIsExportingData(true);
+                    try {
+                      const snapshot = buildTripSnapshot({
+                        trip: currentTrip,
+                        flights: flightsModule.data,
+                        stays: staysModule.data,
+                        transports: transportsModule.data,
+                        expenses: expensesModule.data,
+                        tasks: tasksModule.data,
+                        restaurants: restaurantsModule.data,
+                        documents: documentsModule.data,
+                        luggage: luggageModule.data,
+                        travelers: travelersModule.data,
+                        preparativos: prepModule.data,
+                        roteiro: roteiroModule.data,
+                      });
+                      exportTripSnapshotJson(snapshot);
+                      await trackProductEvent({
+                        eventName: 'export_triggered',
+                        featureKey: 'ff_export_json_full',
+                        viagemId: currentTripId,
+                        metadata: { format: 'json' },
+                      });
+                      toast.success('Snapshot JSON exportado com sucesso.');
+                    } catch (error) {
+                      const message = error instanceof Error ? error.message : 'Não foi possível exportar o JSON da viagem.';
+                      toast.error(message);
+                    } finally {
+                      setIsExportingData(false);
+                    }
+                  }}
+                  onExportPdf={async () => {
+                    if (!currentTrip) return;
+                    setIsExportingData(true);
+                    try {
+                      const snapshot = buildTripSnapshot({
+                        trip: currentTrip,
+                        flights: flightsModule.data,
+                        stays: staysModule.data,
+                        transports: transportsModule.data,
+                        expenses: expensesModule.data,
+                        tasks: tasksModule.data,
+                        restaurants: restaurantsModule.data,
+                        documents: documentsModule.data,
+                        luggage: luggageModule.data,
+                        travelers: travelersModule.data,
+                        preparativos: prepModule.data,
+                        roteiro: roteiroModule.data,
+                      });
+                      exportTripSnapshotPdf(snapshot);
+                      await trackProductEvent({
+                        eventName: 'export_triggered',
+                        featureKey: 'ff_export_pdf',
+                        viagemId: currentTripId,
+                        metadata: { format: 'pdf' },
+                      });
+                      toast.success('Resumo preparado para exportação em PDF.');
+                    } catch (error) {
+                      const message = error instanceof Error ? error.message : 'Não foi possível iniciar a exportação em PDF.';
+                      toast.error(message);
+                    } finally {
+                      setIsExportingData(false);
+                    }
+                  }}
+                />
+
                 <div className="grid gap-4 md:grid-cols-3">
                   <Card className="border-border/50">
                     <CardHeader className="pb-2">
@@ -3299,7 +3379,7 @@ export default function Dashboard() {
                     />
 
                     {collabGate.enabled ? (
-                      <TripUsersPanel tripMembers={tripMembers} currentUserId={user?.id} />
+                      <TripUsersPanel tripMembers={tripMembers} currentUserId={user?.id} currentTripId={currentTripId} />
                     ) : (
                       <Card className="border-border/50">
                         <CardContent className="p-4 text-sm text-muted-foreground">
@@ -3307,6 +3387,59 @@ export default function Dashboard() {
                         </CardContent>
                       </Card>
                     )}
+
+                    <Card className="border-border/50">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base">API pública da viagem (M4)</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {publicApiGate.enabled ? (
+                          <>
+                            <p className="text-sm text-muted-foreground">
+                              Gere um snapshot autenticado da viagem para integrações externas.
+                            </p>
+                            <div className="flex flex-col gap-2 sm:flex-row">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                disabled={!currentTripId || isLoadingPublicApiSnapshot}
+                                onClick={async () => {
+                                  if (!currentTripId) return;
+                                  setIsLoadingPublicApiSnapshot(true);
+                                  try {
+                                    const result = await fetchPublicTripSnapshot(currentTripId);
+                                    if (result.error || !result.data) {
+                                      toast.error(result.error ?? 'Falha ao obter snapshot da API pública.');
+                                      return;
+                                    }
+                                    setPublicApiSnapshotPreview(JSON.stringify(result.data, null, 2));
+                                    await trackProductEvent({
+                                      eventName: 'export_triggered',
+                                      featureKey: 'ff_public_api_access',
+                                      viagemId: currentTripId,
+                                      metadata: { source: 'support_tab' },
+                                    });
+                                  } finally {
+                                    setIsLoadingPublicApiSnapshot(false);
+                                  }
+                                }}
+                              >
+                                {isLoadingPublicApiSnapshot ? 'Carregando...' : 'Gerar snapshot da API'}
+                              </Button>
+                            </div>
+                            {publicApiSnapshotPreview && (
+                              <pre className="tp-scroll max-h-52 overflow-auto rounded-lg border bg-muted/20 p-3 text-xs">
+                                {publicApiSnapshotPreview}
+                              </pre>
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">
+                            API pública disponível no plano Team com a flag `ff_public_api_access`.
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
 
                     <div className="grid gap-4 xl:grid-cols-2">
                       <Card className="border-border/50">

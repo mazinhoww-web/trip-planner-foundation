@@ -34,19 +34,21 @@ export function useFeatureGate(featureKey: FeatureKey) {
   });
 
   return useMemo(() => {
+    const planTier = featureContextQuery.data?.planTier ?? 'free';
+    const dbEntitlements = featureContextQuery.data?.entitlements ?? buildEntitlements(planTier);
+    const allowDebugOverrides = featureContextQuery.data?.selfServiceEnabled ?? false;
     const overridesKey = userScopedKey('tp_feature_overrides', user?.id ?? null);
-    const storedOverrides = readStoredOverrides(overridesKey);
-    const queryParamOverrides = typeof window !== 'undefined'
+    const storedOverrides = allowDebugOverrides ? readStoredOverrides(overridesKey) : {};
+    const queryParamOverrides = allowDebugOverrides && typeof window !== 'undefined'
       ? normalizeDebugOverrides(new URLSearchParams(window.location.search).get('ff'))
       : {};
 
-    const runtimeOverrides: Partial<FeatureEntitlements> = {
-      ...storedOverrides,
-      ...queryParamOverrides,
-    };
-
-    const planTier = featureContextQuery.data?.planTier ?? 'free';
-    const dbEntitlements = featureContextQuery.data?.entitlements ?? buildEntitlements(planTier);
+    const runtimeOverrides: Partial<FeatureEntitlements> = allowDebugOverrides
+      ? {
+          ...storedOverrides,
+          ...queryParamOverrides,
+        }
+      : {};
     const mergedEntitlements = {
       ...dbEntitlements,
       ...runtimeOverrides,

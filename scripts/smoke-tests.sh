@@ -81,7 +81,7 @@ else
 fi
 
 # 3) Functions deploy + proteção (espera 401 sem Authorization)
-for fn in generate-tips suggest-restaurants ocr-document extract-reservation trip-members feature-entitlements; do
+for fn in generate-tips suggest-restaurants ocr-document extract-reservation trip-members feature-entitlements public-trip-api trip-webhook-dispatch; do
   code="$(http_code POST "$SUPABASE_URL/functions/v1/$fn" "$tmp_dir/$fn.h" "$tmp_dir/$fn.b" \
     -H "apikey: $SUPABASE_ANON_KEY" \
     -H "Content-Type: application/json" \
@@ -200,6 +200,44 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
     fi
   else
     fail "feature-entitlements usage_summary falhou ($code)"
+  fi
+
+  if [ -n "${TEST_TRIP_ID:-}" ]; then
+    code="$(http_code POST "$SUPABASE_URL/functions/v1/public-trip-api" "$tmp_dir/auth-public-api.h" "$tmp_dir/auth-public-api.b" \
+      -H "apikey: $SUPABASE_ANON_KEY" \
+      -H "Authorization: Bearer $TEST_USER_JWT" \
+      -H "Content-Type: application/json" \
+      --data "{\"action\":\"trip_snapshot\",\"viagemId\":\"$TEST_TRIP_ID\"}")"
+    if [[ "$code" =~ ^(200|403|429|502)$ ]]; then
+      if [ "$code" = "200" ]; then
+        pass "public-trip-api autenticado respondeu snapshot (200)"
+      elif [ "$code" = "403" ]; then
+        pass "public-trip-api bloqueado por plano/permissão (403) - esperado no free/pro"
+      else
+        warn "public-trip-api retornou $code"
+      fi
+    else
+      fail "public-trip-api autenticado falhou ($code)"
+    fi
+
+    code="$(http_code POST "$SUPABASE_URL/functions/v1/trip-webhook-dispatch" "$tmp_dir/auth-webhook.h" "$tmp_dir/auth-webhook.b" \
+      -H "apikey: $SUPABASE_ANON_KEY" \
+      -H "Authorization: Bearer $TEST_USER_JWT" \
+      -H "Content-Type: application/json" \
+      --data "{\"eventType\":\"smoke.test\",\"viagemId\":\"$TEST_TRIP_ID\",\"payload\":{\"origin\":\"smoke\"}}")"
+    if [[ "$code" =~ ^(200|403|429|502)$ ]]; then
+      if [ "$code" = "200" ]; then
+        pass "trip-webhook-dispatch autenticado respondeu (200)"
+      elif [ "$code" = "403" ]; then
+        pass "trip-webhook-dispatch bloqueado por plano (403) - esperado no free/pro"
+      else
+        warn "trip-webhook-dispatch retornou $code"
+      fi
+    else
+      fail "trip-webhook-dispatch autenticado falhou ($code)"
+    fi
+  else
+    warn "TEST_TRIP_ID ausente: validações autenticadas de M4 foram puladas"
   fi
 
   # Classificação por tipo (voo/hospedagem/restaurante)

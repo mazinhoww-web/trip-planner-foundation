@@ -26,6 +26,9 @@ import { useTrip } from '@/hooks/useTrip';
 import { useDocuments, useFlights, useRestaurants, useStays, useTransports } from '@/hooks/useTripModules';
 import { generateStayTips } from '@/services/ai';
 import { calculateStayCoverageGaps, calculateTransportCoverageGaps } from '@/services/tripInsights';
+import { computeFileHash, findImportedDocumentByHash, withImportHash } from '@/services/importPersist';
+import { trackProductEvent } from '@/services/productAnalytics';
+import { dispatchTripWebhook } from '@/services/webhooks';
 import {
   ArceeExtractionPayload,
   ExtractedReservation,
@@ -522,6 +525,7 @@ function makeQueueItem(file: File): ImportQueueItem {
   return {
     id: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 8)}`,
     file,
+    fileHash: null,
     status: 'pending',
     visualSteps: defaultVisualSteps(),
     scope: 'trip_related',
@@ -615,10 +619,47 @@ export function ImportReservationDialog() {
     if (!item || !user || !currentTripId) return;
 
     const file = item.file;
+    const fileHash = item.fileHash ?? await computeFileHash(file).catch(() => null);
     let documentId = item.documentId;
+    const alreadyImportedDocument = findImportedDocumentByHash(documentsModule.data, fileHash);
+
+    if (alreadyImportedDocument) {
+      setItem(itemId, (current) => ({
+        ...current,
+        fileHash,
+        documentId: alreadyImportedDocument.id,
+        status: 'saved',
+        warnings: current.warnings.concat('Este arquivo já foi importado anteriormente.'),
+        summary: {
+          type: 'documento',
+          title: file.name,
+          subtitle: 'Importação ignorada para evitar duplicidade.',
+          amount: null,
+          currency: 'BRL',
+          estimatedBrl: null,
+          checkIn: null,
+          checkOut: null,
+          nights: null,
+          stayGapCount: 0,
+          transportGapCount: 0,
+          nextSteps: ['Arquivo duplicado detectado pela assinatura do documento.'],
+        },
+        visualSteps: {
+          ...defaultVisualSteps(),
+          read: 'completed',
+          identified: 'completed',
+          saving: 'completed',
+          photos: 'skipped',
+          tips: 'skipped',
+          done: 'completed',
+        },
+      }));
+      return;
+    }
 
     setItem(itemId, (current) => ({
       ...current,
+      fileHash,
       status: 'processing',
       scope: 'trip_related',
       warnings: [],
@@ -703,6 +744,7 @@ export function ImportReservationDialog() {
       const resolvedType = resolveImportType(extracted, extractedText, file.name);
       const review = resolvedScope === 'trip_related' ? toReviewState(extracted, resolvedType) : null;
       const quality = extracted.extraction_quality ?? (extractedText.length > 500 ? 'high' : extractedText.length > 120 ? 'medium' : 'low');
+      const canonicalForStorage = withImportHash(extracted.canonical, fileHash, file.name);
       const typeConfidenceFromCanonical = extracted.canonical?.metadata?.confianca != null
         ? Math.max(0, Math.min(1, Number(extracted.canonical.metadata.confianca) / 100))
         : null;
@@ -717,7 +759,7 @@ export function ImportReservationDialog() {
               extracao_tipo: resolvedType,
               extracao_scope: resolvedScope,
               extracao_confianca: Math.round(typeConfidence * 100),
-              extracao_payload: extracted.canonical as unknown as TablesInsert<'documentos'>['extracao_payload'],
+              extracao_payload: canonicalForStorage as unknown as TablesInsert<'documentos'>['extracao_payload'],
               tipo: resolvedScope === 'outside_scope' ? 'fora_escopo' : resolvedType,
               importado: false,
             },
@@ -740,7 +782,8 @@ export function ImportReservationDialog() {
         identifiedType: resolvedScope === 'trip_related' ? resolvedType : null,
         needsUserConfirmation,
         reviewState: review,
-        canonical: extracted.canonical ?? null,
+        canonical: canonicalForStorage,
+        fileHash,
         rawText: extractedText,
         visualSteps: {
           ...current.visualSteps,
@@ -777,6 +820,12 @@ export function ImportReservationDialog() {
     setIsProcessingBatch(true);
 
     const targets = queue.map((item) => item.id);
+    await trackProductEvent({
+      eventName: 'import_started',
+      featureKey: 'ff_ai_import_enabled',
+      viagemId: currentTripId,
+      metadata: { files: targets.length },
+    });
     for (const itemId of targets) {
       setActiveId(itemId);
       // eslint-disable-next-line no-await-in-loop
@@ -831,7 +880,7 @@ export function ImportReservationDialog() {
                 extracao_scope: 'outside_scope',
                 extracao_tipo: canonicalType ?? activeItem.identifiedType ?? null,
                 extracao_confianca: canonicalConfidence != null ? Math.round(Number(canonicalConfidence)) : null,
-                extracao_payload: canonical as unknown as TablesInsert<'documentos'>['extracao_payload'],
+                extracao_payload: withImportHash(canonical, activeItem.fileHash, activeItem.file.name) as unknown as TablesInsert<'documentos'>['extracao_payload'],
                 importado: true,
                 origem_importacao: 'arquivo',
               },
@@ -998,7 +1047,7 @@ export function ImportReservationDialog() {
               extracao_scope: extractionScope,
               extracao_tipo: canonicalType ?? reviewState?.type ?? activeItem.identifiedType ?? null,
               extracao_confianca: canonicalConfidence != null ? Math.round(Number(canonicalConfidence)) : null,
-              extracao_payload: canonical as unknown as TablesInsert<'documentos'>['extracao_payload'],
+              extracao_payload: withImportHash(canonical, activeItem.fileHash, activeItem.file.name) as unknown as TablesInsert<'documentos'>['extracao_payload'],
               importado: true,
               origem_importacao: 'arquivo',
             },
@@ -1065,6 +1114,37 @@ export function ImportReservationDialog() {
           ? 'Arquivo salvo em documentos como fora de escopo.'
           : `${typeLabel(reviewState?.type)} salvo com sucesso.`,
       );
+
+      await trackProductEvent({
+        eventName: 'import_confirmed',
+        featureKey: 'ff_ai_import_enabled',
+        viagemId: currentTripId,
+        metadata: {
+          fileName: activeItem.file.name,
+          scope: activeItem.scope,
+          type: reviewState?.type ?? activeItem.identifiedType ?? null,
+        },
+      });
+
+      if (currentTripId) {
+        const webhookPayload = {
+          itemType: reviewState?.type ?? activeItem.identifiedType ?? 'documento',
+          scope: activeItem.scope,
+          fileName: activeItem.file.name,
+          documentId: activeItem.documentId,
+        };
+        const webhook = await dispatchTripWebhook({
+          eventType: 'import.confirmed',
+          viagemId: currentTripId,
+          payload: webhookPayload,
+        });
+        if (webhook.error) {
+          setItem(activeItem.id, (item) => ({
+            ...item,
+            warnings: item.warnings.concat('Reserva salva, mas o webhook de integração não pôde ser enviado.'),
+          }));
+        }
+      }
     } catch (error) {
       console.error('[import][save_failure]', error);
       setItem(activeItem.id, (item) => ({

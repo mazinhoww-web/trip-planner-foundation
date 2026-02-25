@@ -2,7 +2,7 @@
 
 ## Project info
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+**URL**: https://lovable.dev/projects/c895da6c-060a-4eb8-ad30-61ce940181d9
 
 ## How can I edit this code?
 
@@ -10,7 +10,7 @@ There are several ways of editing your application.
 
 **Use Lovable**
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+Simply visit the [Lovable Project](https://lovable.dev/projects/c895da6c-060a-4eb8-ad30-61ce940181d9) and start prompting.
 
 Changes made via Lovable will be committed automatically to this repo.
 
@@ -48,16 +48,22 @@ This project now uses Supabase Edge Functions for AI enrichment:
 Set required environment variables:
 
 - Frontend: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`
-- Supabase Functions (server-side): `OPENROUTER_API_KEY` (texto/visão via OpenRouter)
-- Opcional fallback: `OPENAI_API_KEY`
+- Supabase Functions (server-side): `OPENROUTER_API_KEY` (provider principal)
+- Fallback paralelo obrigatório: `GEMINI_API_KEY`
+- OCR opcional: `OCR_SPACE_API_KEY`
+- Webhook opcional (M4): `WEBHOOK_TARGET_URL`
 
 Deploy functions:
 
 ```sh
+supabase functions deploy feature-entitlements
+supabase functions deploy trip-members
 supabase functions deploy generate-tips
 supabase functions deploy suggest-restaurants
 supabase functions deploy ocr-document
 supabase functions deploy extract-reservation
+supabase functions deploy public-trip-api
+supabase functions deploy trip-webhook-dispatch
 ```
 
 ## Google Auth setup
@@ -97,7 +103,7 @@ This project is built with:
 
 ## How can I deploy this project?
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+Simply open [Lovable](https://lovable.dev/projects/c895da6c-060a-4eb8-ad30-61ce940181d9) and click on Share -> Publish.
 
 ## Can I connect a custom domain to my Lovable project?
 

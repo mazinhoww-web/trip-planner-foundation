@@ -23,8 +23,9 @@ supabase db push
 ## 3) Configurar secrets de functions
 ```bash
 supabase secrets set OPENROUTER_API_KEY=<VALUE>
-supabase secrets set OPENAI_API_KEY=<VALUE> # fallback opcional
+supabase secrets set GEMINI_API_KEY=<VALUE> # fallback paralelo obrigatório
 supabase secrets set OCR_SPACE_API_KEY=<VALUE>
+supabase secrets set WEBHOOK_TARGET_URL=<VALUE> # opcional para M4
 supabase secrets set APP_ORIGIN=https://<dominio-app>
 ```
 
@@ -34,6 +35,10 @@ supabase functions deploy generate-tips
 supabase functions deploy suggest-restaurants
 supabase functions deploy ocr-document
 supabase functions deploy extract-reservation
+supabase functions deploy feature-entitlements
+supabase functions deploy trip-members
+supabase functions deploy public-trip-api
+supabase functions deploy trip-webhook-dispatch
 ```
 
 ## 5) Configurar env no Vercel

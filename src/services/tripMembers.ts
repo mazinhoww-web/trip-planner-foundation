@@ -71,7 +71,7 @@ type MutationPayload = {
   viagemId?: string;
 };
 
-function normalizeTripMembersError(message: string) {
+export function normalizeTripMembersError(message: string) {
   const normalized = message.toLowerCase();
   if (
     normalized.includes('relation "viagem_membros" does not exist') ||

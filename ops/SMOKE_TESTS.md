@@ -16,9 +16,11 @@ export TEST_USER_JWT="<jwt>"
 ## O que o script valida
 1. Frontend acessível (`200/301/302`).
 2. Supabase Auth health (`/auth/v1/health`).
-3. Functions deployadas e protegidas (`401` sem sessão).
+3. Functions deployadas e protegidas (`401` sem sessão):
+   - `generate-tips`, `suggest-restaurants`, `ocr-document`, `extract-reservation`,
+   - `trip-members`, `feature-entitlements`, `public-trip-api`, `trip-webhook-dispatch`.
 4. RLS básico sem vazamento para anônimo (`[]` ou bloqueio).
-5. Fluxo autenticado opcional para IA/OCR/extração.
+5. Fluxo autenticado opcional para IA/OCR/extração + monetização (M4).
 
 ## Critério de aprovação
 - `FAIL = 0`.

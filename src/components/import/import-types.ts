@@ -93,6 +93,7 @@ export type ImportSummary = {
 export type ImportQueueItem = {
   id: string;
   file: File;
+  fileHash: string | null;
   status: QueueStatus;
   visualSteps: Record<VisualStepKey, StepStatus>;
   scope: ImportScope;

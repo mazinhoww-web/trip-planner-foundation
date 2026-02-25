@@ -6,8 +6,9 @@
   - [ ] `VITE_SUPABASE_PUBLISHABLE_KEY`
 - [ ] Supabase Edge Functions secrets com:
   - [ ] `OPENROUTER_API_KEY`
-  - [ ] `OPENAI_API_KEY` (fallback opcional)
+  - [ ] `GEMINI_API_KEY` (fallback paralelo)
   - [ ] `OCR_SPACE_API_KEY` (opcional recomendado)
+  - [ ] `WEBHOOK_TARGET_URL` (opcional para M4)
   - [ ] `APP_ORIGIN`
 - [ ] Variáveis do projeto revisadas contra `.env.example`.
 
@@ -34,10 +35,14 @@
 
 ## 5) Edge Functions
 - [ ] Deploy atualizado de:
+  - [ ] `feature-entitlements`
+  - [ ] `trip-members`
   - [ ] `generate-tips`
   - [ ] `suggest-restaurants`
   - [ ] `ocr-document`
   - [ ] `extract-reservation`
+  - [ ] `public-trip-api`
+  - [ ] `trip-webhook-dispatch`
 - [ ] Funções retornam 401 sem sessão e 200/429/502 com sessão.
 - [ ] Logs com `requestId` habilitados no Supabase.
 

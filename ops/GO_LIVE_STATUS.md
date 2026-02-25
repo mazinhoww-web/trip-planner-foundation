@@ -5,15 +5,19 @@
 - Frontend endpoint acessível: ✅
 - Supabase Auth health: ✅
 - RLS anônimo sem vazamento: ✅
-- Functions IA/OCR deployadas: ❌ (404 no ambiente alvo atual)
+- Functions críticas deployadas: ❌ (404 no ambiente alvo atual)
 - Smoke autenticado: ⚠️ pendente (requer `TEST_USER_JWT`)
 
 ## Status atual
-**NO-GO** enquanto as 4 functions não estiverem deployadas em Supabase:
+**NO-GO** enquanto as functions críticas não estiverem deployadas em Supabase:
+- `trip-members`
+- `feature-entitlements`
 - `generate-tips`
 - `suggest-restaurants`
 - `ocr-document`
 - `extract-reservation`
+- `public-trip-api`
+- `trip-webhook-dispatch`
 
 ## Ação para virar GO
 1. Deploy das functions (runbook).

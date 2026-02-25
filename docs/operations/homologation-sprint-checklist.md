@@ -27,6 +27,8 @@ supabase functions deploy extract-reservation --project-ref ugibxiaqrvrmxaniylaz
 supabase functions deploy ocr-document --project-ref ugibxiaqrvrmxaniylaz
 supabase functions deploy generate-tips --project-ref ugibxiaqrvrmxaniylaz
 supabase functions deploy suggest-restaurants --project-ref ugibxiaqrvrmxaniylaz
+supabase functions deploy public-trip-api --project-ref ugibxiaqrvrmxaniylaz
+supabase functions deploy trip-webhook-dispatch --project-ref ugibxiaqrvrmxaniylaz
 ```
 
 ## 5) Smoke rapido
@@ -41,4 +43,6 @@ bash scripts/smoke-tests.sh
 Esperado:
 - `trip-members`: 401 sem sessao (protegida)
 - `feature-entitlements`: endpoint encontrado
+- `public-trip-api`: 401 sem sessão e 200/403 com sessão (conforme plano/role)
+- `trip-webhook-dispatch`: 401 sem sessão e 200/403 com sessão (conforme plano)
 - sem erro de recursao em `viagem_membros`.

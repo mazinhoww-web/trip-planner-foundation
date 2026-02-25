@@ -8,10 +8,12 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TripMembersState } from '@/hooks/useTripMembers';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
+import { trackProductEvent } from '@/services/productAnalytics';
 
 type TripUsersPanelProps = {
   tripMembers: TripMembersState;
   currentUserId?: string;
+  currentTripId?: string | null;
 };
 
 const ROLE_LABEL: Record<'owner' | 'editor' | 'viewer', string> = {
@@ -33,7 +35,7 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
-export function TripUsersPanel({ tripMembers, currentUserId }: TripUsersPanelProps) {
+export function TripUsersPanel({ tripMembers, currentUserId, currentTripId }: TripUsersPanelProps) {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'editor' | 'viewer'>('viewer');
   const seatLimitGate = useFeatureGate('ff_collab_seat_limit_enforced');
@@ -72,13 +74,24 @@ export function TripUsersPanel({ tripMembers, currentUserId }: TripUsersPanelPro
     const normalized = inviteEmail.trim().toLowerCase();
     if (!normalized) return;
 
-    await tripMembers.inviteMember({
-      email: normalized,
-      role: inviteRole,
-    });
-
-    setInviteEmail('');
-    setInviteRole('viewer');
+    try {
+      await tripMembers.inviteMember({
+        email: normalized,
+        role: inviteRole,
+      });
+      await trackProductEvent({
+        eventName: 'invite_sent',
+        featureKey: 'ff_collab_enabled',
+        viagemId: currentTripId ?? null,
+        metadata: {
+          invitedRole: inviteRole,
+        },
+      });
+      setInviteEmail('');
+      setInviteRole('viewer');
+    } catch {
+      // Toast já tratado no hook.
+    }
   };
 
   return (
@@ -191,7 +204,22 @@ export function TripUsersPanel({ tripMembers, currentUserId }: TripUsersPanelPro
                                   return;
                                 }
                                 if (value !== member.role) {
-                                  void tripMembers.updateMemberRole({ memberId: member.id, role: value });
+                                  void tripMembers
+                                    .updateMemberRole({ memberId: member.id, role: value })
+                                    .then(() =>
+                                      trackProductEvent({
+                                        eventName: 'member_role_changed',
+                                        featureKey: 'ff_collab_editor_role',
+                                        viagemId: currentTripId ?? null,
+                                        metadata: {
+                                          memberId: member.id,
+                                          role: value,
+                                        },
+                                      }),
+                                    )
+                                    .catch(() => {
+                                      // Toast já tratado no hook.
+                                    });
                                 }
                               }}
                               disabled={tripMembers.isUpdatingRole}

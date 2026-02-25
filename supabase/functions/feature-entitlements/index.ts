@@ -5,13 +5,14 @@ import { requireAuthenticatedUser } from '../_shared/security.ts';
 import {
   isFeatureKey,
   loadFeatureGateContext,
+  trackFeatureUsage,
   type PlanTier,
   setUserFeatureOverride,
   setUserPlanTier,
   type FeatureGateContext,
 } from '../_shared/feature-gates.ts';
 
-type EntitlementsAction = 'get_context' | 'set_plan_tier' | 'set_override' | 'usage_summary';
+type EntitlementsAction = 'get_context' | 'set_plan_tier' | 'set_override' | 'usage_summary' | 'track_event';
 
 type RequestBody = {
   action?: unknown;
@@ -20,12 +21,17 @@ type RequestBody = {
   enabled?: unknown;
   limitValue?: unknown;
   days?: unknown;
+  eventName?: unknown;
+  viagemId?: unknown;
+  metadata?: unknown;
+  status?: unknown;
 };
 
 function normalizeAction(value: unknown): EntitlementsAction {
   if (value === 'set_plan_tier') return 'set_plan_tier';
   if (value === 'set_override') return 'set_override';
   if (value === 'usage_summary') return 'usage_summary';
+  if (value === 'track_event') return 'track_event';
   return 'get_context';
 }
 
@@ -85,6 +91,14 @@ const AI_OPERATIONS = new Set([
   'generate-tips',
   'suggest-restaurants',
 ]);
+
+const EVENT_TO_FEATURE: Record<string, string> = {
+  import_started: 'ff_ai_import_enabled',
+  import_confirmed: 'ff_ai_import_enabled',
+  invite_sent: 'ff_collab_enabled',
+  member_role_changed: 'ff_collab_editor_role',
+  export_triggered: 'ff_export_json_full',
+};
 
 function normalizeTierOrder(tier: PlanTier) {
   if (tier === 'team') return 3;
@@ -155,6 +169,50 @@ Deno.serve(async (req) => {
 
     const context = await loadFeatureGateContext(auth.userId);
 
+    if (action === 'track_event') {
+      const eventName = typeof body.eventName === 'string' ? body.eventName.trim() : '';
+      if (!eventName) {
+        return errorResponse(requestId, 'BAD_REQUEST', 'Evento inválido.', 400);
+      }
+
+      const rawFeatureKey = typeof body.featureKey === 'string' && body.featureKey.trim()
+        ? body.featureKey.trim()
+        : EVENT_TO_FEATURE[eventName] ?? null;
+
+      const featureKey = rawFeatureKey && isFeatureKey(rawFeatureKey)
+        ? rawFeatureKey
+        : 'ff_collab_enabled';
+
+      const status = typeof body.status === 'string' && body.status.trim()
+        ? body.status.trim()
+        : context.entitlements[featureKey]
+          ? 'success'
+          : 'blocked';
+
+      const metadata = body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)
+        ? (body.metadata as Record<string, unknown>)
+        : {};
+
+      await trackFeatureUsage({
+        userId: auth.userId,
+        featureKey,
+        viagemId: typeof body.viagemId === 'string' && body.viagemId ? body.viagemId : null,
+        metadata: {
+          operation: eventName,
+          status,
+          source: 'client',
+          ...metadata,
+        },
+      }, createServiceClient() ?? undefined);
+
+      return successResponse({
+        ok: true,
+        eventName,
+        featureKey,
+        status,
+      });
+    }
+
     if (action === 'usage_summary') {
       const days = normalizeUsageDays(body.days);
       const serviceClient = createServiceClient();
@@ -165,7 +223,7 @@ Deno.serve(async (req) => {
       const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
       const { data: usageRows, error: usageError } = await serviceClient
         .from('feature_usage_events')
-        .select('feature_key,cluster_key,created_at')
+        .select('feature_key,cluster_key,created_at,metadata')
         .eq('user_id', auth.userId)
         .gte('created_at', sinceIso)
         .order('created_at', { ascending: false });
