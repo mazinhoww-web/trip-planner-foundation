@@ -2,6 +2,10 @@ import { createContext, useContext, useEffect, useState, ReactNode, useCallback 
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
+import type { Database } from '@/integrations/supabase/types';
+
+type ViagemStatus = Database['public']['Enums']['viagem_status'];
+
 interface Viagem {
   id: string;
   nome: string;
@@ -9,7 +13,9 @@ interface Viagem {
   destino: string | null;
   data_inicio: string | null;
   data_fim: string | null;
-  status: string;
+  status: ViagemStatus;
+  created_at: string;
+  updated_at: string;
 }
 
 interface TripContextType {

@@ -759,10 +759,10 @@ export function ImportReservationDialog() {
               extracao_tipo: resolvedType,
               extracao_scope: resolvedScope,
               extracao_confianca: Math.round(typeConfidence * 100),
-              extracao_payload: canonicalForStorage as unknown as TablesInsert<'documentos'>['extracao_payload'],
+              extracao_payload: canonicalForStorage,
               tipo: resolvedScope === 'outside_scope' ? 'fora_escopo' : resolvedType,
               importado: false,
-            },
+            } as any,
           });
         } catch (docUpdateError) {
           console.error('[import][document_preconfirm_update_failed]', docUpdateError);
@@ -880,10 +880,10 @@ export function ImportReservationDialog() {
                 extracao_scope: 'outside_scope',
                 extracao_tipo: canonicalType ?? activeItem.identifiedType ?? null,
                 extracao_confianca: canonicalConfidence != null ? Math.round(Number(canonicalConfidence)) : null,
-                extracao_payload: withImportHash(canonical, activeItem.fileHash, activeItem.file.name) as unknown as TablesInsert<'documentos'>['extracao_payload'],
+                extracao_payload: withImportHash(canonical, activeItem.fileHash, activeItem.file.name),
                 importado: true,
                 origem_importacao: 'arquivo',
-              },
+              } as any,
             });
           } catch (docUpdateError) {
             console.error('[import][outside_scope_document_update_failed]', docUpdateError);
@@ -1042,15 +1042,15 @@ export function ImportReservationDialog() {
         try {
           await documentsModule.update({
             id: activeItem.documentId,
-            updates: {
-              tipo: reviewState?.type ?? activeItem.identifiedType ?? (canonicalType as string | null),
-              extracao_scope: extractionScope,
-              extracao_tipo: canonicalType ?? reviewState?.type ?? activeItem.identifiedType ?? null,
-              extracao_confianca: canonicalConfidence != null ? Math.round(Number(canonicalConfidence)) : null,
-              extracao_payload: withImportHash(canonical, activeItem.fileHash, activeItem.file.name) as unknown as TablesInsert<'documentos'>['extracao_payload'],
-              importado: true,
-              origem_importacao: 'arquivo',
-            },
+              updates: {
+                tipo: reviewState?.type ?? activeItem.identifiedType ?? (canonicalType as string | null),
+                extracao_scope: extractionScope,
+                extracao_tipo: canonicalType ?? reviewState?.type ?? activeItem.identifiedType ?? null,
+                extracao_confianca: canonicalConfidence != null ? Math.round(Number(canonicalConfidence)) : null,
+                extracao_payload: withImportHash(canonical, activeItem.fileHash, activeItem.file.name),
+                importado: true,
+                origem_importacao: 'arquivo',
+              } as any,
           });
         } catch (docUpdateError) {
           console.error('[import][document_update_failed]', docUpdateError);
