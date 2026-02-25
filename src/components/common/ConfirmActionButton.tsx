@@ -24,6 +24,7 @@ type ConfirmActionButtonProps = {
   size?: 'icon' | 'sm' | 'default';
   onConfirm: () => Promise<void> | void;
   children: ReactNode;
+  stopPropagation?: boolean;
 };
 
 export function ConfirmActionButton({
@@ -37,6 +38,7 @@ export function ConfirmActionButton({
   size = 'icon',
   onConfirm,
   children,
+  stopPropagation = true,
 }: ConfirmActionButtonProps) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -54,7 +56,18 @@ export function ConfirmActionButton({
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger asChild>
-        <Button type="button" variant={variant} size={size} aria-label={ariaLabel} disabled={disabled || isSubmitting}>
+        <Button
+          type="button"
+          variant={variant}
+          size={size}
+          aria-label={ariaLabel}
+          disabled={disabled || isSubmitting}
+          onClick={(event) => {
+            if (stopPropagation) {
+              event.stopPropagation();
+            }
+          }}
+        >
           {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : children}
         </Button>
       </AlertDialogTrigger>

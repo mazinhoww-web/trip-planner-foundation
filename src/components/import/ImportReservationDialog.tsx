@@ -1203,8 +1203,8 @@ export function ImportReservationDialog() {
         <div className="space-y-4">
           <Card className="border-primary/15 bg-white/95 shadow-sm">
             <CardContent className="pt-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-                <div className="min-w-0 flex-1 space-y-2">
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-end">
+                <div className="min-w-0 space-y-2">
                   <Label htmlFor={fileInputId}>Arquivos da viagem</Label>
                   <Input
                     id={fileInputId}
@@ -1218,17 +1218,17 @@ export function ImportReservationDialog() {
                     Você pode subir vários arquivos ao mesmo tempo. Formatos: txt, html, eml, pdf, png, jpg e webp.
                   </p>
                 </div>
-                <div className="w-full space-y-2 lg:w-[280px] lg:shrink-0">
+                <div className="w-full space-y-2">
                   <Button
                     onClick={runBatch}
                     disabled={!canProcess}
                     aria-label="Analisar arquivos selecionados"
-                    className="h-11 w-full bg-primary text-sm hover:bg-primary/90"
+                    className="h-11 w-full bg-primary text-sm font-semibold hover:bg-primary/90"
                   >
                     {isProcessingBatch ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
                     Analisar arquivos
                   </Button>
-                  <p className="text-[11px] text-muted-foreground lg:text-right">
+                  <p className="text-[11px] text-muted-foreground lg:text-center">
                     OCR + IA classifica cada arquivo e prepara confirmação final.
                   </p>
                 </div>

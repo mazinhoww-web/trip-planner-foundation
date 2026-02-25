@@ -1642,16 +1642,22 @@ export default function Dashboard() {
                     <CardTitle className="text-base">Mapa da viagem (OpenStreetMap)</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <Suspense fallback={<div className="h-[320px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
-                      <TripOpenMap
-                        stays={staysModule.data}
-                        transports={transportsModule.data}
-                        flights={flightsModule.data}
-                        height="clamp(220px, 42vh, 320px)"
-                        disabled={isAnyCrudDialogOpen}
-                        background
-                      />
-                    </Suspense>
+                    {isAnyCrudDialogOpen ? (
+                      <div className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">
+                        Mapa temporariamente oculto enquanto um modal está aberto.
+                      </div>
+                    ) : (
+                      <Suspense fallback={<div className="h-[320px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
+                        <TripOpenMap
+                          stays={staysModule.data}
+                          transports={transportsModule.data}
+                          flights={flightsModule.data}
+                          height="clamp(220px, 42vh, 320px)"
+                          disabled={isAnyCrudDialogOpen}
+                          background
+                        />
+                      </Suspense>
+                    )}
                     <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
                       <Badge variant="outline" className="border-emerald-400/60 bg-emerald-50 text-emerald-700">Hospedagens</Badge>
                       <Badge variant="outline" className="border-sky-400/60 bg-sky-50 text-sky-700">Transportes</Badge>
@@ -1820,7 +1826,16 @@ export default function Dashboard() {
                               )}
                               <div className="flex items-center gap-2">
                                 {statusBadge(flight.status)}
-                                <Button variant="outline" size="icon" aria-label="Editar voo" onClick={() => openEditFlight(flight)} disabled={!canEditTrip}>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  aria-label="Editar voo"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openEditFlight(flight);
+                                  }}
+                                  disabled={!canEditTrip}
+                                >
                                   <Pencil className="h-4 w-4" />
                                 </Button>
                                 <ConfirmActionButton
@@ -2046,16 +2061,22 @@ export default function Dashboard() {
                       </div>
                     )}
 
-                    <Suspense fallback={<div className="h-[280px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
-                      <TripOpenMap
-                        stays={staysFiltered}
-                        transports={transportsModule.data}
-                        flights={flightsModule.data}
-                        height="clamp(200px, 36vh, 280px)"
-                        disabled={isAnyCrudDialogOpen}
-                        background
-                      />
-                    </Suspense>
+                    {isAnyCrudDialogOpen ? (
+                      <div className="flex h-[280px] items-center justify-center rounded-2xl border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">
+                        Mapa temporariamente oculto enquanto um modal está aberto.
+                      </div>
+                    ) : (
+                      <Suspense fallback={<div className="h-[280px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
+                        <TripOpenMap
+                          stays={staysFiltered}
+                          transports={transportsModule.data}
+                          flights={flightsModule.data}
+                          height="clamp(200px, 36vh, 280px)"
+                          disabled={isAnyCrudDialogOpen}
+                          background
+                        />
+                      </Suspense>
+                    )}
 
                     {(stayCoverageGaps.length > 0 || transportCoverageGaps.length > 0) && (
                       <div className="rounded-xl border border-amber-400/40 bg-amber-500/5 p-3 text-sm">
@@ -2469,16 +2490,22 @@ export default function Dashboard() {
                       </div>
                     )}
 
-                    <Suspense fallback={<div className="h-[260px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
-                      <TripOpenMap
-                        stays={staysModule.data}
-                        transports={transportFiltered}
-                        flights={flightsModule.data}
-                        height="clamp(200px, 34vh, 260px)"
-                        disabled={isAnyCrudDialogOpen}
-                        background
-                      />
-                    </Suspense>
+                    {isAnyCrudDialogOpen ? (
+                      <div className="flex h-[260px] items-center justify-center rounded-2xl border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">
+                        Mapa temporariamente oculto enquanto um modal está aberto.
+                      </div>
+                    ) : (
+                      <Suspense fallback={<div className="h-[260px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
+                        <TripOpenMap
+                          stays={staysModule.data}
+                          transports={transportFiltered}
+                          flights={flightsModule.data}
+                          height="clamp(200px, 34vh, 260px)"
+                          disabled={isAnyCrudDialogOpen}
+                          background
+                        />
+                      </Suspense>
+                    )}
 
                     {transportsModule.isLoading ? (
                       <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
@@ -2528,7 +2555,16 @@ export default function Dashboard() {
                                 )}
                                 <div className="flex items-center gap-2">
                                   {statusBadge(transport.status)}
-                                  <Button variant="outline" size="icon" aria-label="Editar transporte" onClick={() => openEditTransport(transport)} disabled={!canEditTrip}>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    aria-label="Editar transporte"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openEditTransport(transport);
+                                    }}
+                                    disabled={!canEditTrip}
+                                  >
                                     <Pencil className="h-4 w-4" />
                                   </Button>
                                   <ConfirmActionButton
