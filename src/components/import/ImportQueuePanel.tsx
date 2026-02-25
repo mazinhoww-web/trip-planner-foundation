@@ -47,6 +47,8 @@ export function ImportQueuePanel({
                 <p className="mt-1 text-xs text-muted-foreground">
                   {item.scope === 'outside_scope' ? 'Fora de escopo' : typeLabel(item.identifiedType)}{' '}
                   {item.typeConfidence != null ? `· confiança ${Math.round(item.typeConfidence * 100)}%` : ''}
+                  {item.providerMeta?.selected ? ` · ${item.providerMeta.selected}` : ''}
+                  {item.missingFields.length > 0 ? ` · ${item.missingFields.length} campo(s) pendente(s)` : ''}
                 </p>
               </button>
             );

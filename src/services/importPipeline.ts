@@ -42,6 +42,15 @@ export type ExtractedReservation = {
   type_confidence?: number;
   field_confidence?: Record<string, number>;
   extraction_quality?: 'high' | 'medium' | 'low';
+  provider_meta?: {
+    selected?: 'openrouter' | 'gemini' | 'lovable_ai' | 'heuristic' | string;
+    openrouter_ok?: boolean;
+    gemini_ok?: boolean;
+    openrouter_ms?: number;
+    gemini_ms?: number;
+    fallback_used?: boolean;
+    reasoning_tokens_openrouter?: number | null;
+  } | null;
   missingFields: string[];
   canonical?: ArceeExtractionPayload;
   data: {

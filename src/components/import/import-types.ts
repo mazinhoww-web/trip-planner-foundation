@@ -108,6 +108,15 @@ export type ImportQueueItem = {
   rawText: string;
   summary: ImportSummary | null;
   canonical: ArceeExtractionPayload | null;
+  extractionHistory: ArceeExtractionPayload[];
+  providerMeta: {
+    selected?: string;
+    openrouter_ok?: boolean;
+    gemini_ok?: boolean;
+    openrouter_ms?: number;
+    gemini_ms?: number;
+    fallback_used?: boolean;
+  } | null;
   hotelPhotos: string[];
   photoIndex: number;
   documentId: string | null;

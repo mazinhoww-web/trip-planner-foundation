@@ -10,9 +10,27 @@ type Props = {
   isSaving: boolean;
   showAdvancedEditor: boolean;
   onConfirm: () => void;
+  onReprocess: () => void;
+  canReprocess: boolean;
   onToggleEditor: () => void;
   typeLabel: (type: ImportType | null | undefined) => string;
   formatCurrency: (value?: number | null, currency?: string) => string;
+};
+
+const MISSING_FIELD_LABELS: Record<string, string> = {
+  'voo.origem': 'Origem do voo',
+  'voo.destino': 'Destino do voo',
+  'voo.data_inicio': 'Data do voo',
+  'voo.identificador': 'Código da reserva ou número do voo',
+  'hospedagem.nome_exibicao': 'Nome da hospedagem',
+  'hospedagem.data_inicio': 'Check-in',
+  'hospedagem.data_fim': 'Check-out',
+  'hospedagem.valor_total': 'Valor total da hospedagem',
+  'transporte.origem': 'Origem do transporte',
+  'transporte.destino': 'Destino do transporte',
+  'transporte.data_inicio': 'Data do transporte',
+  'restaurante.nome': 'Nome do restaurante',
+  'restaurante.cidade': 'Cidade do restaurante',
 };
 
 function confidenceBadge(confidence: number | null) {
@@ -33,6 +51,8 @@ export function ImportConfirmationCard({
   isSaving,
   showAdvancedEditor,
   onConfirm,
+  onReprocess,
+  canReprocess,
   onToggleEditor,
   typeLabel,
   formatCurrency,
@@ -51,6 +71,7 @@ export function ImportConfirmationCard({
   const transportDateLabel = review?.transporte.data_inicio
     ? `${review.transporte.data_inicio}${review.transporte.hora_inicio ? ` ${review.transporte.hora_inicio}` : ''}`
     : 'Data não identificada';
+  const missingCritical = activeItem.missingFields.slice(0, 5).map((field) => MISSING_FIELD_LABELS[field] ?? field);
 
   return (
     <Card className="border-primary/30 bg-primary/5">
@@ -61,10 +82,27 @@ export function ImportConfirmationCard({
             {confidenceBadge(activeItem.typeConfidence ?? activeItem.confidence)}
             <Badge variant="outline">{qualityLabel(activeItem.extractionQuality)}</Badge>
             <Badge variant="outline">{scopeOutside ? 'Fora de escopo' : typeLabel(activeItem.identifiedType)}</Badge>
+            {activeItem.providerMeta?.selected ? (
+              <Badge variant="outline">Fonte IA: {activeItem.providerMeta.selected}</Badge>
+            ) : null}
           </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {missingCritical.length > 0 && (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+            <p className="font-medium text-amber-950">Campos críticos para confirmar</p>
+            <p className="mt-1 text-amber-900">
+              {missingCritical.join(' · ')}
+            </p>
+          </div>
+        )}
+        {activeItem.extractionHistory.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Este item já foi reprocessado {activeItem.extractionHistory.length}x. A versão anterior foi preservada para comparação.
+          </p>
+        )}
+
         {scopeOutside ? (
           <div className="rounded-lg border bg-background p-3 text-sm">
             <p className="font-medium">Arquivo sem relação direta com planejamento de viagem.</p>
@@ -108,6 +146,9 @@ export function ImportConfirmationCard({
         )}
 
         <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={onReprocess} disabled={!canReprocess}>
+            Reprocessar IA
+          </Button>
           {!scopeOutside && review && (
             <Button type="button" variant="outline" onClick={onToggleEditor}>
               {showAdvancedEditor ? 'Ocultar edição detalhada' : 'Editar detalhes'}

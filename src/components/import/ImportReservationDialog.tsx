@@ -540,6 +540,8 @@ function makeQueueItem(file: File): ImportQueueItem {
     rawText: '',
     summary: null,
     canonical: null,
+    extractionHistory: [],
+    providerMeta: null,
     hotelPhotos: [],
     photoIndex: 0,
     documentId: null,
@@ -560,6 +562,7 @@ export function ImportReservationDialog() {
   const [queue, setQueue] = useState<ImportQueueItem[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isProcessingBatch, setIsProcessingBatch] = useState(false);
+  const [isReprocessing, setIsReprocessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showAdvancedEditor, setShowAdvancedEditor] = useState(false);
   const descriptionId = useId();
@@ -567,7 +570,7 @@ export function ImportReservationDialog() {
 
   const activeItem = useMemo(() => queue.find((item) => item.id === activeId) ?? null, [queue, activeId]);
 
-  const canProcess = queue.length > 0 && !!user && !!currentTripId && !isProcessingBatch;
+  const canProcess = queue.length > 0 && !!user && !!currentTripId && !isProcessingBatch && !isReprocessing;
 
   useEffect(() => {
     setShowAdvancedEditor(false);
@@ -614,11 +617,12 @@ export function ImportReservationDialog() {
     setActiveId(nextQueue[0]?.id ?? null);
   };
 
-  const processOneFile = async (itemId: string) => {
+  const processOneFile = async (itemId: string, options?: { reprocess?: boolean }) => {
     const item = queue.find((entry) => entry.id === itemId);
     if (!item || !user || !currentTripId) return;
 
     const file = item.file;
+    const previousCanonical = item.canonical;
     const fileHash = item.fileHash ?? await computeFileHash(file).catch(() => null);
     let documentId = item.documentId;
     const alreadyImportedDocument = findImportedDocumentByHash(documentsModule.data, fileHash);
@@ -667,15 +671,16 @@ export function ImportReservationDialog() {
       typeConfidence: null,
       extractionQuality: 'low',
       missingFields: [],
-      identifiedType: null,
+      identifiedType: options?.reprocess ? current.identifiedType : null,
       needsUserConfirmation: true,
-      reviewState: null,
+      reviewState: options?.reprocess ? current.reviewState : null,
       rawText: '',
       summary: null,
-      canonical: null,
+      canonical: options?.reprocess ? current.canonical : null,
+      providerMeta: null,
       hotelPhotos: [],
       photoIndex: 0,
-      documentId: null,
+      documentId,
       visualSteps: { ...defaultVisualSteps(), read: 'in_progress' },
     }));
 
@@ -691,21 +696,23 @@ export function ImportReservationDialog() {
         localWarnings.push(upload.warning);
       }
 
-      try {
-        const createdDocument = await documentsModule.create({
-          nome: file.name,
-          tipo: `importacao/${upload.ext}`,
-          arquivo_url: upload.path ?? null,
-          importado: false,
-          origem_importacao: 'arquivo',
-        } as Omit<TablesInsert<'documentos'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'>);
-        if (createdDocument?.id) {
-          documentId = createdDocument.id;
-          setItem(itemId, (current) => ({ ...current, documentId: createdDocument.id }));
+      if (!documentId) {
+        try {
+          const createdDocument = await documentsModule.create({
+            nome: file.name,
+            tipo: `importacao/${upload.ext}`,
+            arquivo_url: upload.path ?? null,
+            importado: false,
+            origem_importacao: 'arquivo',
+          } as Omit<TablesInsert<'documentos'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'>);
+          if (createdDocument?.id) {
+            documentId = createdDocument.id;
+            setItem(itemId, (current) => ({ ...current, documentId: createdDocument.id }));
+          }
+        } catch (metadataError) {
+          console.error('[import][metadata_failure]', { file: file.name, error: metadataError });
+          localWarnings.push('Falha ao registrar metadados do anexo.');
         }
-      } catch (metadataError) {
-        console.error('[import][metadata_failure]', { file: file.name, error: metadataError });
-        localWarnings.push('Falha ao registrar metadados do anexo.');
       }
       let extractedText = native.text ?? '';
 
@@ -750,6 +757,7 @@ export function ImportReservationDialog() {
         : null;
       const typeConfidence = typeConfidenceFromCanonical ?? extracted.type_confidence ?? extracted.confidence ?? 0;
       const needsUserConfirmation = true;
+      const providerMeta = extracted.provider_meta ?? null;
 
       if (documentId) {
         try {
@@ -783,6 +791,11 @@ export function ImportReservationDialog() {
         needsUserConfirmation,
         reviewState: review,
         canonical: canonicalForStorage,
+        extractionHistory:
+          options?.reprocess && previousCanonical
+            ? [previousCanonical, ...current.extractionHistory].slice(0, 3)
+            : current.extractionHistory,
+        providerMeta,
         fileHash,
         rawText: extractedText,
         visualSteps: {
@@ -806,12 +819,26 @@ export function ImportReservationDialog() {
       setItem(itemId, (current) => ({
         ...current,
         status: 'failed',
+        identifiedType: current.identifiedType ?? item.identifiedType,
+        reviewState: current.reviewState ?? item.reviewState,
+        canonical: current.canonical ?? previousCanonical,
         warnings: localWarnings.concat(fallbackWarning),
         visualSteps: {
           ...current.visualSteps,
           read: 'failed',
         },
       }));
+    }
+  };
+
+  const reprocessActiveItem = async () => {
+    if (!activeItem || !user || !currentTripId || isProcessingBatch || isSaving || isReprocessing) return;
+    setIsReprocessing(true);
+    try {
+      await processOneFile(activeItem.id, { reprocess: true });
+      toast.success('Reprocessamento concluído. Confira o resumo antes de salvar.');
+    } finally {
+      setIsReprocessing(false);
     }
   };
 
@@ -1225,7 +1252,7 @@ export function ImportReservationDialog() {
                     aria-label="Analisar arquivos selecionados"
                     className="h-11 w-full bg-primary text-sm font-semibold hover:bg-primary/90"
                   >
-                    {isProcessingBatch ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
+                    {isProcessingBatch || isReprocessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
                     Analisar arquivos
                   </Button>
                   <p className="text-[11px] text-muted-foreground lg:text-center">
@@ -1264,12 +1291,28 @@ export function ImportReservationDialog() {
             </Card>
           )}
 
+          {activeItem?.status === 'failed' && (
+            <Card className="border-destructive/40 bg-destructive/5">
+              <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-muted-foreground">
+                  Não foi possível finalizar este arquivo. Você pode tentar o processamento novamente.
+                </p>
+                <Button type="button" variant="outline" onClick={reprocessActiveItem} disabled={isReprocessing || isSaving}>
+                  {isReprocessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Tentar novamente
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
           {activeItem && activeItem.status !== 'saved' && (
             <ImportConfirmationCard
               activeItem={activeItem}
               isSaving={isSaving}
               showAdvancedEditor={showAdvancedEditor}
               onConfirm={saveActiveReviewed}
+              onReprocess={reprocessActiveItem}
+              canReprocess={!isReprocessing && !isSaving && activeItem.status !== 'saving'}
               onToggleEditor={() => setShowAdvancedEditor((prev) => !prev)}
               typeLabel={typeLabel}
               formatCurrency={formatCurrency}
