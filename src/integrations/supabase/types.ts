@@ -106,14 +106,8 @@ export type Database = {
         Row: {
           arquivo_url: string | null
           created_at: string
-          extracao_confianca: number | null
-          extracao_payload: Json | null
-          extracao_scope: string | null
-          extracao_tipo: string | null
           id: string
-          importado: boolean
           nome: string
-          origem_importacao: string | null
           tipo: string | null
           updated_at: string
           user_id: string
@@ -122,14 +116,8 @@ export type Database = {
         Insert: {
           arquivo_url?: string | null
           created_at?: string
-          extracao_confianca?: number | null
-          extracao_payload?: Json | null
-          extracao_scope?: string | null
-          extracao_tipo?: string | null
           id?: string
-          importado?: boolean
           nome: string
-          origem_importacao?: string | null
           tipo?: string | null
           updated_at?: string
           user_id: string
@@ -138,14 +126,8 @@ export type Database = {
         Update: {
           arquivo_url?: string | null
           created_at?: string
-          extracao_confianca?: number | null
-          extracao_payload?: Json | null
-          extracao_scope?: string | null
-          extracao_tipo?: string | null
           id?: string
-          importado?: boolean
           nome?: string
-          origem_importacao?: string | null
           tipo?: string | null
           updated_at?: string
           user_id?: string
@@ -161,92 +143,19 @@ export type Database = {
           },
         ]
       }
-      feature_entitlements: {
-        Row: {
-          created_at: string
-          enabled: boolean
-          feature_key: string
-          limit_value: number | null
-          plan_tier: Database["public"]["Enums"]["plan_tier"]
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          enabled?: boolean
-          feature_key: string
-          limit_value?: number | null
-          plan_tier: Database["public"]["Enums"]["plan_tier"]
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          enabled?: boolean
-          feature_key?: string
-          limit_value?: number | null
-          plan_tier?: Database["public"]["Enums"]["plan_tier"]
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      feature_usage_events: {
-        Row: {
-          cluster_key: string
-          created_at: string
-          feature_key: string
-          id: string
-          metadata: Json | null
-          user_id: string
-          viagem_id: string | null
-        }
-        Insert: {
-          cluster_key: string
-          created_at?: string
-          feature_key: string
-          id?: string
-          metadata?: Json | null
-          user_id: string
-          viagem_id?: string | null
-        }
-        Update: {
-          cluster_key?: string
-          created_at?: string
-          feature_key?: string
-          id?: string
-          metadata?: Json | null
-          user_id?: string
-          viagem_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "feature_usage_events_viagem_id_fkey"
-            columns: ["viagem_id"]
-            isOneToOne: false
-            referencedRelation: "viagens"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       hospedagens: {
         Row: {
           atracoes_proximas: string | null
           check_in: string | null
           check_out: string | null
-          codigo_reserva: string | null
           como_chegar: string | null
           created_at: string
           dica_ia: string | null
           dica_viagem: string | null
-          hora_fim: string | null
-          hora_inicio: string | null
           id: string
           localizacao: string | null
-          metodo_pagamento: string | null
           moeda: string | null
           nome: string | null
-          nome_exibicao: string | null
-          passageiro_hospede: string | null
-          pontos_utilizados: number | null
-          provedor: string | null
           restaurantes_proximos: string | null
           status: Database["public"]["Enums"]["reserva_status"]
           updated_at: string
@@ -258,22 +167,14 @@ export type Database = {
           atracoes_proximas?: string | null
           check_in?: string | null
           check_out?: string | null
-          codigo_reserva?: string | null
           como_chegar?: string | null
           created_at?: string
           dica_ia?: string | null
           dica_viagem?: string | null
-          hora_fim?: string | null
-          hora_inicio?: string | null
           id?: string
           localizacao?: string | null
-          metodo_pagamento?: string | null
           moeda?: string | null
           nome?: string | null
-          nome_exibicao?: string | null
-          passageiro_hospede?: string | null
-          pontos_utilizados?: number | null
-          provedor?: string | null
           restaurantes_proximos?: string | null
           status?: Database["public"]["Enums"]["reserva_status"]
           updated_at?: string
@@ -285,22 +186,14 @@ export type Database = {
           atracoes_proximas?: string | null
           check_in?: string | null
           check_out?: string | null
-          codigo_reserva?: string | null
           como_chegar?: string | null
           created_at?: string
           dica_ia?: string | null
           dica_viagem?: string | null
-          hora_fim?: string | null
-          hora_inicio?: string | null
           id?: string
           localizacao?: string | null
-          metodo_pagamento?: string | null
           moeda?: string | null
           nome?: string | null
-          nome_exibicao?: string | null
-          passageiro_hospede?: string | null
-          pontos_utilizados?: number | null
-          provedor?: string | null
           restaurantes_proximos?: string | null
           status?: Database["public"]["Enums"]["reserva_status"]
           updated_at?: string
@@ -598,84 +491,6 @@ export type Database = {
           },
         ]
       }
-      user_feature_overrides: {
-        Row: {
-          created_at: string
-          enabled: boolean | null
-          feature_key: string
-          limit_value: number | null
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          enabled?: boolean | null
-          feature_key: string
-          limit_value?: number | null
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          enabled?: boolean | null
-          feature_key?: string
-          limit_value?: number | null
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      user_plan_tiers: {
-        Row: {
-          created_at: string
-          plan_tier: Database["public"]["Enums"]["plan_tier"]
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          plan_tier?: Database["public"]["Enums"]["plan_tier"]
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          plan_tier?: Database["public"]["Enums"]["plan_tier"]
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      user_plan_tier_events: {
-        Row: {
-          created_at: string
-          id: string
-          metadata: Json | null
-          new_tier: Database["public"]["Enums"]["plan_tier"]
-          previous_tier: Database["public"]["Enums"]["plan_tier"]
-          source: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          metadata?: Json | null
-          new_tier: Database["public"]["Enums"]["plan_tier"]
-          previous_tier: Database["public"]["Enums"]["plan_tier"]
-          source?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          metadata?: Json | null
-          new_tier?: Database["public"]["Enums"]["plan_tier"]
-          previous_tier?: Database["public"]["Enums"]["plan_tier"]
-          source?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       viagem_convites: {
         Row: {
           accepted_at: string | null
@@ -685,8 +500,8 @@ export type Database = {
           expires_at: string
           id: string
           invited_by: string
-          role: Database["public"]["Enums"]["viagem_role"]
-          status: Database["public"]["Enums"]["convite_status"]
+          role: string
+          status: string
           token_hash: string
           updated_at: string
           viagem_id: string
@@ -699,8 +514,8 @@ export type Database = {
           expires_at: string
           id?: string
           invited_by: string
-          role?: Database["public"]["Enums"]["viagem_role"]
-          status?: Database["public"]["Enums"]["convite_status"]
+          role?: string
+          status?: string
           token_hash: string
           updated_at?: string
           viagem_id: string
@@ -713,8 +528,8 @@ export type Database = {
           expires_at?: string
           id?: string
           invited_by?: string
-          role?: Database["public"]["Enums"]["viagem_role"]
-          status?: Database["public"]["Enums"]["convite_status"]
+          role?: string
+          status?: string
           token_hash?: string
           updated_at?: string
           viagem_id?: string
@@ -735,7 +550,7 @@ export type Database = {
           id: string
           invited_by: string | null
           joined_at: string
-          role: Database["public"]["Enums"]["viagem_role"]
+          role: string
           updated_at: string
           user_id: string
           viagem_id: string
@@ -745,7 +560,7 @@ export type Database = {
           id?: string
           invited_by?: string | null
           joined_at?: string
-          role?: Database["public"]["Enums"]["viagem_role"]
+          role?: string
           updated_at?: string
           user_id: string
           viagem_id: string
@@ -755,7 +570,7 @@ export type Database = {
           id?: string
           invited_by?: string | null
           joined_at?: string
-          role?: Database["public"]["Enums"]["viagem_role"]
+          role?: string
           updated_at?: string
           user_id?: string
           viagem_id?: string
@@ -849,22 +664,14 @@ export type Database = {
       }
       voos: {
         Row: {
-          codigo_reserva: string | null
           companhia: string | null
           created_at: string
           data: string | null
           destino: string | null
-          hora_fim: string | null
-          hora_inicio: string | null
           id: string
-          metodo_pagamento: string | null
           moeda: string | null
-          nome_exibicao: string | null
           numero: string | null
           origem: string | null
-          passageiro_hospede: string | null
-          pontos_utilizados: number | null
-          provedor: string | null
           status: Database["public"]["Enums"]["reserva_status"]
           updated_at: string
           user_id: string
@@ -872,22 +679,14 @@ export type Database = {
           viagem_id: string
         }
         Insert: {
-          codigo_reserva?: string | null
           companhia?: string | null
           created_at?: string
           data?: string | null
           destino?: string | null
-          hora_fim?: string | null
-          hora_inicio?: string | null
           id?: string
-          metodo_pagamento?: string | null
           moeda?: string | null
-          nome_exibicao?: string | null
           numero?: string | null
           origem?: string | null
-          passageiro_hospede?: string | null
-          pontos_utilizados?: number | null
-          provedor?: string | null
           status?: Database["public"]["Enums"]["reserva_status"]
           updated_at?: string
           user_id: string
@@ -895,22 +694,14 @@ export type Database = {
           viagem_id: string
         }
         Update: {
-          codigo_reserva?: string | null
           companhia?: string | null
           created_at?: string
           data?: string | null
           destino?: string | null
-          hora_fim?: string | null
-          hora_inicio?: string | null
           id?: string
-          metodo_pagamento?: string | null
           moeda?: string | null
-          nome_exibicao?: string | null
           numero?: string | null
           origem?: string | null
-          passageiro_hospede?: string | null
-          pontos_utilizados?: number | null
-          provedor?: string | null
           status?: Database["public"]["Enums"]["reserva_status"]
           updated_at?: string
           user_id?: string
@@ -932,20 +723,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      can_edit_trip: { Args: { _viagem_id: string }; Returns: boolean }
-      can_view_trip: { Args: { _viagem_id: string }; Returns: boolean }
-      is_trip_owner: { Args: { _viagem_id: string }; Returns: boolean }
-      trip_role: {
-        Args: { _viagem_id: string }
-        Returns: Database["public"]["Enums"]["viagem_role"] | null
-      }
+      trip_role: { Args: { _viagem_id: string }; Returns: string }
     }
     Enums: {
-      convite_status: "pending" | "accepted" | "revoked" | "expired"
-      plan_tier: "free" | "pro" | "team"
       reserva_status: "confirmado" | "pendente" | "cancelado"
       tarefa_prioridade: "baixa" | "media" | "alta"
-      viagem_role: "owner" | "editor" | "viewer"
       viagem_status: "planejada" | "em_andamento" | "concluida"
     }
     CompositeTypes: {
@@ -1074,10 +856,8 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      convite_status: ["pending", "accepted", "revoked", "expired"],
       reserva_status: ["confirmado", "pendente", "cancelado"],
       tarefa_prioridade: ["baixa", "media", "alta"],
-      viagem_role: ["owner", "editor", "viewer"],
       viagem_status: ["planejada", "em_andamento", "concluida"],
     },
   },

@@ -57,20 +57,24 @@ type TripInviteRow = {
 const INVITE_EXPIRY_DAYS = 7;
 const APP_ORIGIN = (Deno.env.get('APP_ORIGIN') ?? 'https://trip-planner-foundation.local').replace(/\/$/, '');
 
-function requireSupabaseEnv() {
+type EnvResult =
+  | { ok: false; message: string }
+  | { ok: true; supabaseUrl: string; supabaseAnonKey: string; supabaseServiceRole: string };
+
+function requireSupabaseEnv(): EnvResult {
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
   const supabaseServiceRole = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
   if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRole) {
     return {
-      ok: false,
+      ok: false as const,
       message: 'Configuração Supabase incompleta para colaboração de viagem.',
     };
   }
 
   return {
-    ok: true,
+    ok: true as const,
     supabaseUrl,
     supabaseAnonKey,
     supabaseServiceRole,

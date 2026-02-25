@@ -1,7 +1,11 @@
-import { Tables } from '@/integrations/supabase/types';
 import { ArceeExtractionPayload } from '@/services/importPipeline';
 
-type DocumentoLite = Pick<Tables<'documentos'>, 'id' | 'importado' | 'extracao_payload' | 'nome'>;
+export type DocumentoLite = {
+  id: string;
+  nome: string;
+  importado?: boolean;
+  extracao_payload?: unknown;
+};
 
 type JsonRecord = Record<string, unknown>;
 
