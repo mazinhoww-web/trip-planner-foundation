@@ -84,7 +84,8 @@ RETURNS public.viagem_role
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public, row_security = off
+SET search_path = public
+SET row_security = off
 AS $$
   WITH owner_check AS (
     SELECT 'owner'::public.viagem_role AS role
@@ -112,7 +113,8 @@ RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public, row_security = off
+SET search_path = public
+SET row_security = off
 AS $$
   SELECT public.trip_role(_viagem_id) IS NOT NULL;
 $$;
@@ -122,7 +124,8 @@ RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public, row_security = off
+SET search_path = public
+SET row_security = off
 AS $$
   SELECT public.trip_role(_viagem_id) IN ('owner'::public.viagem_role, 'editor'::public.viagem_role);
 $$;
@@ -132,7 +135,8 @@ RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public, row_security = off
+SET search_path = public
+SET row_security = off
 AS $$
   SELECT public.trip_role(_viagem_id) = 'owner'::public.viagem_role;
 $$;
@@ -147,7 +151,8 @@ CREATE OR REPLACE FUNCTION public.ensure_viagem_owner_member()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, row_security = off
+SET search_path = public
+SET row_security = off
 AS $$
 BEGIN
   INSERT INTO public.viagem_membros (viagem_id, user_id, role, invited_by, joined_at)
@@ -212,7 +217,7 @@ DECLARE
 BEGIN
   FOREACH t IN ARRAY ARRAY['voos','hospedagens','transportes','despesas','tarefas','documentos','bagagem','restaurantes','viajantes','preparativos']
   LOOP
-    EXECUTE format('DROP POLICY IF EXISTS %L ON public.%I', 'Users manage own ' || t, t);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', 'Users manage own ' || t, t);
     EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', t || '_select_by_trip_access', t);
     EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', t || '_insert_by_trip_edit', t);
     EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', t || '_update_by_trip_edit', t);

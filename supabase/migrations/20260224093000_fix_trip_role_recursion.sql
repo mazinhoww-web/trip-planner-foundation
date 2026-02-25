@@ -6,7 +6,8 @@ RETURNS public.viagem_role
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public, row_security = off
+SET search_path = public
+SET row_security = off
 AS $$
   WITH owner_check AS (
     SELECT 'owner'::public.viagem_role AS role
@@ -34,7 +35,8 @@ RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public, row_security = off
+SET search_path = public
+SET row_security = off
 AS $$
   SELECT public.trip_role(_viagem_id) IS NOT NULL;
 $$;
@@ -44,7 +46,8 @@ RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public, row_security = off
+SET search_path = public
+SET row_security = off
 AS $$
   SELECT public.trip_role(_viagem_id) IN ('owner'::public.viagem_role, 'editor'::public.viagem_role);
 $$;
@@ -54,7 +57,8 @@ RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public, row_security = off
+SET search_path = public
+SET row_security = off
 AS $$
   SELECT public.trip_role(_viagem_id) = 'owner'::public.viagem_role;
 $$;
