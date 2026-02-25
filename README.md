@@ -66,7 +66,7 @@ supabase functions deploy public-trip-api
 supabase functions deploy trip-webhook-dispatch
 ```
 
-> Project ref used in this repository config: `ugibxiaqrvrmxaniylaz` (`supabase/config.toml`).
+> Active Supabase project ref linked in this workspace: `ffiwqovhjrjrspqbayrx`.
 
 ## Google Auth setup
 
