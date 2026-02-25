@@ -185,6 +185,21 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
     fail "feature-entitlements autenticado falhou ($code)"
   fi
 
+  code="$(http_code POST "$SUPABASE_URL/functions/v1/feature-entitlements" "$tmp_dir/auth-ent-track.h" "$tmp_dir/auth-ent-track.b" \
+    -H "apikey: $SUPABASE_ANON_KEY" \
+    -H "Authorization: Bearer $TEST_USER_JWT" \
+    -H "Content-Type: application/json" \
+    --data '{"action":"track_event","eventName":"api_snapshot_requested","featureKey":"ff_public_api_access","status":"success"}')"
+  if [ "$code" = "200" ]; then
+    if grep -q "\"ok\":true" "$tmp_dir/auth-ent-track.b"; then
+      pass "feature-entitlements track_event registrou api_snapshot_requested"
+    else
+      warn "feature-entitlements track_event respondeu 200 sem confirmação de ok"
+    fi
+  else
+    fail "feature-entitlements track_event falhou ($code)"
+  fi
+
   code="$(http_code POST "$SUPABASE_URL/functions/v1/feature-entitlements" "$tmp_dir/auth-ent-usage.h" "$tmp_dir/auth-ent-usage.b" \
     -H "apikey: $SUPABASE_ANON_KEY" \
     -H "Authorization: Bearer $TEST_USER_JWT" \
