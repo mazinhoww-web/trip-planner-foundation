@@ -90,6 +90,9 @@ const AI_OPERATIONS = new Set([
   'ocr-document',
   'generate-tips',
   'suggest-restaurants',
+  'import_started',
+  'import_confirmed',
+  'import_reprocessed',
 ]);
 
 const EVENT_TO_FEATURE: Record<string, string> = {
