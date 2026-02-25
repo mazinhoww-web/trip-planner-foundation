@@ -24,6 +24,7 @@ import { TablesInsert } from '@/integrations/supabase/types';
 import { useAuth } from '@/hooks/useAuth';
 import { useTrip } from '@/hooks/useTrip';
 import { useDocuments, useFlights, useRestaurants, useStays, useTransports } from '@/hooks/useTripModules';
+import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { generateStayTips } from '@/services/ai';
 import { calculateStayCoverageGaps, calculateTransportCoverageGaps } from '@/services/tripInsights';
 import { computeFileHash, findImportedDocumentByHash, withImportHash } from '@/services/importPersist';
@@ -557,6 +558,8 @@ export function ImportReservationDialog() {
   const staysModule = useStays();
   const transportsModule = useTransports();
   const restaurantsModule = useRestaurants();
+  const batchGate = useFeatureGate('ff_ai_batch_high_volume');
+  const reprocessGate = useFeatureGate('ff_ai_reprocess_unlimited');
 
   const [open, setOpen] = useState(false);
   const [queue, setQueue] = useState<ImportQueueItem[]>([]);
@@ -569,6 +572,9 @@ export function ImportReservationDialog() {
   const fileInputId = useId();
 
   const activeItem = useMemo(() => queue.find((item) => item.id === activeId) ?? null, [queue, activeId]);
+  const maxFilesPerBatch = batchGate.enabled ? 20 : 3;
+  const maxReprocessAllowed = reprocessGate.enabled ? Number.POSITIVE_INFINITY : 1;
+  const canReprocessActive = !!activeItem && activeItem.extractionHistory.length < maxReprocessAllowed;
 
   const canProcess = queue.length > 0 && !!user && !!currentTripId && !isProcessingBatch && !isReprocessing;
 
@@ -612,7 +618,11 @@ export function ImportReservationDialog() {
     }
 
     const valid = picked.filter((file) => isAllowedImportFile(file));
-    const nextQueue = valid.map(makeQueueItem);
+    const accepted = valid.slice(0, maxFilesPerBatch);
+    if (valid.length > accepted.length) {
+      toast.error(`No plano atual, você pode processar até ${maxFilesPerBatch} arquivo(s) por lote.`);
+    }
+    const nextQueue = accepted.map(makeQueueItem);
     setQueue(nextQueue);
     setActiveId(nextQueue[0]?.id ?? null);
   };
@@ -833,9 +843,22 @@ export function ImportReservationDialog() {
 
   const reprocessActiveItem = async () => {
     if (!activeItem || !user || !currentTripId || isProcessingBatch || isSaving || isReprocessing) return;
+    if (!canReprocessActive) {
+      toast.error('Limite de reprocessamento atingido no plano atual.');
+      return;
+    }
     setIsReprocessing(true);
     try {
       await processOneFile(activeItem.id, { reprocess: true });
+      await trackProductEvent({
+        eventName: 'import_reprocessed',
+        featureKey: 'ff_ai_reprocess_unlimited',
+        viagemId: currentTripId,
+        metadata: {
+          fileName: activeItem.file.name,
+          attempts: activeItem.extractionHistory.length + 1,
+        },
+      });
       toast.success('Reprocessamento concluído. Confira o resumo antes de salvar.');
     } finally {
       setIsReprocessing(false);
@@ -1242,7 +1265,7 @@ export function ImportReservationDialog() {
                     className="h-11 text-sm"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Você pode subir vários arquivos ao mesmo tempo. Formatos: txt, html, eml, pdf, png, jpg e webp.
+                    {`Você pode subir até ${maxFilesPerBatch} arquivo(s) por lote. Formatos: txt, html, eml, pdf, png, jpg e webp.`}
                   </p>
                 </div>
                 <div className="w-full space-y-2">
@@ -1312,7 +1335,7 @@ export function ImportReservationDialog() {
               showAdvancedEditor={showAdvancedEditor}
               onConfirm={saveActiveReviewed}
               onReprocess={reprocessActiveItem}
-              canReprocess={!isReprocessing && !isSaving && activeItem.status !== 'saving'}
+              canReprocess={!isReprocessing && !isSaving && activeItem.status !== 'saving' && canReprocessActive}
               onToggleEditor={() => setShowAdvancedEditor((prev) => !prev)}
               typeLabel={typeLabel}
               formatCurrency={formatCurrency}

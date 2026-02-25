@@ -3,9 +3,11 @@ import { supabase } from '@/integrations/supabase/client';
 type ProductEventName =
   | 'import_started'
   | 'import_confirmed'
+  | 'import_reprocessed'
   | 'invite_sent'
   | 'member_role_changed'
-  | 'export_triggered';
+  | 'export_triggered'
+  | 'api_snapshot_requested';
 
 type ProductEventInput = {
   eventName: ProductEventName;

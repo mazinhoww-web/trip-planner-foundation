@@ -23,6 +23,7 @@ import { TripStatsGrid } from '@/components/dashboard/TripStatsGrid';
 import { TripTopActions } from '@/components/dashboard/TripTopActions';
 import { TripUsersPanel } from '@/components/dashboard/TripUsersPanel';
 import { UserSettingsPanel } from '@/components/dashboard/UserSettingsPanel';
+import { PublicApiPanel } from '@/components/dashboard/PublicApiPanel';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { BudgetExportActions } from '@/components/dashboard/BudgetExportActions';
 import { Button } from '@/components/ui/button';
@@ -46,7 +47,6 @@ import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { buildTripSnapshot } from '@/services/tripSnapshot';
 import { exportTripSnapshotJson, exportTripSnapshotPdf } from '@/services/exports';
 import { trackProductEvent } from '@/services/productAnalytics';
-import { fetchPublicTripSnapshot } from '@/services/publicApi';
 
 const ImportReservationDialog = lazy(() =>
   import('@/components/import/ImportReservationDialog').then((mod) => ({ default: mod.ImportReservationDialog })),
@@ -493,8 +493,6 @@ export default function Dashboard() {
   const exportJsonGate = useFeatureGate('ff_export_json_full');
   const publicApiGate = useFeatureGate('ff_public_api_access');
   const [isExportingData, setIsExportingData] = useState(false);
-  const [isLoadingPublicApiSnapshot, setIsLoadingPublicApiSnapshot] = useState(false);
-  const [publicApiSnapshotPreview, setPublicApiSnapshotPreview] = useState<string | null>(null);
   const isAnyCrudDialogOpen =
     flightDialogOpen ||
     flightDetailOpen ||
@@ -3424,58 +3422,7 @@ export default function Dashboard() {
                       </Card>
                     )}
 
-                    <Card className="border-border/50">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-base">API pública da viagem (M4)</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        {publicApiGate.enabled ? (
-                          <>
-                            <p className="text-sm text-muted-foreground">
-                              Gere um snapshot autenticado da viagem para integrações externas.
-                            </p>
-                            <div className="flex flex-col gap-2 sm:flex-row">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                disabled={!currentTripId || isLoadingPublicApiSnapshot}
-                                onClick={async () => {
-                                  if (!currentTripId) return;
-                                  setIsLoadingPublicApiSnapshot(true);
-                                  try {
-                                    const result = await fetchPublicTripSnapshot(currentTripId);
-                                    if (result.error || !result.data) {
-                                      toast.error(result.error ?? 'Falha ao obter snapshot da API pública.');
-                                      return;
-                                    }
-                                    setPublicApiSnapshotPreview(JSON.stringify(result.data, null, 2));
-                                    await trackProductEvent({
-                                      eventName: 'export_triggered',
-                                      featureKey: 'ff_public_api_access',
-                                      viagemId: currentTripId,
-                                      metadata: { source: 'support_tab' },
-                                    });
-                                  } finally {
-                                    setIsLoadingPublicApiSnapshot(false);
-                                  }
-                                }}
-                              >
-                                {isLoadingPublicApiSnapshot ? 'Carregando...' : 'Gerar snapshot da API'}
-                              </Button>
-                            </div>
-                            {publicApiSnapshotPreview && (
-                              <pre className="tp-scroll max-h-52 overflow-auto rounded-lg border bg-muted/20 p-3 text-xs">
-                                {publicApiSnapshotPreview}
-                              </pre>
-                            )}
-                          </>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">
-                            API pública disponível no plano Team com a flag `ff_public_api_access`.
-                          </p>
-                        )}
-                      </CardContent>
-                    </Card>
+                    <PublicApiPanel enabled={publicApiGate.enabled} currentTripId={currentTripId} />
 
                     <div className="grid gap-4 xl:grid-cols-2">
                       <Card className="border-border/50">

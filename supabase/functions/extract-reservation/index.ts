@@ -220,8 +220,32 @@ function inferAirportCodes(text: string) {
   return { origem: null, destino: null };
 }
 
+function inferRouteByCityNames(text: string) {
+  const normalized = text.replace(/\s+/g, ' ');
+  const arrowMatch = normalized.match(/\b([A-Za-zÀ-ÿ' -]{3,40})\s*(?:->|→| para |\/|-)\s*([A-Za-zÀ-ÿ' -]{3,40})\b/i);
+  if (arrowMatch) {
+    const origem = arrowMatch[1]?.trim() ?? null;
+    const destino = arrowMatch[2]?.trim() ?? null;
+    if (origem && destino && origem.toLowerCase() !== destino.toLowerCase()) {
+      return { origem, destino };
+    }
+  }
+
+  const fromToMatch = normalized.match(/(?:de|from)\s+([A-Za-zÀ-ÿ' -]{3,40})\s+(?:para|to)\s+([A-Za-zÀ-ÿ' -]{3,40})/i);
+  if (fromToMatch) {
+    const origem = fromToMatch[1]?.trim() ?? null;
+    const destino = fromToMatch[2]?.trim() ?? null;
+    if (origem && destino && origem.toLowerCase() !== destino.toLowerCase()) {
+      return { origem, destino };
+    }
+  }
+
+  return { origem: null as string | null, destino: null as string | null };
+}
+
 function inferFlightCode(text: string, fileName: string) {
-  const pnr = text.match(/\b([A-Z0-9]{6})\b/);
+  const pnrLabeled = text.match(/(?:c[óo]digo\s+de\s+reserva|localizador|pnr|booking\s+code)\s*[:\-]?\s*([A-Z0-9]{6})\b/i);
+  const pnr = pnrLabeled ?? text.match(/\b([A-Z0-9]{6})\b/);
   const flight = text.match(/\b([A-Z]{2}\d{3,4}[A-Z0-9]*)\b/);
   const fromFile = fileName.match(/\b([A-Z]{2}\d{3,4}[A-Z0-9]*)\b/i);
   return {
@@ -253,6 +277,28 @@ function inferMoney(text: string) {
   const symbol = text.match(/\b(R\$|USD|EUR|CHF|GBP)\b/i)?.[1]?.toUpperCase() ?? null;
   const moeda = symbol?.replace('$', '') ?? (text.includes('R$') ? 'BRL' : null);
   return { valor_total: value, moeda };
+}
+
+function inferProvider(text: string, fileName: string) {
+  const bag = `${text} ${fileName}`.toLowerCase();
+  if (/\blatam\b/.test(bag)) return 'LATAM';
+  if (/\bgol\b/.test(bag)) return 'GOL';
+  if (/\bazul\b/.test(bag)) return 'AZUL';
+  if (/\blufthansa\b/.test(bag)) return 'Lufthansa';
+  if (/\bair france\b/.test(bag)) return 'Air France';
+  if (/\bairbnb\b/.test(bag)) return 'Airbnb';
+  if (/\bbooking\b/.test(bag) || /\bbooking\.com\b/.test(bag)) return 'Booking.com';
+  if (/\bexpedia\b/.test(bag)) return 'Expedia';
+  return null;
+}
+
+function inferStayAddress(text: string) {
+  const normalized = text.replace(/\s+/g, ' ');
+  const labeled = normalized.match(/(?:endere[çc]o|address)\s*[:\-]?\s*([^|]{8,120})/i);
+  if (labeled) return labeled[1].trim();
+  const streetLike = normalized.match(/\b\d{1,4}\s+[A-Za-zÀ-ÿ' -]{2,40}(?:rua|street|st|avenida|av|road|rd|boulevard|blvd|allee|platz)\b[^,]{0,60}/i);
+  if (streetLike) return streetLike[0].trim();
+  return null;
 }
 
 function normalizeCanonical(raw: Record<string, unknown>, text: string, fileName: string) {
@@ -298,13 +344,26 @@ function normalizeCanonical(raw: Record<string, unknown>, text: string, fileName
 
   if (scope === 'trip_related') {
     const airports = inferAirportCodes(text);
+    const cityRoute = inferRouteByCityNames(text);
     const dates = inferDates(text);
     const firstTime = inferTime(text);
     const money = inferMoney(text);
     const flight = inferFlightCode(text, fileName);
+    const provider = inferProvider(text, fileName);
+    const stayAddress = inferStayAddress(text);
 
-    canonical.dados_principais.origem = canonical.dados_principais.origem ?? airports.origem ?? null;
-    canonical.dados_principais.destino = canonical.dados_principais.destino ?? airports.destino ?? null;
+    canonical.dados_principais.provedor = canonical.dados_principais.provedor ?? provider;
+
+    canonical.dados_principais.origem =
+      canonical.dados_principais.origem ??
+      airports.origem ??
+      cityRoute.origem ??
+      null;
+    canonical.dados_principais.destino =
+      canonical.dados_principais.destino ??
+      airports.destino ??
+      (canonical.metadata.tipo === 'Hospedagem' ? stayAddress ?? cityRoute.destino : cityRoute.destino) ??
+      null;
     canonical.dados_principais.data_inicio = canonical.dados_principais.data_inicio ?? (canonical.metadata.tipo === 'Hospedagem' ? dates.checkIn : dates.generic);
     canonical.dados_principais.data_fim = canonical.dados_principais.data_fim ?? (canonical.metadata.tipo === 'Hospedagem' ? dates.checkOut : null);
     canonical.dados_principais.hora_inicio = canonical.dados_principais.hora_inicio ?? firstTime;
@@ -312,6 +371,14 @@ function normalizeCanonical(raw: Record<string, unknown>, text: string, fileName
     if (canonical.metadata.tipo === 'Voo') {
       canonical.dados_principais.codigo_reserva = canonical.dados_principais.codigo_reserva ?? flight.codigo_reserva;
       canonical.dados_principais.nome_exibicao = canonical.dados_principais.nome_exibicao ?? flight.numero_voo;
+      canonical.dados_principais.provedor = canonical.dados_principais.provedor ?? provider;
+    }
+
+    if (canonical.metadata.tipo === 'Hospedagem') {
+      canonical.dados_principais.nome_exibicao =
+        canonical.dados_principais.nome_exibicao ??
+        (provider ? `${provider} reserva` : null);
+      canonical.dados_principais.destino = canonical.dados_principais.destino ?? stayAddress ?? null;
     }
 
     canonical.financeiro.valor_total = canonical.financeiro.valor_total ?? money.valor_total;

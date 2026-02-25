@@ -95,9 +95,11 @@ const AI_OPERATIONS = new Set([
 const EVENT_TO_FEATURE: Record<string, string> = {
   import_started: 'ff_ai_import_enabled',
   import_confirmed: 'ff_ai_import_enabled',
+  import_reprocessed: 'ff_ai_reprocess_unlimited',
   invite_sent: 'ff_collab_enabled',
   member_role_changed: 'ff_collab_editor_role',
   export_triggered: 'ff_export_json_full',
+  api_snapshot_requested: 'ff_public_api_access',
 };
 
 function normalizeTierOrder(tier: PlanTier) {
