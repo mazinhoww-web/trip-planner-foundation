@@ -1,7 +1,8 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { SmartChecklistItem } from '@/hooks/useDashboardMetrics';
+import { Progress } from '@/components/ui/progress';
+import type { SmartChecklistItem, TripCountdown } from '@/hooks/useDashboardMetrics';
 import { Tables } from '@/integrations/supabase/types';
 import { WeatherSummary } from '@/services/weather';
 import { CalendarDays } from 'lucide-react';
@@ -38,6 +39,7 @@ type Props = {
   weatherError: string | null;
   smartChecklistItems: SmartChecklistItem[];
   onOpenTab: (tabKey: string) => void;
+  tripCountdown: TripCountdown;
 };
 
 export function OverviewTabPanel({
@@ -60,6 +62,7 @@ export function OverviewTabPanel({
   weatherError,
   smartChecklistItems,
   onOpenTab,
+  tripCountdown,
 }: Props) {
   return (
     <>
@@ -159,6 +162,39 @@ export function OverviewTabPanel({
                     </div>
                   )}
                   <p className="text-[11px] text-muted-foreground">Fonte: Open-Meteo.</p>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Countdown da viagem</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {!tripCountdown ? (
+                <p className="text-muted-foreground">Defina início e fim da viagem para ativar o countdown.</p>
+              ) : (
+                <>
+                  {tripCountdown.phase === 'before' && (
+                    <p className="font-medium">
+                      Faltam {tripCountdown.daysUntilStart} dia(s) para começar.
+                    </p>
+                  )}
+                  {tripCountdown.phase === 'during' && (
+                    <p className="font-medium">
+                      Viagem em andamento, {tripCountdown.daysRemaining} dia(s) para finalizar.
+                    </p>
+                  )}
+                  {tripCountdown.phase === 'after' && (
+                    <p className="font-medium">
+                      Viagem concluída há {tripCountdown.daysAfterEnd} dia(s).
+                    </p>
+                  )}
+                  <Progress value={tripCountdown.progressPercent} className="h-2" />
+                  <p className="text-xs text-muted-foreground">
+                    Progresso do período: {tripCountdown.progressPercent}% • duração total {tripCountdown.totalDays} dia(s)
+                  </p>
                 </>
               )}
             </CardContent>

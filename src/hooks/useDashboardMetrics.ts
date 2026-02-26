@@ -13,6 +13,18 @@ type CurrencyTotal = { currency: string; total: number };
 type ExpenseByCategory = { categoria: string; total: number };
 type ExpenseByDate = { data: string; total: number };
 type UpcomingEvent = { id: string; tipo: string; titulo: string; data: string };
+export type TripCountdown =
+  | {
+      phase: 'before' | 'during' | 'after';
+      daysUntilStart?: number;
+      daysRemaining?: number;
+      daysAfterEnd?: number;
+      totalDays: number;
+      progressPercent: number;
+      startDate: string;
+      endDate: string;
+    }
+  | null;
 export type SmartChecklistItem = {
   key: string;
   title: string;
@@ -303,6 +315,49 @@ export function useDashboardMetrics(params: DashboardMetricsParams) {
 
   const pendingTasksCount = useMemo(() => tasks.filter((task) => !task.concluida).length, [tasks]);
 
+  const tripCountdown = useMemo<TripCountdown>(() => {
+    const startDate = normalizeDate(currentTrip?.data_inicio);
+    const endDate = normalizeDate(currentTrip?.data_fim);
+    if (!startDate || !endDate) return null;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const totalDays = Math.max(1, dateDiffInDays(startDate, endDate));
+
+    if (today < startDate) {
+      return {
+        phase: 'before',
+        daysUntilStart: dateDiffInDays(today, startDate),
+        totalDays,
+        progressPercent: 0,
+        startDate,
+        endDate,
+      };
+    }
+
+    if (today > endDate) {
+      return {
+        phase: 'after',
+        daysAfterEnd: dateDiffInDays(endDate, today),
+        totalDays,
+        progressPercent: 100,
+        startDate,
+        endDate,
+      };
+    }
+
+    const daysElapsed = dateDiffInDays(startDate, today);
+    const progressPercent = Math.min(100, Math.max(0, Math.round((daysElapsed / totalDays) * 100)));
+
+    return {
+      phase: 'during',
+      daysRemaining: dateDiffInDays(today, endDate),
+      totalDays,
+      progressPercent,
+      startDate,
+      endDate,
+    };
+  }, [currentTrip?.data_fim, currentTrip?.data_inicio]);
+
   const hasReservations = useMemo(
     () => flights.length > 0 || stays.length > 0 || transports.length > 0,
     [flights.length, stays.length, transports.length],
@@ -475,6 +530,7 @@ export function useDashboardMetrics(params: DashboardMetricsParams) {
     stayDayChips,
     transportDayChips,
     daysUntilTrip,
+    tripCountdown,
     smartChecklistItems,
     flightStats,
     stayStats,

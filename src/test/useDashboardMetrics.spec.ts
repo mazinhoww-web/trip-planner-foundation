@@ -66,6 +66,7 @@ describe('useDashboardMetrics', () => {
     expect(result.current.variacaoTotal).toBe(-1250);
     expect(result.current.restaurantsFavorites).toHaveLength(1);
     expect(result.current.inferredHomeCity).toBe('FLN');
+    expect(result.current.tripCountdown).not.toBeNull();
     expect(result.current.smartChecklistItems.some((item) => item.key === 'task-pending')).toBe(true);
     expect(result.current.smartChecklistItems.some((item) => item.key === 'documents-missing')).toBe(true);
   });
