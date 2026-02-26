@@ -142,61 +142,87 @@ function parseLovableContent(content: unknown): string {
 }
 
 async function runOcrSpace(base64: string, mimeType: string | null) {
-  const apiKey = Deno.env.get('OCR_SPACE_API_KEY');
-  if (!apiKey) return { text: '', error: 'OCR_SPACE_API_KEY não configurada.' };
+  try {
+    const apiKey = Deno.env.get('OCR_SPACE_API_KEY');
+    if (!apiKey) return { text: '', error: 'OCR_SPACE_API_KEY não configurada.' };
 
-  const body = new URLSearchParams();
-  body.append('apikey', apiKey);
-  body.append('language', 'por');
-  body.append('isOverlayRequired', 'false');
-  body.append('OCREngine', '2');
-  body.append('base64Image', `data:${mimeType || 'application/octet-stream'};base64,${base64}`);
+    const body = new URLSearchParams();
+    body.append('apikey', apiKey);
+    body.append('language', 'por');
+    body.append('isOverlayRequired', 'false');
+    body.append('OCREngine', '2');
+    body.append('base64Image', `data:${mimeType || 'application/octet-stream'};base64,${base64}`);
 
-  const res = await fetch('https://api.ocr.space/parse/image', { method: 'POST', body });
-  if (!res.ok) return { text: '', error: `OCR.space HTTP ${res.status}` };
+    const res = await fetch('https://api.ocr.space/parse/image', { method: 'POST', body });
+    if (!res.ok) return { text: '', error: `OCR.space HTTP ${res.status}` };
 
-  const json = await res.json();
-  const parsed = Array.isArray(json?.ParsedResults) ? json.ParsedResults : [];
-  const text = parsed.map((item: { ParsedText?: string }) => item.ParsedText || '').join('\n').trim();
-  if (!text) return { text: '', error: 'OCR.space sem texto extraído.' };
-  return { text, error: null as string | null };
+    const json = await res.json().catch(() => null);
+    if (!json || typeof json !== 'object') {
+      return { text: '', error: 'OCR.space resposta inválida.' };
+    }
+
+    const parsed = Array.isArray((json as Record<string, unknown>).ParsedResults)
+      ? (json as Record<string, unknown>).ParsedResults as Array<{ ParsedText?: string }>
+      : [];
+    const text = parsed.map((item) => item.ParsedText || '').join('\n').trim();
+    if (!text) {
+      const upstreamMessage = Array.isArray((json as Record<string, unknown>).ErrorMessage)
+        ? String((json as Record<string, unknown>).ErrorMessage?.[0] ?? '')
+        : '';
+      return { text: '', error: upstreamMessage || 'OCR.space sem texto extraído.' };
+    }
+
+    return { text, error: null as string | null };
+  } catch (error) {
+    return {
+      text: '',
+      error: error instanceof Error ? `OCR.space indisponível: ${error.message}` : 'OCR.space indisponível.',
+    };
+  }
 }
 
 async function runLovableVision(base64: string, mimeType: string | null) {
-  const apiKey = Deno.env.get('LOVABLE_API_KEY');
-  if (!apiKey) return { text: '', error: 'LOVABLE_API_KEY não configurada.' };
+  try {
+    const apiKey = Deno.env.get('LOVABLE_API_KEY');
+    if (!apiKey) return { text: '', error: 'LOVABLE_API_KEY não configurada.' };
 
-  const res = await fetch(LOVABLE_AI_URL, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: LOVABLE_VISION_MODEL,
-      temperature: 0,
-      max_tokens: 2000,
-      messages: [
-        { role: 'system', content: OCR_PROMPT },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: 'Extraia texto bruto do documento.' },
-            { type: 'image_url', image_url: { url: `data:${mimeType || 'image/png'};base64,${base64}` } },
-          ],
-        },
-      ],
-    }),
-  });
+    const res = await fetch(LOVABLE_AI_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: LOVABLE_VISION_MODEL,
+        temperature: 0,
+        max_tokens: 2000,
+        messages: [
+          { role: 'system', content: OCR_PROMPT },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Extraia texto bruto do documento.' },
+              { type: 'image_url', image_url: { url: `data:${mimeType || 'image/png'};base64,${base64}` } },
+            ],
+          },
+        ],
+      }),
+    });
 
-  if (!res.ok) {
-    const raw = await res.text();
-    if (res.status === 429) return { text: '', error: 'Rate limit do AI gateway atingido.' };
-    if (res.status === 402) return { text: '', error: 'Créditos de AI insuficientes.' };
-    return { text: '', error: `Lovable AI vision falhou (${res.status}): ${raw.slice(0, 120)}` };
+    if (!res.ok) {
+      const raw = await res.text();
+      if (res.status === 429) return { text: '', error: 'Rate limit do AI gateway atingido.' };
+      if (res.status === 402) return { text: '', error: 'Créditos de AI insuficientes.' };
+      return { text: '', error: `Lovable AI vision falhou (${res.status}): ${raw.slice(0, 120)}` };
+    }
+
+    const json = await res.json().catch(() => null);
+    const text = parseLovableContent((json as Record<string, any> | null)?.choices?.[0]?.message?.content);
+    if (!text) return { text: '', error: 'Lovable AI vision sem texto extraído.' };
+    return { text, error: null as string | null };
+  } catch (error) {
+    return {
+      text: '',
+      error: error instanceof Error ? `Lovable AI vision indisponível: ${error.message}` : 'Lovable AI vision indisponível.',
+    };
   }
-
-  const json = await res.json();
-  const text = parseLovableContent(json?.choices?.[0]?.message?.content);
-  if (!text) return { text: '', error: 'Lovable AI vision sem texto extraído.' };
-  return { text, error: null as string | null };
 }
 
 Deno.serve(async (req) => {
@@ -291,7 +317,7 @@ Deno.serve(async (req) => {
 
     if (nativePdfText) {
       const metrics = qualityMetricsFromText(nativePdfText);
-      if (metrics.text_length > 24) {
+      if (metrics.text_length > 8) {
         warnings.push('OCR provider indisponível. Texto nativo de PDF usado como fallback.');
         console.info('[ocr-document]', requestId, 'success', { userId: auth.userId, method: 'native_pdf_fallback', remaining: rate.remaining, limit_per_hour: limitPerHour });
         await trackFeatureUsage({
@@ -314,6 +340,16 @@ Deno.serve(async (req) => {
         geminiModel: GEMINI_MODEL,
         timeoutMs,
         maxTokens: 2000,
+      }).catch((visionError) => {
+        warnings.push(
+          visionError instanceof Error
+            ? `Falha na etapa de visão paralela: ${visionError.message}`
+            : 'Falha na etapa de visão paralela.',
+        );
+        return {
+          openrouter: { provider: 'openrouter' as const, ok: false, elapsedMs: 0, rawText: null, parsed: null, usage: null, error: 'parallel_vision_failed' },
+          gemini: { provider: 'gemini' as const, ok: false, elapsedMs: 0, rawText: null, parsed: null, usage: null, error: 'parallel_vision_failed' },
+        };
       });
 
       const candidates: VisionCandidate[] = [];
