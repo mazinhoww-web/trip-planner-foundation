@@ -54,6 +54,22 @@ const MISSING_FIELD_LABELS: Record<string, string> = {
   review_manual_requerida: 'Validação manual recomendada',
 };
 
+const MISSING_FIELD_PRIORITY: Record<string, number> = {
+  'voo.origem': 1,
+  'voo.destino': 2,
+  'voo.data_inicio': 3,
+  'voo.identificador': 4,
+  'hospedagem.nome_exibicao': 1,
+  'hospedagem.data_inicio': 2,
+  'hospedagem.data_fim': 3,
+  'hospedagem.valor_total': 4,
+  'transporte.origem': 1,
+  'transporte.destino': 2,
+  'transporte.data_inicio': 3,
+  'restaurante.nome': 1,
+  'restaurante.cidade': 2,
+};
+
 export function toMissingFieldLabel(field: string) {
   return MISSING_FIELD_LABELS[field] ?? field;
 }
@@ -69,6 +85,15 @@ function qualityLabel(value: ImportQueueItem['extractionQuality']) {
   if (value === 'high') return 'Qualidade alta';
   if (value === 'medium') return 'Qualidade média';
   return 'Qualidade baixa';
+}
+
+function prioritizeMissingFields(fields: string[]) {
+  return [...fields].sort((a, b) => {
+    const priorityA = MISSING_FIELD_PRIORITY[a] ?? 99;
+    const priorityB = MISSING_FIELD_PRIORITY[b] ?? 99;
+    if (priorityA !== priorityB) return priorityA - priorityB;
+    return a.localeCompare(b);
+  });
 }
 
 export function ImportConfirmationCard({
@@ -96,7 +121,9 @@ export function ImportConfirmationCard({
   const transportDateLabel = review?.transporte.data_inicio
     ? `${review.transporte.data_inicio}${review.transporte.hora_inicio ? ` ${review.transporte.hora_inicio}` : ''}`
     : 'Data não identificada';
-  const missingCritical = [...new Set(activeItem.missingFields)].slice(0, 5).map(toMissingFieldLabel);
+  const missingCritical = prioritizeMissingFields([...new Set(activeItem.missingFields)])
+    .slice(0, 5)
+    .map(toMissingFieldLabel);
 
   return (
     <Card className="border-primary/30 bg-primary/5">

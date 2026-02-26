@@ -498,9 +498,18 @@ export function ImportReservationDialog() {
       const resolvedType = resolveImportType(extracted, extractedText, file.name);
       const review = resolvedScope === 'trip_related' ? toReviewState(extracted, resolvedType) : null;
       const computedMissingFields = computeCriticalMissingFields(review?.type ?? resolvedType, review, resolvedScope);
-      const missingFields = mergeMissingFields(extracted.missingFields ?? [], computedMissingFields);
+      const missingFields = resolvedScope === 'outside_scope'
+        ? []
+        : mergeMissingFields(extracted.missingFields ?? [], computedMissingFields);
       const quality = extracted.extraction_quality ?? (extractedText.length > 500 ? 'high' : extractedText.length > 120 ? 'medium' : 'low');
       const canonicalForStorage = withImportHash(extracted.canonical, fileHash, file.name);
+      if (options?.reprocess && previousCanonical) {
+        const previousSignature = JSON.stringify(previousCanonical);
+        const currentSignature = JSON.stringify(canonicalForStorage);
+        if (previousSignature === currentSignature) {
+          localWarnings.push('Reprocessamento concluído sem mudanças relevantes nos dados extraídos.');
+        }
+      }
       const typeConfidenceFromCanonical = extracted.canonical?.metadata?.confianca != null
         ? Math.max(0, Math.min(1, Number(extracted.canonical.metadata.confianca) / 100))
         : null;
