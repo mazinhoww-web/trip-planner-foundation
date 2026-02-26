@@ -1189,10 +1189,30 @@ export function ImportReservationDialog() {
           payload: webhookPayload,
         });
         if (webhook.error) {
+          await trackProductEvent({
+            eventName: 'webhook_dispatched',
+            featureKey: 'ff_webhooks_enabled',
+            viagemId: currentTripId,
+            status: 'failed',
+            metadata: {
+              source: 'import.confirmed',
+              error: webhook.error,
+            },
+          });
           setItem(activeItem.id, (item) => ({
             ...item,
             warnings: item.warnings.concat('Reserva salva, mas o webhook de integração não pôde ser enviado.'),
           }));
+        } else {
+          await trackProductEvent({
+            eventName: 'webhook_dispatched',
+            featureKey: 'ff_webhooks_enabled',
+            viagemId: currentTripId,
+            status: 'success',
+            metadata: {
+              source: 'import.confirmed',
+            },
+          });
         }
       }
     } catch (error) {

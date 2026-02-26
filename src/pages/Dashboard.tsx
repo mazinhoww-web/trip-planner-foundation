@@ -46,9 +46,7 @@ import { generateStayTips, suggestRestaurants, generateTripTasks, generateItiner
 import { calculateStayCoverageGaps, calculateTransportCoverageGaps } from '@/services/tripInsights';
 import { supabase } from '@/integrations/supabase/client';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
-import { exportTripSnapshotJson, openPrintHtml } from '@/services/exports';
-import { requestTripExport } from '@/services/tripExport';
-import { trackProductEvent } from '@/services/productAnalytics';
+import { useTripExportActions } from '@/hooks/useTripExportActions';
 
 const ImportReservationDialog = lazy(() =>
   import('@/components/import/ImportReservationDialog').then((mod) => ({ default: mod.ImportReservationDialog })),
@@ -495,7 +493,7 @@ export default function Dashboard() {
   const exportJsonGate = useFeatureGate('ff_export_json_full');
   const publicApiGate = useFeatureGate('ff_public_api_access');
   const webhookGate = useFeatureGate('ff_webhooks_enabled');
-  const [isExportingData, setIsExportingData] = useState(false);
+  const { isExportingData, exportJson, exportPdf } = useTripExportActions(currentTripId);
   const isAnyCrudDialogOpen =
     flightDialogOpen ||
     flightDetailOpen ||
@@ -3108,58 +3106,8 @@ export default function Dashboard() {
                   canExportJson={exportJsonGate.enabled}
                   isExporting={isExportingData}
                   planTier={collabGate.planTier}
-                  onExportJson={async () => {
-                    if (!currentTrip) return;
-                    setIsExportingData(true);
-                    try {
-                      const result = await requestTripExport({
-                        viagemId: currentTripId,
-                        format: 'json',
-                      });
-                      if (result.error || !result.data?.snapshot) {
-                        throw new Error(result.error ?? 'Não foi possível exportar o JSON completo.');
-                      }
-                      exportTripSnapshotJson(result.data.snapshot, result.data.fileName);
-                      await trackProductEvent({
-                        eventName: 'export_triggered',
-                        featureKey: 'ff_export_json_full',
-                        viagemId: currentTripId,
-                        metadata: { format: 'json' },
-                      });
-                      toast.success('Snapshot JSON exportado com sucesso.');
-                    } catch (error) {
-                      const message = error instanceof Error ? error.message : 'Não foi possível exportar o JSON da viagem.';
-                      toast.error(message);
-                    } finally {
-                      setIsExportingData(false);
-                    }
-                  }}
-                  onExportPdf={async () => {
-                    if (!currentTrip) return;
-                    setIsExportingData(true);
-                    try {
-                      const result = await requestTripExport({
-                        viagemId: currentTripId,
-                        format: 'pdf',
-                      });
-                      if (result.error || !result.data?.html) {
-                        throw new Error(result.error ?? 'Não foi possível iniciar a exportação em PDF.');
-                      }
-                      openPrintHtml(result.data.html);
-                      await trackProductEvent({
-                        eventName: 'export_triggered',
-                        featureKey: 'ff_export_pdf',
-                        viagemId: currentTripId,
-                        metadata: { format: 'pdf' },
-                      });
-                      toast.success('Resumo preparado para exportação em PDF.');
-                    } catch (error) {
-                      const message = error instanceof Error ? error.message : 'Não foi possível iniciar a exportação em PDF.';
-                      toast.error(message);
-                    } finally {
-                      setIsExportingData(false);
-                    }
-                  }}
+                  onExportJson={exportJson}
+                  onExportPdf={exportPdf}
                 />
 
                 <div className="grid gap-4 md:grid-cols-3">
