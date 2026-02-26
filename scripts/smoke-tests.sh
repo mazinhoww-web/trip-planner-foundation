@@ -256,6 +256,27 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
       fail "trip-export autenticado falhou ($code)"
     fi
 
+    code="$(http_code POST "$SUPABASE_URL/functions/v1/trip-export" "$tmp_dir/auth-trip-export-ics.h" "$tmp_dir/auth-trip-export-ics.b" \
+      -H "apikey: $SUPABASE_ANON_KEY" \
+      -H "Authorization: Bearer $TEST_USER_JWT" \
+      -H "Content-Type: application/json" \
+      --data "{\"viagemId\":\"$TEST_TRIP_ID\",\"format\":\"ics\"}")"
+    if [[ "$code" =~ ^(200|403|429|502)$ ]]; then
+      if [ "$code" = "200" ]; then
+        if grep -q "\"ics\"" "$tmp_dir/auth-trip-export-ics.b"; then
+          pass "trip-export autenticado retornou calendário ics (200)"
+        else
+          warn "trip-export respondeu 200 sem payload ics"
+        fi
+      elif [ "$code" = "403" ]; then
+        pass "trip-export ics bloqueado por plano (403) - esperado no free"
+      else
+        warn "trip-export ics retornou $code"
+      fi
+    else
+      fail "trip-export ics autenticado falhou ($code)"
+    fi
+
     code="$(http_code POST "$SUPABASE_URL/functions/v1/trip-webhook-dispatch" "$tmp_dir/auth-webhook.h" "$tmp_dir/auth-webhook.b" \
       -H "apikey: $SUPABASE_ANON_KEY" \
       -H "Authorization: Bearer $TEST_USER_JWT" \
