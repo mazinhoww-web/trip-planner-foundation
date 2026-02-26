@@ -1,9 +1,12 @@
 import { BudgetExportActions } from '@/components/dashboard/BudgetExportActions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { convertTotalsRecordByReference } from '@/services/currencyConversion';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { REFERENCE_RATES_TO_BRL, convertAmountByReference, convertTotalsRecordByReference } from '@/services/currencyConversion';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { TrendingDown, TrendingUp, Wallet } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 const CHART_COLORS = ['#0f766e', '#2563eb', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#65a30d'];
 
@@ -58,6 +61,10 @@ export function BudgetTabPanel({
   formatByCurrency,
   formatCurrency,
 }: BudgetTabPanelProps) {
+  const [converterAmountRaw, setConverterAmountRaw] = useState('1000');
+  const [converterFrom, setConverterFrom] = useState('BRL');
+  const [converterTo, setConverterTo] = useState('USD');
+
   const conversionSnapshot = useMemo(() => {
     const realBrl = convertTotalsRecordByReference(realByCurrency, 'BRL');
     const estimadoBrl = convertTotalsRecordByReference(estimadoByCurrency, 'BRL');
@@ -70,6 +77,19 @@ export function BudgetTabPanel({
       estimadoUsd,
     };
   }, [estimadoByCurrency, realByCurrency]);
+
+  const converterAmount = useMemo(() => {
+    const normalized = converterAmountRaw.replace(',', '.').trim();
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [converterAmountRaw]);
+
+  const converterResult = useMemo(() => {
+    if (converterAmount == null) return null;
+    return convertAmountByReference(converterAmount, converterFrom, converterTo);
+  }, [converterAmount, converterFrom, converterTo]);
+
+  const availableCurrencies = useMemo(() => Object.keys(REFERENCE_RATES_TO_BRL), []);
 
   return (
     <>
@@ -147,6 +167,68 @@ export function BudgetTabPanel({
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-border/50">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Conversor rápido de moedas</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="budget-converter-amount">Valor</Label>
+              <Input
+                id="budget-converter-amount"
+                inputMode="decimal"
+                placeholder="Ex.: 1000"
+                value={converterAmountRaw}
+                onChange={(event) => setConverterAmountRaw(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="budget-converter-from">De</Label>
+              <Select value={converterFrom} onValueChange={setConverterFrom}>
+                <SelectTrigger id="budget-converter-from">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableCurrencies.map((currency) => (
+                    <SelectItem key={currency} value={currency}>
+                      {currency}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="budget-converter-to">Para</Label>
+              <Select value={converterTo} onValueChange={setConverterTo}>
+                <SelectTrigger id="budget-converter-to">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableCurrencies.map((currency) => (
+                    <SelectItem key={currency} value={currency}>
+                      {currency}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="rounded-lg border bg-muted/20 p-3 text-sm">
+            {converterResult == null ? (
+              <p className="text-muted-foreground">Informe um valor válido para converter.</p>
+            ) : (
+              <p className="font-medium">
+                {formatCurrency(converterAmount, converterFrom)} = {formatCurrency(converterResult, converterTo)}
+              </p>
+            )}
+            <p className="mt-1 text-xs text-muted-foreground">
+              Conversão baseada em taxa de referência (planejamento), sem cotação em tempo real.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="border-border/50">
