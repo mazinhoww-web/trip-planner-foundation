@@ -66,6 +66,20 @@ describe('import helpers', () => {
     expect(extracted.data.voo?.data).toBe('2026-04-02');
   });
 
+  it('parses city routes and month-text dates for flight fallback', () => {
+    const extracted = inferFallbackExtraction(
+      'LATAM localizador WCTJSN de Cuiabá para São Paulo em 02 abril 2026',
+      'comprovante-latam.pdf',
+      null,
+    );
+
+    expect(extracted.type).toBe('voo');
+    expect(extracted.canonical?.dados_principais.codigo_reserva).toBe('WCTJSN');
+    expect(extracted.canonical?.dados_principais.origem).toBe('Cuiabá');
+    expect(extracted.canonical?.dados_principais.destino).toBe('São Paulo');
+    expect(extracted.canonical?.dados_principais.data_inicio).toBe('2026-04-02');
+  });
+
   it('converts date + time into ISO datetime when both are valid', () => {
     const iso = toIsoDateTime('2026-04-02', '15:40');
     expect(iso).toContain('2026-04-02T15:40:00');
