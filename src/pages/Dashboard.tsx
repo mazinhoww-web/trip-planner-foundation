@@ -1018,10 +1018,12 @@ export default function Dashboard() {
                     profile={profile}
                     onProfileRefresh={loadProfile}
                     collabEnabled={collabGate.enabled}
+                    aiAssistantEnabled={aiImportGate.enabled}
                     tripMembers={tripMembers}
                     currentTripId={currentTripId}
                     publicApiEnabled={publicApiGate.enabled}
                     webhookEnabled={webhookGate.enabled}
+                    onNavigateTab={setActiveTab}
                     supportResourcesProps={{
                       canEditTrip,
                       supportForms: supportResources.supportForms,

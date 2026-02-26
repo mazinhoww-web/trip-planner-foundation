@@ -3,6 +3,7 @@ import { Tables } from '@/integrations/supabase/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { PublicApiPanel } from '@/components/dashboard/PublicApiPanel';
 import { SupportResourcesGrid, SupportResourcesGridProps } from '@/components/dashboard/SupportResourcesGrid';
+import { TripAiAssistantPanel } from '@/components/dashboard/TripAiAssistantPanel';
 import { TripUsersPanel } from '@/components/dashboard/TripUsersPanel';
 import { UserSettingsPanel } from '@/components/dashboard/UserSettingsPanel';
 import { WebhookDispatchPanel } from '@/components/dashboard/WebhookDispatchPanel';
@@ -15,10 +16,12 @@ type SupportTabPanelProps = {
   profile: Tables<'profiles'> | null;
   onProfileRefresh: () => Promise<unknown> | void;
   collabEnabled: boolean;
+  aiAssistantEnabled: boolean;
   tripMembers: TripMembersState;
   currentTripId: string | null;
   publicApiEnabled: boolean;
   webhookEnabled: boolean;
+  onNavigateTab?: (tab: string) => void;
   supportResourcesProps: SupportResourcesGridProps;
 };
 
@@ -30,10 +33,12 @@ export function SupportTabPanel({
   profile,
   onProfileRefresh,
   collabEnabled,
+  aiAssistantEnabled,
   tripMembers,
   currentTripId,
   publicApiEnabled,
   webhookEnabled,
+  onNavigateTab,
   supportResourcesProps,
 }: SupportTabPanelProps) {
   if (supportError) {
@@ -62,6 +67,7 @@ export function SupportTabPanel({
         profile={profile}
         onProfileRefresh={onProfileRefresh}
       />
+      <TripAiAssistantPanel enabled={aiAssistantEnabled} currentTripId={currentTripId} onNavigateTab={onNavigateTab} />
 
       {collabEnabled ? (
         <div className="space-y-2">
