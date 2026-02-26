@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tables } from '@/integrations/supabase/types';
 import { Trash2 } from 'lucide-react';
 
-type SupportFormsState = {
+export type SupportFormsState = {
   documentoNome: string;
   documentoTipo: string;
   documentoUrl: string;
@@ -20,7 +20,7 @@ type SupportFormsState = {
   preparativoDescricao: string;
 };
 
-type ModuleState<T extends keyof TablesMap> = {
+export type ModuleState<T extends keyof TablesMap> = {
   data: Tables<T>[];
   isCreating: boolean;
 };
@@ -32,7 +32,7 @@ type TablesMap = {
   preparativos: Tables<'preparativos'>;
 };
 
-type SupportResourcesGridProps = {
+export type SupportResourcesGridProps = {
   canEditTrip: boolean;
   supportForms: SupportFormsState;
   setSupportForms: Dispatch<SetStateAction<SupportFormsState>>;

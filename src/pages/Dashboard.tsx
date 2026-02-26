@@ -22,11 +22,7 @@ import { TripHero } from '@/components/dashboard/TripHero';
 import { TripStatsGrid } from '@/components/dashboard/TripStatsGrid';
 import { TripTopActions } from '@/components/dashboard/TripTopActions';
 import { TripCollaborationBanner, TripViewerNotice } from '@/components/dashboard/TripCollaborationPanels';
-import { TripUsersPanel } from '@/components/dashboard/TripUsersPanel';
-import { UserSettingsPanel } from '@/components/dashboard/UserSettingsPanel';
-import { PublicApiPanel } from '@/components/dashboard/PublicApiPanel';
-import { WebhookDispatchPanel } from '@/components/dashboard/WebhookDispatchPanel';
-import { SupportResourcesGrid } from '@/components/dashboard/SupportResourcesGrid';
+import { SupportTabPanel } from '@/components/dashboard/SupportTabPanel';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { BudgetExportActions } from '@/components/dashboard/BudgetExportActions';
 import { Button } from '@/components/ui/button';
@@ -3306,65 +3302,42 @@ export default function Dashboard() {
               </TabsContent>
 
               <TabsContent value="apoio" className="space-y-4">
-                {supportError && (
-                  <Card className="border-rose-500/40 bg-rose-500/5">
-                    <CardContent className="p-4 text-sm text-rose-700">
-                      Erro ao carregar módulos de apoio: {supportError}
-                    </CardContent>
-                  </Card>
-                )}
-
-                {supportIsLoading ? (
-                  <Card className="border-border/50">
-                    <CardContent className="p-8 text-center text-muted-foreground">Carregando módulos de apoio...</CardContent>
-                  </Card>
-                ) : (
-                  <div className="space-y-4">
-                    <UserSettingsPanel
-                      userId={user?.id}
-                      userEmail={user?.email}
-                      profile={profile}
-                      onProfileRefresh={loadProfile}
-                    />
-
-                    {collabGate.enabled ? (
-                      <TripUsersPanel tripMembers={tripMembers} currentUserId={user?.id} currentTripId={currentTripId} />
-                    ) : (
-                      <Card className="border-border/50">
-                        <CardContent className="p-4 text-sm text-muted-foreground">
-                          Colaboração entre usuários indisponível no plano atual.
-                        </CardContent>
-                      </Card>
-                    )}
-
-                    <PublicApiPanel enabled={publicApiGate.enabled} currentTripId={currentTripId} />
-                    <WebhookDispatchPanel enabled={webhookGate.enabled} currentTripId={currentTripId} />
-
-                    <SupportResourcesGrid
-                      canEditTrip={canEditTrip}
-                      supportForms={supportForms}
-                      setSupportForms={setSupportForms}
-                      documentsModule={documentsModule}
-                      luggageModule={luggageModule}
-                      travelersModule={travelersModule}
-                      prepModule={prepModule}
-                      openingDocumentPath={openingDocumentPath}
-                      downloadingDocumentPath={downloadingDocumentPath}
-                      createDocument={createDocument}
-                      removeDocument={removeDocument}
-                      openSupportDocument={openSupportDocument}
-                      downloadSupportDocument={downloadSupportDocument}
-                      createLuggageItem={createLuggageItem}
-                      toggleLuggageChecked={toggleLuggageChecked}
-                      removeLuggageItem={removeLuggageItem}
-                      createTraveler={createTraveler}
-                      removeTraveler={removeTraveler}
-                      createPrepItem={createPrepItem}
-                      togglePrepDone={togglePrepDone}
-                      removePrepItem={removePrepItem}
-                    />
-                  </div>
-                )}
+                <SupportTabPanel
+                  supportError={supportError}
+                  supportIsLoading={supportIsLoading}
+                  userId={user?.id}
+                  userEmail={user?.email}
+                  profile={profile}
+                  onProfileRefresh={loadProfile}
+                  collabEnabled={collabGate.enabled}
+                  tripMembers={tripMembers}
+                  currentTripId={currentTripId}
+                  publicApiEnabled={publicApiGate.enabled}
+                  webhookEnabled={webhookGate.enabled}
+                  supportResourcesProps={{
+                    canEditTrip,
+                    supportForms,
+                    setSupportForms,
+                    documentsModule,
+                    luggageModule,
+                    travelersModule,
+                    prepModule,
+                    openingDocumentPath,
+                    downloadingDocumentPath,
+                    createDocument,
+                    removeDocument,
+                    openSupportDocument,
+                    downloadSupportDocument,
+                    createLuggageItem,
+                    toggleLuggageChecked,
+                    removeLuggageItem,
+                    createTraveler,
+                    removeTraveler,
+                    createPrepItem,
+                    togglePrepDone,
+                    removePrepItem,
+                  }}
+                />
               </TabsContent>
             </Tabs>
             </section>
