@@ -1,14 +1,13 @@
 import { DragEvent, useEffect, useId, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ImportProgressCard } from '@/components/import/ImportProgressCard';
 import { ImportQueuePanel } from '@/components/import/ImportQueuePanel';
 import { ImportResultSummary } from '@/components/import/ImportResultSummary';
 import { ImportReviewFormByType } from '@/components/import/ImportReviewFormByType';
 import { ImportConfirmationCard } from '@/components/import/ImportConfirmationCard';
+import { ImportUploadSection } from '@/components/import/ImportUploadSection';
 import {
   defaultVisualSteps,
   ImportSummary,
@@ -57,7 +56,7 @@ import {
   toUserWarning,
   typeLabel,
 } from '@/components/import/import-dialog-helpers';
-import { FileUp, Loader2, WandSparkles, FileText, Sparkles, Upload } from 'lucide-react';
+import { FileUp, Loader2, FileText, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function ImportReservationDialog() {
@@ -144,6 +143,24 @@ export function ImportReservationDialog() {
     event.stopPropagation();
     setIsDragActive(false);
     onSelectFiles(event.dataTransfer?.files ?? null);
+  };
+
+  const handleDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragActive(true);
+  };
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragActive(true);
+  };
+
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragActive(false);
   };
 
   const processOneFile = async (itemId: string, options?: { reprocess?: boolean }) => {
@@ -839,66 +856,20 @@ export function ImportReservationDialog() {
         </DialogHeader>
 
         <div className="space-y-4">
-          <Card className="border-primary/15 bg-white/95 shadow-sm">
-            <CardContent className="pt-4">
-              <div
-                className={`rounded-xl border border-dashed p-3 transition-colors sm:p-4 ${
-                  isDragActive ? 'border-primary bg-primary/5' : 'border-border/60 bg-background/40'
-                }`}
-                onDragEnter={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setIsDragActive(true);
-                }}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setIsDragActive(true);
-                }}
-                onDragLeave={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setIsDragActive(false);
-                }}
-                onDrop={handleDropFiles}
-              >
-                <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-                  <Upload className="h-4 w-4" />
-                  Arraste e solte arquivos aqui ou selecione pelo campo abaixo.
-                </div>
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px] md:items-end xl:grid-cols-[minmax(0,1fr)_260px]">
-                <div className="min-w-0 space-y-2">
-                  <Label htmlFor={fileInputId}>Arquivos da viagem</Label>
-                  <Input
-                    id={fileInputId}
-                    type="file"
-                    multiple
-                    accept=".txt,.html,.eml,.pdf,.png,.jpg,.jpeg,.webp"
-                    onChange={(event) => onSelectFiles(event.target.files)}
-                    className="h-11 text-sm"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {`Você pode subir até ${maxFilesPerBatch} arquivo(s) por lote. Formatos: txt, html, eml, pdf, png, jpg e webp.`}
-                  </p>
-                </div>
-                <div className="w-full space-y-2 md:self-end">
-                  <Button
-                    onClick={runBatch}
-                    disabled={!canProcess}
-                    aria-label="Analisar arquivos selecionados"
-                    className="h-11 w-full bg-primary text-sm font-semibold hover:bg-primary/90"
-                  >
-                    {isProcessingBatch || isReprocessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
-                    Analisar arquivos
-                  </Button>
-                  <p className="text-[11px] text-muted-foreground md:text-center">
-                    OCR + IA classifica cada arquivo e prepara confirmação final.
-                  </p>
-                </div>
-              </div>
-              </div>
-            </CardContent>
-          </Card>
+          <ImportUploadSection
+            isDragActive={isDragActive}
+            fileInputId={fileInputId}
+            maxFilesPerBatch={maxFilesPerBatch}
+            canProcess={canProcess}
+            isProcessingBatch={isProcessingBatch}
+            isReprocessing={isReprocessing}
+            onRunBatch={runBatch}
+            onSelectFiles={onSelectFiles}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDropFiles}
+          />
 
           <ImportQueuePanel
             queue={queue}
