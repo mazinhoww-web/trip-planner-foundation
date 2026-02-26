@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTrip } from '@/hooks/useTrip';
 import { useTripSummary } from '@/hooks/useModuleData';
@@ -23,6 +23,7 @@ import { TripTopActions } from '@/components/dashboard/TripTopActions';
 import { OnboardingWizard } from '@/components/dashboard/OnboardingWizard';
 import { TripCollaborationBanner, TripViewerNotice } from '@/components/dashboard/TripCollaborationPanels';
 import { DashboardShell } from '@/components/dashboard/DashboardShell';
+import type { DashboardNotification } from '@/components/dashboard/DashboardShell';
 import { DashboardTabsNav } from '@/components/dashboard/DashboardTabsNav';
 import { DashboardTabPanelFallback } from '@/components/dashboard/DashboardTabPanelFallback';
 import { Button } from '@/components/ui/button';
@@ -428,6 +429,57 @@ export default function Dashboard() {
     restaurantsModule.error ||
     supportError;
 
+  const pendingTasksTotal = useMemo(
+    () => tasksModule.data.filter((task) => !task.concluida).length,
+    [tasksModule.data],
+  );
+
+  const dashboardNotifications = useMemo<DashboardNotification[]>(() => {
+    const notifications: DashboardNotification[] = [];
+
+    if (stayGapLines.length > 0) {
+      notifications.push({
+        id: 'stay-gaps',
+        title: 'Hospedagens pendentes',
+        description: `${stayGapLines.length} período(s) sem cobertura.`,
+        severity: 'high',
+        tabKey: 'hospedagens',
+      });
+    }
+
+    if (transportGapLines.length > 0) {
+      notifications.push({
+        id: 'transport-gaps',
+        title: 'Transporte incompleto',
+        description: `${transportGapLines.length} trecho(s) sem deslocamento confirmado.`,
+        severity: 'high',
+        tabKey: 'transportes',
+      });
+    }
+
+    if (pendingTasksTotal > 0) {
+      notifications.push({
+        id: 'tasks-pending',
+        title: 'Tarefas pendentes',
+        description: `${pendingTasksTotal} tarefa(s) aberta(s) para concluir.`,
+        severity: 'medium',
+        tabKey: 'tarefas',
+      });
+    }
+
+    if (daysUntilTrip != null && daysUntilTrip <= 7) {
+      notifications.push({
+        id: 'trip-near',
+        title: 'Viagem próxima',
+        description: `Partida em ${daysUntilTrip} dia(s). Revise comprovantes e horários.`,
+        severity: 'medium',
+        tabKey: 'visao',
+      });
+    }
+
+    return notifications.slice(0, 5);
+  }, [daysUntilTrip, pendingTasksTotal, stayGapLines.length, transportGapLines.length]);
+
   useEffect(() => {
     if (flightDialogOpen) setFlightDetailOpen(false);
   }, [flightDialogOpen]);
@@ -553,6 +605,8 @@ export default function Dashboard() {
       activeTab={activeTab}
       onTabChange={setActiveTab}
       onLogout={handleLogout}
+      notifications={dashboardNotifications}
+      onNotificationSelect={setActiveTab}
     >
       {currentTrip ? (
         <>

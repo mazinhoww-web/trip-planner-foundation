@@ -2,9 +2,25 @@ import { ReactNode } from 'react';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { ThemeToggle } from '@/components/dashboard/ThemeToggle';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DASHBOARD_TABS } from '@/pages/dashboardHelpers';
-import { LogOut } from 'lucide-react';
+import { Bell, LogOut } from 'lucide-react';
+
+export type DashboardNotification = {
+  id: string;
+  title: string;
+  description: string;
+  severity: 'high' | 'medium';
+  tabKey: string;
+};
 
 interface DashboardShellProps {
   userEmail?: string | null;
@@ -14,6 +30,8 @@ interface DashboardShellProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
   onLogout: () => void | Promise<void>;
+  notifications?: DashboardNotification[];
+  onNotificationSelect?: (tab: string) => void;
   children: ReactNode;
 }
 
@@ -25,8 +43,12 @@ export function DashboardShell({
   activeTab,
   onTabChange,
   onLogout,
+  notifications = [],
+  onNotificationSelect,
   children,
 }: DashboardShellProps) {
+  const highPriorityCount = notifications.filter((notification) => notification.severity === 'high').length;
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-background via-slate-50/70 to-slate-100/70 dark:via-slate-900/65 dark:to-slate-950/75">
       <header className="sticky top-0 z-20 border-b border-primary/15 bg-white/92 backdrop-blur-lg dark:bg-slate-950/85">
@@ -54,6 +76,51 @@ export function DashboardShell({
               </Select>
             )}
             <ThemeToggle />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9 px-3">
+                  <Bell className="mr-2 h-4 w-4" />
+                  Alertas
+                  {notifications.length > 0 ? (
+                    <span className="ml-2 rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none text-primary-foreground">
+                      {notifications.length}
+                    </span>
+                  ) : null}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-[320px]">
+                <DropdownMenuLabel className="flex items-center justify-between">
+                  Notificações da viagem
+                  {highPriorityCount > 0 ? (
+                    <span className="text-[11px] font-medium text-rose-600">{highPriorityCount} crítica(s)</span>
+                  ) : null}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {notifications.length === 0 ? (
+                  <DropdownMenuItem disabled>Nenhum alerta no momento.</DropdownMenuItem>
+                ) : (
+                  notifications.map((notification) => (
+                    <DropdownMenuItem
+                      key={notification.id}
+                      onSelect={() => onNotificationSelect?.(notification.tabKey)}
+                      className="cursor-pointer flex-col items-start gap-0.5 py-2"
+                    >
+                      <div className="flex w-full items-center justify-between gap-2">
+                        <span className="font-medium">{notification.title}</span>
+                        <span
+                          className={`text-[10px] font-semibold uppercase ${
+                            notification.severity === 'high' ? 'text-rose-600' : 'text-amber-600'
+                          }`}
+                        >
+                          {notification.severity === 'high' ? 'Alta' : 'Média'}
+                        </span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{notification.description}</span>
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <span className="hidden text-sm text-muted-foreground lg:block">{userEmail}</span>
             <Button variant="outline" size="sm" className="h-9 px-3" onClick={onLogout}>
               <LogOut className="mr-2 h-4 w-4" />
