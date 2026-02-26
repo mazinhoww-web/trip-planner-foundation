@@ -50,4 +50,23 @@ describe('trip export service', () => {
     expect(result.data).toBeNull();
     expect(result.error).toBeTruthy();
   });
+
+  it('exposes rate-limit details when export quota is exceeded', async () => {
+    vi.mocked(supabase.functions.invoke).mockResolvedValue({
+      data: {
+        error: {
+          code: 'RATE_LIMITED',
+          message: 'Limite diário de exportações atingido para o seu plano.',
+          requestId: 'req-export-limit',
+        },
+      },
+      error: { message: 'Edge Function returned a non-2xx status code' },
+    } as any);
+
+    const result = await requestTripExport({ viagemId: 'trip-1', format: 'json' });
+
+    expect(result.data).toBeNull();
+    expect(result.error).toContain('RATE_LIMITED');
+    expect(result.error).toContain('Limite diário de exportações');
+  });
 });

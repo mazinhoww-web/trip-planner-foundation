@@ -49,4 +49,26 @@ describe('webhooks service', () => {
     expect(result.data).toBeNull();
     expect(result.error).toBeTruthy();
   });
+
+  it('returns quota message when webhook daily limit is reached', async () => {
+    vi.mocked(supabase.functions.invoke).mockResolvedValue({
+      data: {
+        error: {
+          code: 'RATE_LIMITED',
+          message: 'Limite diário de webhooks atingido para o seu plano.',
+          requestId: 'req-webhook-limit',
+        },
+      },
+      error: { message: 'Edge Function returned a non-2xx status code' },
+    } as any);
+
+    const result = await dispatchTripWebhook({
+      eventType: 'trip.import.completed',
+      viagemId: 'trip-1',
+    });
+
+    expect(result.data).toBeNull();
+    expect(result.error).toContain('RATE_LIMITED');
+    expect(result.error).toContain('Limite diário de webhooks');
+  });
 });

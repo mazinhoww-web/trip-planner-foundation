@@ -1,118 +1,105 @@
-# Welcome to your Lovable project
+# Trip Planner Foundation
 
-## Project info
+Aplicativo de planejamento de viagens com importação inteligente (OCR + IA), colaboração por viagem (owner/editor/viewer), módulos financeiros e integrações monetizáveis por feature flags.
 
-**URL**: https://lovable.dev/projects/c895da6c-060a-4eb8-ad30-61ce940181d9
+## Ambientes canônicos
 
-## How can I edit this code?
+- Lovable preview: [c895da6c-060a-4eb8-ad30-61ce940181d9](https://lovable.dev/projects/c895da6c-060a-4eb8-ad30-61ce940181d9)
+- Supabase project ref: `ffiwqovhjrjrspqbayrx`
 
-There are several ways of editing your application.
+## Stack
 
-**Use Lovable**
+- Frontend: React + TypeScript + Vite + Tailwind + shadcn-ui
+- Backend: Supabase (Postgres + RLS + Edge Functions)
+- IA/OCR: OpenRouter (Arcee/Gemma), Gemini fallback, OCR provider opcional
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/c895da6c-060a-4eb8-ad30-61ce940181d9) and start prompting.
+## Setup local
 
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+Pré-requisitos:
+- Node.js 20+
+- npm
+- Supabase CLI (somente para deploy de migrations/functions)
 
 ```sh
-# Step 1: Clone the repository.
 git clone https://github.com/mazinhoww-web/trip-planner-foundation.git
-
-# Step 2: Navigate to the project directory.
 cd trip-planner-foundation
-
-# Step 3: Install the necessary dependencies.
 npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
 npm run dev
 ```
 
-## AI Enrichment setup (Prompt 07)
+## Variáveis de ambiente
 
-This project now uses Supabase Edge Functions for AI enrichment:
+Frontend (`.env`):
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
 
-- `generate-tips`
-- `suggest-restaurants`
-- `ocr-document`
-- `extract-reservation`
+Supabase Edge Functions (Secrets):
+- `OPENROUTER_API_KEY`
+- `GEMINI_API_KEY`
+- `OCR_SPACE_API_KEY` (opcional)
+- `WEBHOOK_TARGET_URL` (M4 opcional)
+- `WEBHOOK_SECRET` (M4 opcional, assinatura HMAC)
+- `ENTITLEMENTS_SELF_SERVICE` (opcional)
+- `ENTITLEMENTS_ROLLOUT_PERCENT` (opcional)
+- `ENTITLEMENTS_ROLLOUT_FEATURES` (opcional)
 
-Set required environment variables:
+## Deploy operacional (S0 obrigatório)
 
-- Frontend: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`
-- Supabase Functions (server-side): `OPENROUTER_API_KEY` (provider principal)
-- Fallback paralelo obrigatório: `GEMINI_API_KEY`
-- OCR opcional: `OCR_SPACE_API_KEY`
-- Webhook opcional (M4): `WEBHOOK_TARGET_URL`
-- Assinatura opcional de webhook (M4): `WEBHOOK_SECRET`
+Aplicar migrations:
 
-Deploy functions:
+```sh
+supabase db push
+```
+
+Deploy de functions críticas:
 
 ```sh
 supabase functions deploy feature-entitlements
 supabase functions deploy trip-members
+supabase functions deploy extract-reservation
+supabase functions deploy ocr-document
 supabase functions deploy generate-tips
 supabase functions deploy suggest-restaurants
-supabase functions deploy ocr-document
-supabase functions deploy extract-reservation
 supabase functions deploy public-trip-api
 supabase functions deploy trip-webhook-dispatch
 supabase functions deploy trip-export
 ```
 
-> Active Supabase project ref linked in this workspace: `ffiwqovhjrjrspqbayrx`.
+Validação de schema mínimo:
 
-## Google Auth setup
+```sql
+select to_regclass('public.viagem_membros') as viagem_membros,
+       to_regclass('public.viagem_convites') as viagem_convites;
+```
 
-- Frontend already supports `Entrar com Google` (OAuth redirect to `/auth/callback`).
-- Enable provider in Supabase Dashboard:
-  - `Authentication` -> `Providers` -> `Google` -> `Enable`
-  - configure `Client ID` and `Client Secret` from Google Cloud
-  - ensure app callback includes `/auth/callback`
-
-## Go-live operations (Prompt 10)
-
-Operational deliverables are versioned under `/ops`:
-
-- `ops/PREDEPLOY_CHECKLIST.md`
-- `ops/DEPLOY_RUNBOOK.md`
-- `ops/SMOKE_TESTS.md`
-- `ops/ROLLBACK_AND_MONITORING.md`
-- `ops/PHASE2_BACKLOG.md`
-- `ops/GO_LIVE_STATUS.md`
-
-Automated smoke tests:
+## Smoke test
 
 ```sh
 ./scripts/smoke-tests.sh
 ```
 
-## What technologies are used for this project?
+Com JWT de teste opcional:
 
-This project is built with:
+```sh
+export TEST_USER_JWT="<jwt>"
+export TEST_TRIP_ID="<viagem_id>"
+./scripts/smoke-tests.sh
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Funcionalidades principais
 
-## How can I deploy this project?
+- Importação em lote com confirmação final item a item
+- Persistência canônica/híbrida de extração (`documentos.extracao_*`)
+- Colaboração por papéis com convites por e-mail
+- Export (JSON/PDF), API pública e webhooks com feature gates
+- Branding LATAM/LATAM Pass no `/app`
 
-Simply open [Lovable](https://lovable.dev/projects/c895da6c-060a-4eb8-ad30-61ce940181d9) and click on Share -> Publish.
+## Operação e go-live
 
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Artefatos operacionais:
+- `/ops/PREDEPLOY_CHECKLIST.md`
+- `/ops/DEPLOY_RUNBOOK.md`
+- `/ops/SMOKE_TESTS.md`
+- `/ops/ROLLBACK_AND_MONITORING.md`
+- `/ops/GO_LIVE_STATUS.md`
+- `/docs/operations/homologation-sprint-checklist.md`
