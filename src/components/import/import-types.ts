@@ -90,6 +90,14 @@ export type ImportSummary = {
   nextSteps: string[];
 };
 
+export type ExtractionSnapshot = {
+  canonical: ArceeExtractionPayload;
+  capturedAt: string;
+  provider: string | null;
+  confidence: number | null;
+  signature: string;
+};
+
 export type ImportQueueItem = {
   id: string;
   file: File;
@@ -108,7 +116,7 @@ export type ImportQueueItem = {
   rawText: string;
   summary: ImportSummary | null;
   canonical: ArceeExtractionPayload | null;
-  extractionHistory: ArceeExtractionPayload[];
+  extractionHistory: ExtractionSnapshot[];
   providerMeta: {
     selected?: string;
     openrouter_ok?: boolean;

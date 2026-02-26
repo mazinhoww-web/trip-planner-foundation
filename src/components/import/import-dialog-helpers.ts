@@ -1,5 +1,6 @@
 import {
   defaultVisualSteps,
+  ExtractionSnapshot,
   ImportQueueItem,
   ImportSummary,
   QueueStatus,
@@ -246,4 +247,27 @@ export function makeQueueItem(file: File): ImportQueueItem {
     photoIndex: 0,
     documentId: null,
   };
+}
+
+export function appendExtractionSnapshot(
+  history: ExtractionSnapshot[],
+  canonical: ExtractedReservation['canonical'] | null | undefined,
+  provider: string | null,
+  confidence: number | null,
+  limit: number = 5,
+) {
+  if (!canonical) return history;
+
+  const signature = JSON.stringify(canonical);
+  if (history.some((entry) => entry.signature === signature)) return history;
+
+  const snapshot: ExtractionSnapshot = {
+    canonical,
+    capturedAt: new Date().toISOString(),
+    provider,
+    confidence,
+    signature,
+  };
+
+  return [snapshot, ...history].slice(0, limit);
 }

@@ -44,6 +44,7 @@ import {
   toIsoDateTime,
 } from '@/components/import/import-helpers';
 import {
+  appendExtractionSnapshot,
   convertToBrl,
   diffNights,
   formatCurrency,
@@ -350,7 +351,12 @@ export function ImportReservationDialog() {
         canonical: canonicalForStorage,
         extractionHistory:
           options?.reprocess && previousCanonical
-            ? [previousCanonical, ...current.extractionHistory].slice(0, 3)
+            ? appendExtractionSnapshot(
+                current.extractionHistory,
+                previousCanonical,
+                current.providerMeta?.selected ?? null,
+                current.typeConfidence ?? current.confidence ?? null,
+              )
             : current.extractionHistory,
         providerMeta,
         fileHash,

@@ -87,6 +87,15 @@ function qualityLabel(value: ImportQueueItem['extractionQuality']) {
   return 'Qualidade baixa';
 }
 
+function formatSnapshotDate(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat('pt-BR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(parsed);
+}
+
 function prioritizeMissingFields(fields: string[]) {
   return [...fields].sort((a, b) => {
     const priorityA = MISSING_FIELD_PRIORITY[a] ?? 99;
@@ -124,6 +133,7 @@ export function ImportConfirmationCard({
   const missingCritical = prioritizeMissingFields([...new Set(activeItem.missingFields)])
     .slice(0, 5)
     .map(toMissingFieldLabel);
+  const lastSnapshot = activeItem.extractionHistory[0];
 
   return (
     <Card className="border-primary/30 bg-primary/5">
@@ -150,9 +160,18 @@ export function ImportConfirmationCard({
           </div>
         )}
         {activeItem.extractionHistory.length > 0 && (
-          <p className="text-xs text-muted-foreground">
-            Este item já foi reprocessado {activeItem.extractionHistory.length}x. A versão anterior foi preservada para comparação.
-          </p>
+          <div className="rounded-lg border border-muted bg-background p-3 text-xs text-muted-foreground">
+            <p>
+              Este item já foi reprocessado {activeItem.extractionHistory.length}x. A versão anterior foi preservada para comparação.
+            </p>
+            {lastSnapshot ? (
+              <p className="mt-1">
+                Última versão anterior: {formatSnapshotDate(lastSnapshot.capturedAt)}
+                {lastSnapshot.provider ? ` · ${lastSnapshot.provider}` : ''}
+                {lastSnapshot.confidence != null ? ` · ${Math.round(lastSnapshot.confidence * 100)}%` : ''}
+              </p>
+            ) : null}
+          </div>
         )}
 
         {scopeOutside ? (
