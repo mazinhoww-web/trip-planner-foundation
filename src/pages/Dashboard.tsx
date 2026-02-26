@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTrip } from '@/hooks/useTrip';
 import { useTripSummary } from '@/hooks/useModuleData';
@@ -31,19 +31,17 @@ import { Tables } from '@/integrations/supabase/types';
 import { Compass } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { calculateStayCoverageGaps, calculateTransportCoverageGaps } from '@/services/tripInsights';
 import { supabase } from '@/integrations/supabase/client';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useTripExportActions } from '@/hooks/useTripExportActions';
 import { useReservationActions } from '@/hooks/useReservationActions';
 import { useSupportResources } from '@/hooks/useSupportResources';
 import { useTripOperations } from '@/hooks/useTripOperations';
+import { useDashboardMetrics } from '@/hooks/useDashboardMetrics';
 import {
-  buildDayChips,
   buildMapsUrl,
   buildTransportInsights,
   DASHBOARD_TABS,
-  dateDiffInDays,
   emptyExpense,
   emptyFlight,
   emptyRestaurant,
@@ -55,7 +53,6 @@ import {
   formatDate,
   formatDateShort,
   formatDateTime,
-  normalizeDate,
   prioridadeBadge,
   splitInsightList,
   statCards,
@@ -235,164 +232,8 @@ export default function Dashboard() {
     toast.error('Você está com papel de visualização nesta viagem.');
     return false;
   };
-
-  const flightsFiltered = useMemo(() => {
-    return flightsModule.data
-      .filter((f) => (flightStatus === 'todos' ? true : f.status === flightStatus))
-      .filter((f) => {
-        const bag = [f.numero, f.companhia, f.origem, f.destino].join(' ').toLowerCase();
-        return bag.includes(flightSearch.toLowerCase());
-      });
-  }, [flightsModule.data, flightSearch, flightStatus]);
-
-  const staysFiltered = useMemo(() => {
-    return staysModule.data
-      .filter((h) => (stayStatus === 'todos' ? true : h.status === stayStatus))
-      .filter((h) => {
-        const bag = [h.nome, h.localizacao].join(' ').toLowerCase();
-        return bag.includes(staySearch.toLowerCase());
-      });
-  }, [staysModule.data, staySearch, stayStatus]);
-
-  const transportFiltered = useMemo(() => {
-    return transportsModule.data
-      .filter((t) => (transportStatus === 'todos' ? true : t.status === transportStatus))
-      .filter((t) => {
-        const bag = [t.tipo, t.operadora, t.origem, t.destino].join(' ').toLowerCase();
-        return bag.includes(transportSearch.toLowerCase());
-      })
-      .sort((a, b) => {
-        if (!a.data) return 1;
-        if (!b.data) return -1;
-        return new Date(a.data).getTime() - new Date(b.data).getTime();
-      });
-  }, [transportsModule.data, transportSearch, transportStatus]);
-
-  const tasksFiltered = useMemo(() => {
-    return tasksModule.data.filter((task) => {
-      const bag = [task.titulo, task.categoria].join(' ').toLowerCase();
-      return bag.includes(taskSearch.toLowerCase());
-    });
-  }, [taskSearch, tasksModule.data]);
-
-  const realByCurrency = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const item of expensesModule.data) {
-      const cur = item.moeda?.toUpperCase() || 'BRL';
-      map.set(cur, (map.get(cur) ?? 0) + Number(item.valor ?? 0));
-    }
-    return Array.from(map.entries()).map(([currency, total]) => ({ currency, total }));
-  }, [expensesModule.data]);
-
-  const realTotal = useMemo(() => {
-    return expensesModule.data.reduce((acc, item) => acc + Number(item.valor ?? 0), 0);
-  }, [expensesModule.data]);
-
-  const estimadoByCurrency = useMemo(() => {
-    const map = new Map<string, number>();
-    const allItems = [
-      ...flightsModule.data.filter(i => i.status !== 'cancelado').map(i => ({ valor: i.valor, moeda: i.moeda, source: 'Voos' })),
-      ...staysModule.data.filter(i => i.status !== 'cancelado').map(i => ({ valor: i.valor, moeda: i.moeda, source: 'Hospedagens' })),
-      ...transportsModule.data.filter(i => i.status !== 'cancelado').map(i => ({ valor: i.valor, moeda: i.moeda, source: 'Transportes' })),
-    ];
-    for (const item of allItems) {
-      const cur = item.moeda?.toUpperCase() || 'BRL';
-      map.set(cur, (map.get(cur) ?? 0) + Number(item.valor ?? 0));
-    }
-    return Array.from(map.entries()).map(([currency, total]) => ({ currency, total }));
-  }, [flightsModule.data, staysModule.data, transportsModule.data]);
-
-  const estimadoTotal = useMemo(() => {
-    const moduleTotals = [flightsModule.data, staysModule.data, transportsModule.data].flat();
-    return moduleTotals.reduce((acc, item) => {
-      if (item.status === 'cancelado') return acc;
-      return acc + Number(item.valor ?? 0);
-    }, 0);
-  }, [flightsModule.data, staysModule.data, transportsModule.data]);
-
-  const variacaoTotal = realTotal - estimadoTotal;
-
-  const expensesByCategory = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const item of expensesModule.data) {
-      const category = (item.categoria?.trim() || 'Sem categoria');
-      map.set(category, (map.get(category) ?? 0) + Number(item.valor ?? 0));
-    }
-
-    return Array.from(map.entries())
-      .map(([categoria, total]) => ({ categoria, total }))
-      .sort((a, b) => b.total - a.total);
-  }, [expensesModule.data]);
-
-  const expensesByDate = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const item of expensesModule.data) {
-      const date = item.data || 'Sem data';
-      map.set(date, (map.get(date) ?? 0) + Number(item.valor ?? 0));
-    }
-    return Array.from(map.entries())
-      .map(([data, total]) => ({ data, total }))
-      .sort((a, b) => a.data.localeCompare(b.data));
-  }, [expensesModule.data]);
-
-  const restaurantsFavorites = useMemo(() => {
-    return restaurantsModule.data.filter((item) => item.salvo);
-  }, [restaurantsModule.data]);
-
-  const upcomingEvents = useMemo(() => {
-    const now = new Date();
-    const events: { id: string; tipo: string; titulo: string; data: string }[] = [];
-
-    flightsModule.data.forEach((item) => {
-      if (!item.data) return;
-      const dt = new Date(item.data);
-      if (dt < now) return;
-      events.push({
-        id: `voo-${item.id}`,
-        tipo: 'Voo',
-        titulo: `${item.origem || 'Origem'} → ${item.destino || 'Destino'}`,
-        data: item.data,
-      });
-    });
-
-    transportsModule.data.forEach((item) => {
-      if (!item.data) return;
-      const dt = new Date(item.data);
-      if (dt < now) return;
-      events.push({
-        id: `transporte-${item.id}`,
-        tipo: 'Transporte',
-        titulo: `${item.tipo || 'Deslocamento'} · ${item.origem || 'Origem'} → ${item.destino || 'Destino'}`,
-        data: item.data,
-      });
-    });
-
-    staysModule.data.forEach((item) => {
-      if (!item.check_in) return;
-      const dt = new Date(`${item.check_in}T12:00:00`);
-      if (dt < now) return;
-      events.push({
-        id: `hospedagem-${item.id}`,
-        tipo: 'Check-in',
-        titulo: item.nome || 'Hospedagem',
-        data: dt.toISOString(),
-      });
-    });
-
-    return events
-      .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime())
-      .slice(0, 8);
-  }, [flightsModule.data, transportsModule.data, staysModule.data]);
-
-  const stayCoverageGaps = useMemo(() => {
-    return calculateStayCoverageGaps(
-      staysModule.data,
-      currentTrip?.data_inicio ?? null,
-      currentTrip?.data_fim ?? null,
-    );
-  }, [currentTrip?.data_fim, currentTrip?.data_inicio, staysModule.data]);
-
   const [userHomeCity, setUserHomeCity] = useState<string | null>(null);
+  const [dismissedGapKeys, setDismissedGapKeys] = useState<Set<string>>(new Set());
 
   const loadProfile = async () => {
     if (!user?.id) return;
@@ -420,44 +261,59 @@ export default function Dashboard() {
     void loadProfile();
   }, [user?.id]);
 
-  // Infer home city from first flight when profile cidade_origem is null
-  const inferredHomeCity = useMemo(() => {
-    if (userHomeCity) return userHomeCity;
-    const firstFlight = flightsModule.data
-      .filter((f) => f.status !== 'cancelado' && f.origem)
-      .sort((a, b) => (a.data ?? '').localeCompare(b.data ?? ''))[0];
-    return firstFlight?.origem ?? null;
-  }, [userHomeCity, flightsModule.data]);
-
-  const transportCoverageGaps = useMemo(() => {
-    return calculateTransportCoverageGaps(staysModule.data, transportsModule.data, flightsModule.data, inferredHomeCity);
-  }, [flightsModule.data, staysModule.data, transportsModule.data, inferredHomeCity]);
-
-  const [dismissedGapKeys, setDismissedGapKeys] = useState<Set<string>>(new Set());
-
   const handleDismissGap = (key: string) => {
     setDismissedGapKeys((prev) => new Set(prev).add(key));
   };
 
-  const stayGapLines = useMemo(() => {
-    return stayCoverageGaps.slice(0, 3).map((gap) => ({
-      key: `stay-gap-${gap.start}-${gap.end}`,
-      text: `Hospedagem: ${formatDate(gap.start)} até ${formatDate(gap.end)} (${gap.nights} noite(s)) sem reserva.`,
-    })).filter((g) => !dismissedGapKeys.has(g.key));
-  }, [stayCoverageGaps, dismissedGapKeys]);
-
-  const transportGapLines = useMemo(() => {
-    return transportCoverageGaps.slice(0, 5).map((gap) => {
-      const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(gap.from)}&destination=${encodeURIComponent(gap.to)}&travelmode=transit`;
-      return {
-        key: `transport-gap-${gap.from}-${gap.to}-${gap.referenceDate ?? 'sem-data'}`,
-        text: `Transporte: ${gap.from} → ${gap.to} — ${gap.reason}`,
-        from: gap.from,
-        to: gap.to,
-        mapsUrl,
-      };
-    }).filter((g) => !dismissedGapKeys.has(g.key));
-  }, [transportCoverageGaps, dismissedGapKeys]);
+  const {
+    flightsFiltered,
+    staysFiltered,
+    transportFiltered,
+    tasksFiltered,
+    realByCurrency,
+    realTotal,
+    estimadoByCurrency,
+    estimadoTotal,
+    variacaoTotal,
+    expensesByCategory,
+    expensesByDate,
+    restaurantsFavorites,
+    upcomingEvents,
+    stayCoverageGaps,
+    inferredHomeCity,
+    transportCoverageGaps,
+    stayGapLines,
+    transportGapLines,
+    heroDateRangeLabel,
+    selectedStayDocuments,
+    stayNightsTotal,
+    flightDayChips,
+    stayDayChips,
+    transportDayChips,
+    daysUntilTrip,
+    flightStats,
+    stayStats,
+    transportStats,
+  } = useDashboardMetrics({
+    currentTrip,
+    flights: flightsModule.data,
+    stays: staysModule.data,
+    transports: transportsModule.data,
+    tasks: tasksModule.data,
+    expenses: expensesModule.data,
+    restaurants: restaurantsModule.data,
+    documents: documentsModule.data,
+    selectedStay,
+    flightSearch,
+    flightStatus,
+    staySearch,
+    stayStatus,
+    transportSearch,
+    transportStatus,
+    taskSearch,
+    userHomeCity,
+    dismissedGapKeys,
+  });
 
   const handleAddTransportFromGap = async (from: string, to: string) => {
     if (!ensureCanEdit()) return;
@@ -477,104 +333,6 @@ export default function Dashboard() {
       toast.error('Erro ao adicionar transporte.');
     }
   };
-
-  const heroDateRangeLabel = useMemo(() => {
-    const start = currentTrip?.data_inicio ? formatDate(currentTrip.data_inicio) : '';
-    const end = currentTrip?.data_fim ? formatDate(currentTrip.data_fim) : '';
-    if (start && end) return `${start} - ${end}`;
-    return start || end || '';
-  }, [currentTrip?.data_fim, currentTrip?.data_inicio]);
-
-  const selectedStayDocuments = useMemo(() => {
-    if (!selectedStay) return [];
-    const tokens = [selectedStay.nome, selectedStay.localizacao]
-      .map((value) => value?.toLowerCase().trim())
-      .filter((value): value is string => !!value);
-    if (tokens.length === 0) return [];
-
-    return documentsModule.data.filter((doc) => {
-      const bag = `${doc.nome} ${doc.arquivo_url || ''}`.toLowerCase();
-      return tokens.some((token) => bag.includes(token));
-    });
-  }, [documentsModule.data, selectedStay]);
-
-  const stayNightsTotal = useMemo(() => {
-    return staysModule.data
-      .filter((stay) => stay.status !== 'cancelado')
-      .reduce((total, stay) => {
-        if (!stay.check_in || !stay.check_out) return total;
-        const start = normalizeDate(stay.check_in);
-        const end = normalizeDate(stay.check_out);
-        if (!start || !end) return total;
-        return total + dateDiffInDays(start, end);
-      }, 0);
-  }, [staysModule.data]);
-
-  const flightDayChips = useMemo(() => {
-    return buildDayChips(flightsFiltered, (flight) => normalizeDate(flight.data), (flight) => flight.status);
-  }, [flightsFiltered]);
-
-  const stayDayChips = useMemo(() => {
-    return buildDayChips(staysFiltered, (stay) => stay.check_in, (stay) => stay.status);
-  }, [staysFiltered]);
-
-  const transportDayChips = useMemo(() => {
-    return buildDayChips(transportFiltered, (transport) => normalizeDate(transport.data), (transport) => transport.status);
-  }, [transportFiltered]);
-
-  const daysUntilTrip = useMemo(() => {
-    const start = normalizeDate(currentTrip?.data_inicio);
-    if (!start) return null;
-    const now = new Date();
-    const today = now.toISOString().slice(0, 10);
-    return dateDiffInDays(today, start);
-  }, [currentTrip?.data_inicio]);
-
-  const flightStats = useMemo(() => {
-    const active = flightsFiltered.filter((flight) => flight.status !== 'cancelado');
-    const confirmed = active.filter((flight) => flight.status === 'confirmado').length;
-    const byCurrency = new Map<string, number>();
-    for (const f of active) {
-      const cur = f.moeda?.toUpperCase() || 'BRL';
-      byCurrency.set(cur, (byCurrency.get(cur) ?? 0) + Number(f.valor ?? 0));
-    }
-    return {
-      total: flightsFiltered.length,
-      confirmed,
-      byCurrency: Array.from(byCurrency.entries()).map(([currency, total]) => ({ currency, total })),
-    };
-  }, [flightsFiltered]);
-
-  const stayStats = useMemo(() => {
-    const active = staysFiltered.filter((stay) => stay.status !== 'cancelado');
-    const byCurrency = new Map<string, number>();
-    for (const s of active) {
-      const cur = s.moeda?.toUpperCase() || 'BRL';
-      byCurrency.set(cur, (byCurrency.get(cur) ?? 0) + Number(s.valor ?? 0));
-    }
-    const cities = new Set(active.map((stay) => stay.localizacao?.trim()).filter(Boolean));
-    return {
-      total: staysFiltered.length,
-      active: active.length,
-      byCurrency: Array.from(byCurrency.entries()).map(([currency, total]) => ({ currency, total })),
-      cities: cities.size,
-    };
-  }, [staysFiltered]);
-
-  const transportStats = useMemo(() => {
-    const active = transportFiltered.filter((transport) => transport.status !== 'cancelado');
-    const confirmed = active.filter((transport) => transport.status === 'confirmado').length;
-    const byCurrency = new Map<string, number>();
-    for (const t of active) {
-      const cur = t.moeda?.toUpperCase() || 'BRL';
-      byCurrency.set(cur, (byCurrency.get(cur) ?? 0) + Number(t.valor ?? 0));
-    }
-    return {
-      total: transportFiltered.length,
-      confirmed,
-      byCurrency: Array.from(byCurrency.entries()).map(([currency, total]) => ({ currency, total })),
-    };
-  }, [transportFiltered]);
 
   const supportIsLoading =
     documentsModule.isLoading ||
@@ -628,7 +386,7 @@ export default function Dashboard() {
   } = useReservationActions({
     ensureCanEdit,
     currentTripDestination: currentTrip?.destino ?? null,
-    userHomeCity,
+    userHomeCity: inferredHomeCity,
     flightsModule,
     staysModule,
     transportsModule,
@@ -679,7 +437,7 @@ export default function Dashboard() {
     currentTripDestination: currentTrip?.destino ?? null,
     currentTripStartDate: currentTrip?.data_inicio ?? null,
     currentTripEndDate: currentTrip?.data_fim ?? null,
-    userHomeCity,
+    userHomeCity: inferredHomeCity,
     tasksModule,
     expensesModule,
     restaurantsModule,
