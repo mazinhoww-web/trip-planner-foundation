@@ -29,7 +29,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { Tables } from '@/integrations/supabase/types';
-import { Compass } from 'lucide-react';
+import { Compass, Copy } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -105,9 +105,34 @@ const SupportTabPanel = lazy(() =>
   import('@/components/dashboard/SupportTabPanel').then((mod) => ({ default: mod.SupportTabPanel })),
 );
 
+const TRIP_CLONE_TABLES = [
+  'voos',
+  'hospedagens',
+  'transportes',
+  'tarefas',
+  'despesas',
+  'restaurantes',
+  'documentos',
+  'bagagem',
+  'viajantes',
+  'preparativos',
+  'roteiro_dias',
+] as const;
+
+function sanitizeCloneRow(row: Record<string, unknown>, viagemId: string, userId: string) {
+  const draft: Record<string, unknown> = { ...row, viagem_id: viagemId };
+  delete draft.id;
+  delete draft.created_at;
+  delete draft.updated_at;
+  if ('user_id' in draft) {
+    draft.user_id = userId;
+  }
+  return draft;
+}
+
 export default function Dashboard() {
   const { user, signOut } = useAuth();
-  const { currentTrip, currentTripId, trips, loading: tripLoading, selectTrip } = useTrip();
+  const { currentTrip, currentTripId, trips, loading: tripLoading, selectTrip, refreshTrips } = useTrip();
   const tripMembers = useTripMembers(currentTripId);
   const navigate = useNavigate();
   const { data: counts, isLoading: countsLoading } = useTripSummary();
@@ -125,6 +150,7 @@ export default function Dashboard() {
 
   const [activeTab, setActiveTab] = useState('visao');
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [isCloningTrip, setIsCloningTrip] = useState(false);
 
   const [flightSearch, setFlightSearch] = useState('');
   const [flightStatus, setFlightStatus] = useState<'todos' | ReservaStatus>('todos');
@@ -206,6 +232,71 @@ export default function Dashboard() {
   const handleLogout = async () => {
     await signOut();
     navigate('/login');
+  };
+
+  const handleCloneTrip = async () => {
+    if (!currentTrip || !user?.id) return;
+    if (!ensureCanEdit()) return;
+
+    setIsCloningTrip(true);
+    try {
+      const tripName = `${currentTrip.nome} (cópia)`;
+      const { data: clonedTrip, error: cloneTripError } = await supabase
+        .from('viagens')
+        .insert({
+          user_id: user.id,
+          nome: tripName,
+          destino: currentTrip.destino,
+          data_inicio: currentTrip.data_inicio,
+          data_fim: currentTrip.data_fim,
+          status: 'planejada',
+        })
+        .select('*')
+        .single();
+
+      if (cloneTripError || !clonedTrip?.id) {
+        throw cloneTripError ?? new Error('Não foi possível criar a viagem clonada.');
+      }
+
+      const cloneResults = await Promise.all(
+        TRIP_CLONE_TABLES.map(async (table) => {
+          const { data: sourceRows, error: sourceError } = await supabase
+            .from(table)
+            .select('*')
+            .eq('viagem_id', currentTrip.id);
+          if (sourceError) {
+            return { table, copied: 0, error: sourceError };
+          }
+
+          const rows = (sourceRows ?? []) as Array<Record<string, unknown>>;
+          if (rows.length === 0) {
+            return { table, copied: 0, error: null };
+          }
+
+          const payload = rows.map((row) => sanitizeCloneRow(row, clonedTrip.id, user.id));
+          const { error: insertError } = await supabase
+            .from(table)
+            .insert(payload as never);
+
+          return { table, copied: insertError ? 0 : payload.length, error: insertError };
+        }),
+      );
+
+      const failures = cloneResults.filter((result) => result.error);
+      await refreshTrips();
+      selectTrip(clonedTrip.id);
+
+      if (failures.length > 0) {
+        toast.warning(`Viagem clonada com ${failures.length} módulo(s) pendentes para revisão.`);
+      } else {
+        toast.success('Viagem clonada com sucesso.');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Não foi possível clonar a viagem agora.';
+      toast.error(message);
+    } finally {
+      setIsCloningTrip(false);
+    }
   };
 
   const ensureCanEdit = () => {
@@ -486,6 +577,15 @@ export default function Dashboard() {
               >
                 <Compass className="mr-2 h-4 w-4" />
                 Tour rápido
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full border-primary/25 text-primary hover:bg-primary/5 sm:w-auto"
+                onClick={() => void handleCloneTrip()}
+                disabled={!canEditTrip || isCloningTrip}
+              >
+                <Copy className="mr-2 h-4 w-4" />
+                {isCloningTrip ? 'Clonando...' : 'Clonar viagem'}
               </Button>
               {canEditTrip ? (
                 aiImportGate.enabled ? (
