@@ -28,17 +28,17 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Tables, TablesInsert } from '@/integrations/supabase/types';
+import { Tables } from '@/integrations/supabase/types';
 import { LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { generateTripTasks, generateItinerary } from '@/services/ai';
 import { calculateStayCoverageGaps, calculateTransportCoverageGaps } from '@/services/tripInsights';
 import { supabase } from '@/integrations/supabase/client';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useTripExportActions } from '@/hooks/useTripExportActions';
 import { useReservationActions } from '@/hooks/useReservationActions';
 import { useSupportResources } from '@/hooks/useSupportResources';
+import { useTripOperations } from '@/hooks/useTripOperations';
 import {
   buildDayChips,
   buildMapsUrl,
@@ -69,7 +69,6 @@ import {
   type ReservaStatus,
   type RestaurantFormState,
   type StayFormState,
-  type TarefaPrioridade,
   type TaskFormState,
   type TransportFormState,
 } from './dashboardHelpers';
@@ -178,9 +177,6 @@ export default function Dashboard() {
   const [expenseDialogOpen, setExpenseDialogOpen] = useState(false);
   const [expenseForm, setExpenseForm] = useState<ExpenseFormState>(emptyExpense);
   const [restaurantForm, setRestaurantForm] = useState<RestaurantFormState>(emptyRestaurant);
-  const [isReconciling, setIsReconciling] = useState(false);
-  const [generatingTasks, setGeneratingTasks] = useState(false);
-  const [generatingItinerary, setGeneratingItinerary] = useState(false);
   const [profile, setProfile] = useState<Tables<'profiles'> | null>(null);
   const fallbackCanEdit = !!currentTrip && currentTrip.user_id === user?.id;
   const canEditTrip = tripMembers.permission.role ? tripMembers.permission.canEdit : fallbackCanEdit;
@@ -647,225 +643,49 @@ export default function Dashboard() {
     setTransportDetailOpen,
   });
 
-  const createTask = async () => {
-    if (!ensureCanEdit()) return;
-    if (!taskForm.titulo.trim()) return;
-    const payload: Omit<TablesInsert<'tarefas'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
-      titulo: taskForm.titulo.trim(),
-      categoria: taskForm.categoria.trim() || null,
-      prioridade: taskForm.prioridade,
-      concluida: false,
-    };
-    await tasksModule.create(payload);
-    setTaskForm(emptyTask);
-  };
-
-  const toggleTask = async (task: Tables<'tarefas'>) => {
-    if (!ensureCanEdit()) return;
-    await tasksModule.update({
-      id: task.id,
-      updates: {
-        concluida: !task.concluida,
-      },
-    });
-  };
-
-  const removeTask = async (id: string) => {
-    if (!ensureCanEdit()) return;
-    await tasksModule.remove(id);
-  };
-
-  const generateTasksWithAi = async () => {
-    if (!ensureCanEdit()) return;
-    setGeneratingTasks(true);
-    try {
-      const result = await generateTripTasks({
-        destination: currentTrip?.destino,
-        startDate: currentTrip?.data_inicio,
-        endDate: currentTrip?.data_fim,
-        userHomeCity,
-        flights: flightsModule.data.map((f) => ({ origem: f.origem, destino: f.destino })),
-        stays: staysModule.data.map((s) => ({ localizacao: s.localizacao, check_in: s.check_in })),
-        existingTasks: tasksModule.data.map((t) => t.titulo),
-      });
-      if (result.data && result.data.length > 0) {
-        let created = 0;
-        for (const task of result.data) {
-          try {
-            await tasksModule.create({
-              titulo: task.titulo,
-              categoria: task.categoria,
-              prioridade: task.prioridade as TarefaPrioridade,
-            });
-            created++;
-          } catch {
-            // Skip possible duplicates.
-          }
-        }
-        toast.success(`${created} tarefa(s) gerada(s) por IA.`);
-      } else {
-        toast.error(result.error || 'Não foi possível gerar tarefas.');
-      }
-    } catch {
-      toast.error('Erro ao gerar tarefas com IA.');
-    } finally {
-      setGeneratingTasks(false);
-    }
-  };
-
-  const generateRoteiroWithAi = async () => {
-    if (!ensureCanEdit()) return;
-    setGeneratingItinerary(true);
-    try {
-      const result = await generateItinerary({
-        destination: currentTrip?.destino,
-        startDate: currentTrip?.data_inicio,
-        endDate: currentTrip?.data_fim,
-        userHomeCity,
-        stays: staysModule.data.map((s) => ({
-          nome: s.nome,
-          localizacao: s.localizacao,
-          check_in: s.check_in,
-          check_out: s.check_out,
-          hora_check_in: '15:00',
-          hora_check_out: '11:00',
-          atracoes_proximas: s.atracoes_proximas,
-          restaurantes_proximos: s.restaurantes_proximos,
-          dica_viagem: s.dica_viagem,
-        })),
-        flights: flightsModule.data.map((f) => {
-          const dt = f.data ? new Date(f.data) : null;
-          const hora = dt && !isNaN(dt.getTime()) ? dt.toISOString().slice(11, 16) : null;
-          return {
-            origem: f.origem,
-            destino: f.destino,
-            data: f.data,
-            hora_partida: hora,
-            hora_chegada: hora,
-          };
-        }),
-        transports: transportsModule.data.map((t) => {
-          const dt = t.data ? new Date(t.data) : null;
-          const hora = dt && !isNaN(dt.getTime()) ? dt.toISOString().slice(11, 16) : null;
-          return { tipo: t.tipo, origem: t.origem, destino: t.destino, data: t.data, hora };
-        }),
-        restaurants: restaurantsModule.data.filter((r) => r.salvo).map((r) => ({ nome: r.nome, cidade: r.cidade, tipo: r.tipo })),
-      });
-      if (result.data && result.data.length > 0) {
-        const existingAi = roteiroModule.data.filter((r) => r.sugerido_por_ia);
-        for (const item of existingAi) {
-          try { await roteiroModule.remove(item.id); } catch { /* ignore */ }
-        }
-        let created = 0;
-        for (const item of result.data) {
-          try {
-            await roteiroModule.create({
-              dia: item.dia,
-              ordem: item.ordem,
-              titulo: item.titulo,
-              descricao: item.descricao,
-              horario_sugerido: item.horario_sugerido,
-              categoria: item.categoria,
-              localizacao: item.localizacao,
-              link_maps: item.link_maps,
-              sugerido_por_ia: true,
-            } as any);
-            created++;
-          } catch { /* skip */ }
-        }
-        toast.success(`Roteiro gerado: ${created} atividade(s).`);
-      } else {
-        toast.error(result.error || 'Não foi possível gerar o roteiro.');
-      }
-    } catch {
-      toast.error('Erro ao gerar roteiro com IA.');
-    } finally {
-      setGeneratingItinerary(false);
-    }
-  };
-
-  const reorderRoteiroItem = async (current: Tables<'roteiro'>, target: Tables<'roteiro'>) => {
-    if (!ensureCanEdit()) return;
-    await roteiroModule.update({ id: current.id, updates: { ordem: target.ordem } });
-    await roteiroModule.update({ id: target.id, updates: { ordem: current.ordem } });
-  };
-
-  const removeRoteiroItem = async (id: string) => {
-    if (!ensureCanEdit()) return;
-    await roteiroModule.remove(id);
-  };
-
-  const createExpense = async () => {
-    if (!ensureCanEdit()) return;
-    if (!expenseForm.titulo.trim() || !expenseForm.valor) return;
-    const payload: Omit<TablesInsert<'despesas'>, 'id' | 'created_at' | 'updated_at' | 'user_id' | 'viagem_id'> = {
-      titulo: expenseForm.titulo.trim(),
-      valor: Number(expenseForm.valor),
-      moeda: expenseForm.moeda.trim() || 'BRL',
-      categoria: expenseForm.categoria.trim() || null,
-      data: expenseForm.data || null,
-    };
-    await expensesModule.create(payload);
-    setExpenseForm(emptyExpense);
-    setExpenseDialogOpen(false);
-  };
-
-  const removeExpense = async (id: string) => {
-    if (!ensureCanEdit()) return;
-    await expensesModule.remove(id);
-  };
-
-  const reconcileFromServer = async () => {
-    setIsReconciling(true);
-    try {
-      await Promise.all([
-        flightsModule.refetch(),
-        staysModule.refetch(),
-        transportsModule.refetch(),
-        tasksModule.refetch(),
-        expensesModule.refetch(),
-        restaurantsModule.refetch(),
-        documentsModule.refetch(),
-        luggageModule.refetch(),
-        travelersModule.refetch(),
-        prepModule.refetch(),
-        tripMembers.refetchMembers(),
-        tripMembers.refetchInvites(),
-      ]);
-      toast.success('Dados reconciliados com o banco.');
-    } catch (error) {
-      console.error('[dashboard][reconcile_failure]', error);
-      toast.error('Não foi possível reconciliar os dados agora.');
-    } finally {
-      setIsReconciling(false);
-    }
-  };
-
-  const createRestaurant = async () => {
-    if (!ensureCanEdit()) return;
-    if (!restaurantForm.nome.trim()) return;
-    await restaurantsModule.create({
-      nome: restaurantForm.nome.trim(),
-      cidade: restaurantForm.cidade.trim() || null,
-      tipo: restaurantForm.tipo.trim() || null,
-      rating: restaurantForm.rating ? Number(restaurantForm.rating) : null,
-      salvo: true,
-    });
-    setRestaurantForm(emptyRestaurant);
-  };
-
-  const toggleRestaurantFavorite = async (restaurant: Tables<'restaurantes'>) => {
-    if (!ensureCanEdit()) return;
-    await restaurantsModule.update({
-      id: restaurant.id,
-      updates: { salvo: !restaurant.salvo },
-    });
-  };
-
-  const removeRestaurant = async (id: string) => {
-    if (!ensureCanEdit()) return;
-    await restaurantsModule.remove(id);
-  };
+  const {
+    isReconciling,
+    generatingTasks,
+    generatingItinerary,
+    createTask,
+    toggleTask,
+    removeTask,
+    generateTasksWithAi,
+    generateRoteiroWithAi,
+    reorderRoteiroItem,
+    removeRoteiroItem,
+    createExpense,
+    removeExpense,
+    reconcileFromServer,
+    createRestaurant,
+    toggleRestaurantFavorite,
+    removeRestaurant,
+  } = useTripOperations({
+    ensureCanEdit,
+    currentTripDestination: currentTrip?.destino ?? null,
+    currentTripStartDate: currentTrip?.data_inicio ?? null,
+    currentTripEndDate: currentTrip?.data_fim ?? null,
+    userHomeCity,
+    tasksModule,
+    expensesModule,
+    restaurantsModule,
+    flightsModule,
+    staysModule,
+    transportsModule,
+    roteiroModule,
+    documentsModule,
+    luggageModule,
+    travelersModule,
+    prepModule,
+    tripMembers,
+    taskForm,
+    setTaskForm,
+    expenseForm,
+    setExpenseForm,
+    setExpenseDialogOpen,
+    restaurantForm,
+    setRestaurantForm,
+  });
 
   if (tripLoading) {
     return (
