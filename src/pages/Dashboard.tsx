@@ -21,6 +21,7 @@ import { TripHero } from '@/components/dashboard/TripHero';
 import { TripStatsGrid } from '@/components/dashboard/TripStatsGrid';
 import { TripTopActions } from '@/components/dashboard/TripTopActions';
 import { TripCollaborationBanner, TripViewerNotice } from '@/components/dashboard/TripCollaborationPanels';
+import { ThemeToggle } from '@/components/dashboard/ThemeToggle';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -864,8 +865,8 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background via-slate-50/70 to-slate-100/70">
-      <header className="sticky top-0 z-20 border-b border-primary/15 bg-white/92 backdrop-blur-lg">
+    <div className="min-h-screen bg-gradient-to-b from-background via-slate-50/70 to-slate-100/70 dark:via-slate-900/65 dark:to-slate-950/75">
+      <header className="sticky top-0 z-20 border-b border-primary/15 bg-white/92 backdrop-blur-lg dark:bg-slate-950/85">
         <div className="mx-auto flex max-w-[1220px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
           <div className="flex min-w-0 items-center gap-3">
             <BrandLogo className="shrink-0" />
@@ -887,6 +888,7 @@ export default function Dashboard() {
                 </SelectContent>
               </Select>
             )}
+            <ThemeToggle />
             <span className="hidden text-sm text-muted-foreground lg:block">{user?.email}</span>
             <Button variant="outline" size="sm" className="h-9 px-3" onClick={handleLogout}>
               <LogOut className="mr-2 h-4 w-4" />
@@ -979,7 +981,7 @@ export default function Dashboard() {
             <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-8">
               <div className="overflow-x-auto pb-1 tp-scroll">
                 <TabsList
-                  className="inline-flex h-auto w-max min-w-full snap-x snap-mandatory items-center gap-2 rounded-2xl border border-primary/15 bg-white/90 p-2 shadow-sm"
+                  className="inline-flex h-auto w-max min-w-full snap-x snap-mandatory items-center gap-2 rounded-2xl border border-primary/15 bg-white/90 p-2 shadow-sm dark:bg-card/80"
                   aria-label="Navegação entre módulos da viagem"
                 >
                   {DASHBOARD_TABS.map((tab) => (

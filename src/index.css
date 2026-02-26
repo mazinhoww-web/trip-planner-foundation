@@ -110,11 +110,18 @@
     background: hsl(var(--primary) / 0.2);
     color: hsl(var(--foreground));
   }
+
+  .dark body {
+    background-image:
+      radial-gradient(circle at 10% 12%, hsl(343 86% 51% / 0.2), transparent 32%),
+      radial-gradient(circle at 84% 8%, hsl(252 100% 44% / 0.2), transparent 24%),
+      linear-gradient(to bottom, hsl(245 58% 10%), hsl(245 52% 7%));
+  }
 }
 
 @layer components {
   .tp-surface {
-    @apply rounded-2xl border border-border/70 bg-white/90 shadow-sm backdrop-blur;
+    @apply rounded-2xl border border-border/70 bg-white/90 shadow-sm backdrop-blur dark:bg-card/85;
   }
 
   .tp-map-root {

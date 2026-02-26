@@ -1040,7 +1040,7 @@ export function ImportReservationDialog() {
         <div className="space-y-4">
           <Card className="border-primary/15 bg-white/95 shadow-sm">
             <CardContent className="pt-4">
-              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-end">
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px] md:items-end xl:grid-cols-[minmax(0,1fr)_260px]">
                 <div className="min-w-0 space-y-2">
                   <Label htmlFor={fileInputId}>Arquivos da viagem</Label>
                   <Input
@@ -1055,7 +1055,7 @@ export function ImportReservationDialog() {
                     {`Você pode subir até ${maxFilesPerBatch} arquivo(s) por lote. Formatos: txt, html, eml, pdf, png, jpg e webp.`}
                   </p>
                 </div>
-                <div className="w-full space-y-2">
+                <div className="w-full space-y-2 md:self-end">
                   <Button
                     onClick={runBatch}
                     disabled={!canProcess}
@@ -1065,7 +1065,7 @@ export function ImportReservationDialog() {
                     {isProcessingBatch || isReprocessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WandSparkles className="mr-2 h-4 w-4" />}
                     Analisar arquivos
                   </Button>
-                  <p className="text-[11px] text-muted-foreground lg:text-center">
+                  <p className="text-[11px] text-muted-foreground md:text-center">
                     OCR + IA classifica cada arquivo e prepara confirmação final.
                   </p>
                 </div>
