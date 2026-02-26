@@ -20,6 +20,29 @@ const EMPTY_PERMISSION: TripPermissionContext = {
   isOwner: false,
 };
 
+type SetupReason = 'missing_schema' | 'missing_function' | null;
+
+function normalizeTripMembersError(raw: string | null | undefined) {
+  if (!raw) return { message: 'Falha ao carregar usuários da viagem.', setupReason: null as SetupReason };
+  const lower = raw.toLowerCase();
+  if (
+    (lower.includes('relation') && lower.includes('viagem_membros') && lower.includes('does not exist')) ||
+    (lower.includes('relation') && lower.includes('viagem_convites') && lower.includes('does not exist'))
+  ) {
+    return {
+      message: 'Colaboração ainda não está habilitada neste ambiente (migrations pendentes).',
+      setupReason: 'missing_schema' as SetupReason,
+    };
+  }
+  if (lower.includes('trip-members') && (lower.includes('not found') || lower.includes('not active') || lower.includes('404'))) {
+    return {
+      message: 'A função de colaboração não está publicada neste ambiente.',
+      setupReason: 'missing_function' as SetupReason,
+    };
+  }
+  return { message: raw, setupReason: null as SetupReason };
+}
+
 export function useTripMembers(viagemId: string | null) {
   const queryClient = useQueryClient();
 
@@ -36,7 +59,8 @@ export function useTripMembers(viagemId: string | null) {
 
       const result = await listTripMembers(viagemId);
       if (result.error || !result.data) {
-        throw new Error(result.error ?? 'Falha ao carregar usuários da viagem.');
+        const normalized = normalizeTripMembersError(result.error ?? null);
+        throw new Error(normalized.message);
       }
 
       return result.data;
@@ -58,7 +82,8 @@ export function useTripMembers(viagemId: string | null) {
 
       const result = await listTripInvites(viagemId);
       if (result.error || !result.data) {
-        throw new Error(result.error ?? 'Falha ao carregar convites pendentes.');
+        const normalized = normalizeTripMembersError(result.error ?? null);
+        throw new Error(normalized.message);
       }
 
       return result.data;
@@ -144,6 +169,12 @@ export function useTripMembers(viagemId: string | null) {
     onError: (error: Error) => toast.error(error.message),
   });
 
+  const rawMembersError = membersQuery.error instanceof Error ? membersQuery.error.message : null;
+  const rawInvitesError = invitesQuery.error instanceof Error ? invitesQuery.error.message : null;
+  const setupReason =
+    normalizeTripMembersError(rawMembersError).setupReason ??
+    normalizeTripMembersError(rawInvitesError).setupReason;
+
   const state = {
     members: membersQuery.data?.members ?? [],
     featureGate: membersQuery.data?.featureGate ?? null,
@@ -151,8 +182,10 @@ export function useTripMembers(viagemId: string | null) {
     permission,
     isLoadingMembers: membersQuery.isLoading,
     isLoadingInvites: invitesQuery.isLoading,
-    membersError: membersQuery.error instanceof Error ? membersQuery.error.message : null,
-    invitesError: invitesQuery.error instanceof Error ? invitesQuery.error.message : null,
+    membersError: rawMembersError,
+    invitesError: rawInvitesError,
+    setupRequired: setupReason !== null,
+    setupReason,
     inviteMember: inviteMutation.mutateAsync,
     updateMemberRole: updateRoleMutation.mutateAsync,
     removeMember: removeMutation.mutateAsync,

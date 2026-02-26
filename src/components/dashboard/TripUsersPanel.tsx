@@ -158,12 +158,26 @@ export function TripUsersPanel({ tripMembers, currentUserId, currentTripId }: Tr
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {tripMembers.setupRequired && (
+          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900">
+            <p className="font-medium">Ambiente de colaboração não sincronizado</p>
+            <p className="mt-1">
+              {tripMembers.setupReason === 'missing_schema'
+                ? 'As tabelas de membros/convites ainda não existem neste projeto.'
+                : 'A função de colaboração não está publicada neste projeto.'}
+            </p>
+            <p className="mt-2 text-xs">
+              Validação rápida: <code>select to_regclass('public.viagem_membros'), to_regclass('public.viagem_convites');</code>
+            </p>
+          </div>
+        )}
+
         {tripMembers.membersError && (
           <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 text-sm text-rose-700">
             {tripMembers.membersError}
           </div>
         )}
-        {tripMembers.permission.isOwner && tripMembers.invitesError && (
+        {tripMembers.permission.isOwner && !tripMembers.setupRequired && tripMembers.invitesError && (
           <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 text-sm text-rose-700">
             {tripMembers.invitesError}
           </div>
@@ -175,7 +189,7 @@ export function TripUsersPanel({ tripMembers, currentUserId, currentTripId }: Tr
           </div>
         ) : (
           <>
-            {tripMembers.permission.isOwner && (
+            {tripMembers.permission.isOwner && !tripMembers.setupRequired && (
               <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
                 <p className="mb-3 text-sm font-medium">Convidar por e-mail</p>
                 <div className="grid gap-2 sm:grid-cols-[1fr_160px_auto]">
@@ -219,7 +233,11 @@ export function TripUsersPanel({ tripMembers, currentUserId, currentTripId }: Tr
 
             <div className="space-y-2">
               <p className="text-sm font-medium">Membros</p>
-              {tripMembers.members.length === 0 ? (
+              {tripMembers.setupRequired ? (
+                <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                  Usuários da viagem ficam disponíveis após sincronizar migrations e function no ambiente.
+                </p>
+              ) : tripMembers.members.length === 0 ? (
                 <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
                   Nenhum membro vinculado.
                 </p>
@@ -307,7 +325,7 @@ export function TripUsersPanel({ tripMembers, currentUserId, currentTripId }: Tr
               )}
             </div>
 
-            {tripMembers.permission.isOwner ? (
+            {tripMembers.permission.isOwner && !tripMembers.setupRequired ? (
               <div className="space-y-2">
                 <p className="text-sm font-medium">Convites pendentes</p>
                 {tripMembers.isLoadingInvites ? (
