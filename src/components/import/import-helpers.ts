@@ -72,7 +72,10 @@ function inferTypeScores(extracted: ExtractedReservation) {
 export function detectTypeFromText(raw: string, fileName: string): ImportType {
   const bag = `${raw} ${fileName}`.toLowerCase();
 
-  if (/\b(latam|gol|azul|flight|boarding|voo|aeroporto|pnr|iata|ticket|itiner[áa]rio)\b/.test(bag) || /\b[a-z]{2}\d{3,}[a-z0-9]*\b/i.test(bag)) {
+  if (
+    /\b(latam|gol|azul|flight|boarding|voo|aeroporto|pnr|iata|ticket|itiner[áa]rio|localizador|bilhete(?:\s+eletr[oô]nico)?)\b/.test(bag) ||
+    /\b[a-z]{2}\s?\d{3,4}[a-z]?\b/i.test(bag)
+  ) {
     return 'voo';
   }
 
@@ -204,9 +207,29 @@ function normalizeDateCandidate(value?: string | null) {
   return null;
 }
 
+function normalizeCurrencyToken(value?: string | null) {
+  if (!value) return null;
+  const token = value.toUpperCase().replace(/\s+/g, '');
+  if (token === 'R$' || token === 'BRL') return 'BRL';
+  if (token === 'US$' || token === '$' || token === 'USD') return 'USD';
+  if (token === 'EUR' || token === '€') return 'EUR';
+  if (token === 'CHF') return 'CHF';
+  if (token === 'GBP' || token === '£') return 'GBP';
+  return null;
+}
+
+function normalizeTimeCandidate(value?: string | null) {
+  if (!value) return null;
+  const match = value.trim().match(/^([01]?\d|2[0-3])[:h]([0-5]\d)$/i);
+  if (!match) return null;
+  return `${match[1].padStart(2, '0')}:${match[2]}`;
+}
+
 export function inferFallbackExtraction(raw: string, fileName: string, tripDestination?: string | null): ExtractedReservation {
   const type = detectTypeFromText(raw, fileName);
-  const amountMatch = raw.match(/(R\$|USD|EUR|CHF|GBP)\s*([0-9][0-9.,]*)/i);
+  const rawOneLine = raw.replace(/\s+/g, ' ');
+  const amountPrefixMatch = rawOneLine.match(/(R\$|US\$|USD|EUR|CHF|GBP|BRL)\s*([0-9][0-9.,]*)/i);
+  const amountSuffixMatch = rawOneLine.match(/([0-9][0-9.,]*)\s*(R\$|US\$|USD|EUR|CHF|GBP|BRL)\b/i);
   const parseAmount = (value: string) => {
     const sanitized = value.replace(/[^0-9,.\-]/g, '').trim();
     if (!sanitized) return null;
@@ -225,9 +248,12 @@ export function inferFallbackExtraction(raw: string, fileName: string, tripDesti
     const parsed = Number(normalized);
     return Number.isFinite(parsed) ? parsed : null;
   };
-  const amount = amountMatch ? parseAmount(amountMatch[2] || '') : null;
-  const currency = amountMatch?.[1]?.toUpperCase().replace('$', '') ?? null;
-  const rawOneLine = raw.replace(/\s+/g, ' ');
+  const amount = amountPrefixMatch
+    ? parseAmount(amountPrefixMatch[2] || '')
+    : amountSuffixMatch
+      ? parseAmount(amountSuffixMatch[1] || '')
+      : null;
+  const currency = normalizeCurrencyToken(amountPrefixMatch?.[1] ?? amountSuffixMatch?.[2] ?? null);
 
   const airportRouteMatch = rawOneLine.match(/\b([A-Z]{3})\s*(?:-|->|→|\/)\s*([A-Z]{3})\b/);
   const airportLabelMatch = rawOneLine.match(/(?:origem|from)\s*[:\-]?\s*([A-Z]{3}).*?(?:destino|to)\s*[:\-]?\s*([A-Z]{3})/i);
@@ -268,70 +294,97 @@ export function inferFallbackExtraction(raw: string, fileName: string, tripDesti
   );
   const checkIn = normalizeDateCandidate(checkInMatch?.[1] ?? null);
   const checkOut = normalizeDateCandidate(checkOutMatch?.[1] ?? null);
+  const genericStartTime = normalizeTimeCandidate(
+    rawOneLine.match(/(?:embarque|boarding|partida|departure|check[\s-]?in)\s*[:\-]?\s*([01]?\d[:h][0-5]\d)/i)?.[1] ??
+      rawOneLine.match(/\b([01]?\d[:h][0-5]\d)\b/)?.[1] ??
+      null,
+  );
+  const genericEndTime = normalizeTimeCandidate(
+    rawOneLine.match(/(?:chegada|arrival|check[\s-]?out|sa[ií]da)\s*[:\-]?\s*([01]?\d[:h][0-5]\d)/i)?.[1] ?? null,
+  );
+  const addressLabelMatch = rawOneLine.match(
+    /(?:endere[cç]o|address|localiza[cç][aã]o|cidade|city)\s*[:\-]?\s*([A-Za-zÀ-ÿ0-9' .,#-]{6,120}?)(?=\s{2,}|$)/i,
+  );
+  const cityCountryMatch = rawOneLine.match(/\b([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' .-]{2,40}),\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ' .-]{2,40})\b/);
+  const stayLocation = cleanToken(
+    addressLabelMatch?.[1] || (cityCountryMatch ? `${cityCountryMatch[1]}, ${cityCountryMatch[2]}` : null) || tripDestination || destino || null,
+  );
+  const stayNameMatch = rawOneLine.match(
+    /(?:hospedagem|hotel|accommodation|airbnb)\s*[:\-]?\s*([A-Za-zÀ-ÿ0-9' .,#-]{3,90}?)(?=\s+(?:check|entrada|sa[ií]da|valor|total)\b|$)/i,
+  );
 
-  const flightNumber = (raw.match(/\b([A-Z]{2}\d{3,}[A-Z0-9]*)\b/) || fileName.match(/\b([A-Z]{2}\d{3,}[A-Z0-9]*)\b/i))?.[1] ?? null;
+  const flightNumber = (raw.match(/\b([A-Z]{2}\s?\d{3,4}[A-Z]?)\b/) || fileName.match(/\b([A-Z]{2}\s?\d{3,4}[A-Z]?)\b/i))?.[1]?.replace(/\s+/g, '') ?? null;
   const reservationCode =
     rawOneLine.match(/(?:c[oó]digo(?:\s+de)?\s+reserva|booking(?:\s+code)?|pnr|localizador)\s*[:#-]?\s*([A-Z0-9]{5,8})/i)?.[1]?.toUpperCase() ??
     null;
-  const airline =
-    /\blatam\b/i.test(raw) || /\blatam\b/i.test(fileName)
-      ? 'LATAM'
-      : /\bgol\b/i.test(raw) || /\bgol\b/i.test(fileName)
-        ? 'GOL'
-        : /\bazul\b/i.test(raw) || /\bazul\b/i.test(fileName)
-          ? 'AZUL'
-          : /\blufthansa\b/i.test(raw) || /\blufthansa\b/i.test(fileName)
-            ? 'Lufthansa'
-            : /\bair france\b/i.test(raw) || /\bair france\b/i.test(fileName)
-              ? 'Air France'
-              : /\bamerican airlines\b/i.test(raw) || /\bamerican airlines\b/i.test(fileName)
-                ? 'American Airlines'
-          : null;
+  const providerBag = `${raw} ${fileName}`.toLowerCase();
+  let airline: string | null = null;
+  if (/\blatam\b/.test(providerBag)) airline = 'LATAM';
+  else if (/\bgol\b/.test(providerBag)) airline = 'GOL';
+  else if (/\bazul\b/.test(providerBag)) airline = 'AZUL';
+  else if (/\blufthansa\b/.test(providerBag)) airline = 'Lufthansa';
+  else if (/\bair france\b/.test(providerBag)) airline = 'Air France';
+  else if (/\bamerican airlines\b/.test(providerBag)) airline = 'American Airlines';
+  else if (/\bairbnb\b/.test(providerBag)) airline = 'Airbnb';
+  else if (/\bbooking(?:\.com)?\b/.test(providerBag)) airline = 'Booking';
 
   const cleanedName = fileName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').trim();
+  const normalizedStayName = cleanToken(stayNameMatch?.[1] ?? null) ?? (type === 'hospedagem' ? cleanedName || 'Hospedagem' : cleanedName || null);
   const canonicalType = type === 'voo' ? 'Voo' : type === 'hospedagem' ? 'Hospedagem' : type === 'transporte' ? 'Transporte' : 'Restaurante';
+  const typeSignals =
+    type === 'voo'
+      ? filledCount([flightNumber, reservationCode, airline, origem, destino, inferredDate, genericStartTime, amount])
+      : type === 'hospedagem'
+        ? filledCount([normalizedStayName, stayLocation, checkIn, checkOut, amount, currency, genericStartTime, genericEndTime])
+        : type === 'transporte'
+          ? filledCount([origem, destino, inferredDate, genericStartTime, amount])
+          : filledCount([cleanedName, stayLocation]);
+  const typeConfidence = Math.min(0.93, 0.35 + typeSignals * 0.08 + (raw.trim().length > 240 ? 0.08 : 0));
+  const extractionQuality: 'high' | 'medium' | 'low' = typeSignals >= 6 ? 'high' : typeSignals >= 4 ? 'medium' : 'low';
+  const fallbackMissing = typeSignals < 4 ? ['review_manual_requerida'] : [];
+
   const canonical: ArceeExtractionPayload = {
     metadata: {
       tipo: canonicalType,
-      confianca: 45,
+      confianca: Math.round(typeConfidence * 100),
       status: 'Pendente',
     },
     dados_principais: {
-      nome_exibicao: cleanedName || null,
+      nome_exibicao: type === 'hospedagem' ? normalizedStayName : cleanedName || null,
       provedor: airline,
       codigo_reserva:
         (reservationCode && /^[A-Z0-9]{5,8}$/i.test(reservationCode) ? reservationCode.toUpperCase() : null) ||
         (flightNumber && /^[A-Z0-9]{6}$/i.test(flightNumber) ? flightNumber.toUpperCase() : null),
       passageiro_hospede: null,
       data_inicio: type === 'hospedagem' ? checkIn : inferredDate,
-      hora_inicio: null,
+      hora_inicio: genericStartTime,
       data_fim: type === 'hospedagem' ? checkOut : null,
-      hora_fim: null,
-      origem,
-      destino: type === 'hospedagem' ? tripDestination ?? null : destino,
+      hora_fim: type === 'hospedagem' ? genericEndTime : null,
+      origem: type === 'hospedagem' ? null : origem,
+      destino: type === 'hospedagem' ? stayLocation : destino,
     },
     financeiro: {
       valor_total: Number.isFinite(amount as number) ? amount : null,
-      moeda: currency || 'BRL',
+      moeda: currency ?? null,
       metodo: null,
       pontos_utilizados: null,
     },
     enriquecimento_ia: {
-      dica_viagem: tripDestination ? `Considere horários fora de pico para deslocamentos em ${tripDestination}.` : null,
-      como_chegar: tripDestination ? `Use transporte público ou app de mobilidade até ${tripDestination}.` : null,
-      atracoes_proximas: tripDestination ? `Pesquise atrações centrais e parques em ${tripDestination}.` : null,
-      restaurantes_proximos: tripDestination ? `Experimente culinária local em ${tripDestination}.` : null,
+      dica_viagem: (stayLocation ?? tripDestination) ? `Considere horários fora de pico para deslocamentos em ${stayLocation ?? tripDestination}.` : null,
+      como_chegar: (stayLocation ?? tripDestination) ? `Use transporte público ou app de mobilidade até ${stayLocation ?? tripDestination}.` : null,
+      atracoes_proximas: (stayLocation ?? tripDestination) ? `Pesquise atrações centrais e parques em ${stayLocation ?? tripDestination}.` : null,
+      restaurantes_proximos: (stayLocation ?? tripDestination) ? `Experimente culinária local em ${stayLocation ?? tripDestination}.` : null,
     },
   };
 
   return {
     type,
     scope: 'trip_related',
-    confidence: 0.4,
-    type_confidence: 0.45,
+    confidence: Math.max(0.3, typeConfidence - 0.05),
+    type_confidence: typeConfidence,
     field_confidence: {},
-    extraction_quality: raw.trim().length > 80 ? 'medium' : 'low',
-    missingFields: ['review_manual_requerida'],
+    extraction_quality: extractionQuality,
+    missingFields: fallbackMissing,
     canonical,
     data: {
       voo:
@@ -344,19 +397,19 @@ export function inferFallbackExtraction(raw: string, fileName: string, tripDesti
               data: inferredDate,
               status: 'pendente',
               valor: Number.isFinite(amount as number) ? amount : null,
-              moeda: currency || 'BRL',
+              moeda: currency ?? null,
             }
           : null,
       hospedagem:
         type === 'hospedagem'
           ? {
-              nome: cleanedName || 'Hospedagem',
-              localizacao: tripDestination ?? null,
+              nome: normalizedStayName ?? 'Hospedagem',
+              localizacao: stayLocation ?? null,
               check_in: checkIn,
               check_out: checkOut,
               status: 'pendente',
               valor: Number.isFinite(amount as number) ? amount : null,
-              moeda: currency || 'BRL',
+              moeda: currency ?? null,
             }
           : null,
       transporte:
@@ -364,19 +417,19 @@ export function inferFallbackExtraction(raw: string, fileName: string, tripDesti
           ? {
               tipo: cleanedName || 'Transporte',
               operadora: null,
-              origem: null,
-              destino: null,
-              data: null,
+              origem,
+              destino,
+              data: inferredDate,
               status: 'pendente',
               valor: Number.isFinite(amount as number) ? amount : null,
-              moeda: currency || 'BRL',
+              moeda: currency ?? null,
             }
           : null,
       restaurante:
         type === 'restaurante'
           ? {
               nome: cleanedName || 'Reserva de restaurante',
-              cidade: tripDestination ?? null,
+              cidade: stayLocation ?? tripDestination ?? null,
               tipo: 'Reserva',
               rating: null,
             }

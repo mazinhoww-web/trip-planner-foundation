@@ -239,6 +239,9 @@ function toUserWarning(text: string) {
   if (lower.includes('metadados')) {
     return 'O registro do anexo não foi concluído, mas você ainda pode salvar a reserva.';
   }
+  if (lower.includes('campos obrigatórios pendentes')) {
+    return 'Preencha os campos obrigatórios destacados para concluir a importação.';
+  }
   return 'Alguns dados exigem confirmação antes de salvar.';
 }
 
@@ -653,6 +656,25 @@ export function ImportReservationDialog() {
     if (activeItem.scope === 'trip_related' && !activeItem.reviewState) return;
 
     const reviewState = activeItem.reviewState;
+    if (activeItem.scope === 'trip_related') {
+      const computedMissingFields = computeCriticalMissingFields(reviewState?.type, reviewState, activeItem.scope);
+      if (computedMissingFields.length > 0) {
+        setItem(activeItem.id, (item) => ({
+          ...item,
+          status: 'needs_confirmation',
+          missingFields: mergeMissingFields(item.missingFields, computedMissingFields),
+          warnings: item.warnings.concat('Campos obrigatórios pendentes para confirmação final.'),
+          visualSteps: {
+            ...item.visualSteps,
+            saving: 'failed',
+          },
+        }));
+        setShowAdvancedEditor(true);
+        toast.error('Preencha os campos críticos antes de confirmar e salvar.');
+        return;
+      }
+    }
+
     setIsSaving(true);
     setItem(activeItem.id, (item) => ({ ...item, status: 'saving' }));
     setItemStep(activeItem.id, 'saving', 'in_progress');

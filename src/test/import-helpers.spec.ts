@@ -139,6 +139,8 @@ describe('import helpers', () => {
     expect(extracted.data.voo?.origem).toBe('FLN');
     expect(extracted.data.voo?.destino).toBe('GRU');
     expect(extracted.data.voo?.data).toBe('2026-04-02');
+    expect(extracted.data.voo?.moeda).toBe('BRL');
+    expect(extracted.canonical?.financeiro.moeda).toBe('BRL');
   });
 
   it('parses city routes and month-text dates for flight fallback', () => {
@@ -153,6 +155,22 @@ describe('import helpers', () => {
     expect(extracted.canonical?.dados_principais.origem).toBe('Cuiabá');
     expect(extracted.canonical?.dados_principais.destino).toBe('São Paulo');
     expect(extracted.canonical?.dados_principais.data_inicio).toBe('2026-04-02');
+  });
+
+  it('builds useful fallback extraction for airbnb receipts with address and BRL suffix', () => {
+    const extracted = inferFallbackExtraction(
+      'Airbnb recibo check-in 18/02/2026 check-out 19/02/2026 endereço 21 Bis Rue de Paris, Clichy, France total 836,73 BRL',
+      'Airbnb-recibo.pdf',
+      null,
+    );
+
+    expect(extracted.type).toBe('hospedagem');
+    expect(extracted.data.hospedagem?.check_in).toBe('2026-02-18');
+    expect(extracted.data.hospedagem?.check_out).toBe('2026-02-19');
+    expect(extracted.data.hospedagem?.localizacao).toContain('Clichy');
+    expect(extracted.data.hospedagem?.valor).toBeCloseTo(836.73);
+    expect(extracted.data.hospedagem?.moeda).toBe('BRL');
+    expect(extracted.canonical?.dados_principais.destino).toContain('Clichy');
   });
 
   it('converts date + time into ISO datetime when both are valid', () => {
