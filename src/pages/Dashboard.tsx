@@ -20,6 +20,7 @@ import { TripCoverageAlert } from '@/components/dashboard/TripCoverageAlert';
 import { TripHero } from '@/components/dashboard/TripHero';
 import { TripStatsGrid } from '@/components/dashboard/TripStatsGrid';
 import { TripTopActions } from '@/components/dashboard/TripTopActions';
+import { OnboardingWizard } from '@/components/dashboard/OnboardingWizard';
 import { TripCollaborationBanner, TripViewerNotice } from '@/components/dashboard/TripCollaborationPanels';
 import { ThemeToggle } from '@/components/dashboard/ThemeToggle';
 import { BrandLogo } from '@/components/brand/BrandLogo';
@@ -29,7 +30,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tables } from '@/integrations/supabase/types';
-import { LogOut } from 'lucide-react';
+import { Compass, LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { calculateStayCoverageGaps, calculateTransportCoverageGaps } from '@/services/tripInsights';
@@ -147,6 +148,7 @@ export default function Dashboard() {
   const roteiroModule = useRoteiro();
 
   const [activeTab, setActiveTab] = useState('visao');
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
 
   const [flightSearch, setFlightSearch] = useState('');
   const [flightStatus, setFlightStatus] = useState<'todos' | ReservaStatus>('todos');
@@ -210,6 +212,20 @@ export default function Dashboard() {
       document.body.classList.remove('tp-any-dialog-open');
     };
   }, [isAnyCrudDialogOpen]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!user?.id || !currentTripId) return;
+    const storageKey = `tp_onboarding_seen:${user.id}`;
+    const seen = window.localStorage.getItem(storageKey);
+    if (seen) return;
+    setOnboardingOpen(true);
+  }, [user?.id, currentTripId]);
+
+  const completeOnboarding = () => {
+    if (typeof window === 'undefined' || !user?.id) return;
+    window.localStorage.setItem(`tp_onboarding_seen:${user.id}`, new Date().toISOString());
+  };
 
   const handleLogout = async () => {
     await signOut();
@@ -774,6 +790,14 @@ export default function Dashboard() {
               showManageUsers={collabGate.enabled}
               onManageUsers={() => setActiveTab('apoio')}
             >
+              <Button
+                variant="outline"
+                className="w-full border-primary/25 text-primary hover:bg-primary/5 sm:w-auto"
+                onClick={() => setOnboardingOpen(true)}
+              >
+                <Compass className="mr-2 h-4 w-4" />
+                Tour rápido
+              </Button>
               {canEditTrip ? (
                 aiImportGate.enabled ? (
                   <Suspense fallback={<Button disabled>Carregando importação...</Button>}>
@@ -1134,6 +1158,15 @@ export default function Dashboard() {
                 </Suspense>
               </TabsContent>
             </Tabs>
+            <OnboardingWizard
+              open={onboardingOpen}
+              onOpenChange={(next) => {
+                if (!next) completeOnboarding();
+                setOnboardingOpen(next);
+              }}
+              onNavigateTab={setActiveTab}
+              onComplete={completeOnboarding}
+            />
             </section>
           </div>
         ) : (
