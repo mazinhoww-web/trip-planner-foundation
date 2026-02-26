@@ -269,8 +269,12 @@ function inferAirportCodes(text: string) {
   if (withArrow) return { origem: withArrow[1], destino: withArrow[2] };
   const labeled = normalized.match(/(?:origem|from)\s*[:\-]?\s*([A-Z]{3}).*?(?:destino|to)\s*[:\-]?\s*([A-Z]{3})/i);
   if (labeled) return { origem: labeled[1].toUpperCase(), destino: labeled[2].toUpperCase() };
-  const all = normalized.match(/\b[A-Z]{3}\b/g) || [];
-  if (all.length >= 2) return { origem: all[0], destino: all[1] };
+  const ignoredCodes = new Set(['USD', 'EUR', 'CHF', 'BRL', 'GBP']);
+  const all = (normalized.match(/\b[A-Z]{3}\b/g) || []).filter((code) => !ignoredCodes.has(code));
+  if (all.length >= 2) {
+    if (all[0] !== all[1]) return { origem: all[0], destino: all[1] };
+    return { origem: all[0], destino: null };
+  }
   return { origem: null, destino: null };
 }
 
@@ -298,10 +302,11 @@ function inferRouteByCityNames(text: string) {
 }
 
 function inferFlightCode(text: string, fileName: string) {
-  const pnrLabeled = text.match(/(?:c[óo]digo\s+de\s+reserva|localizador|pnr|booking\s+code)\s*[:\-]?\s*([A-Z0-9]{6})\b/i);
-  const pnr = pnrLabeled ?? text.match(/\b([A-Z0-9]{6})\b/);
+  const pnrLabeled = text.match(/(?:c[óo]digo\s+de\s+reserva|localizador|pnr|booking\s+code)\s*[:\-]?\s*([A-Z0-9]{6,8})\b/i);
+  const pnrFromFileCombined = fileName.match(/(?:^|[-_])(?:[A-Z]{2}\d{3,4})([A-Z0-9]{6,8})(?:\b|[-_.])/i);
+  const pnr = pnrLabeled ?? pnrFromFileCombined ?? text.match(/\b([A-Z0-9]{6,8})\b/);
   const flight = text.match(/\b([A-Z]{2}\d{3,4}[A-Z0-9]*)\b/);
-  const fromFile = fileName.match(/\b([A-Z]{2}\d{3,4}[A-Z0-9]*)\b/i);
+  const fromFile = fileName.match(/\b([A-Z]{2}\d{3,4})\b/i);
   return {
     codigo_reserva: pnr?.[1] ?? null,
     numero_voo: flight?.[1] ?? fromFile?.[1] ?? null,
@@ -382,8 +387,27 @@ function inferStayAddress(text: string) {
   const normalized = text.replace(/\s+/g, ' ');
   const labeled = normalized.match(/(?:endere[çc]o|address)\s*[:\-]?\s*([^|]{8,120})/i);
   if (labeled) return labeled[1].trim();
-  const streetLike = normalized.match(/\b\d{1,4}\s+[A-Za-zÀ-ÿ' -]{2,40}(?:rua|street|st|avenida|av|road|rd|boulevard|blvd|allee|platz)\b[^,]{0,60}/i);
+  const streetLike = normalized.match(
+    /\b\d{1,4}[A-Za-z]?\s+[A-Za-zÀ-ÿ' -]{2,70}\s(?:rua|street|st|avenida|av|road|rd|boulevard|blvd|allee|platz|rue)\b[^|]{0,90}/i,
+  );
   if (streetLike) return streetLike[0].trim();
+  const zipcodeLike = normalized.match(/\b\d{4,5}\s+[A-Za-zÀ-ÿ' -]{2,40}\b[^|]{0,80}/);
+  if (zipcodeLike) return zipcodeLike[0].trim();
+  return null;
+}
+
+function inferStayName(text: string) {
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => line.length >= 4 && line.length <= 90);
+  const fromReservation = lines.find((line) =>
+    /(?:room|apartamento|apartment|hotel|hostel|studio|reserva|booking|airbnb)/i.test(line),
+  );
+  if (fromReservation) return fromReservation;
+  const titleLike = lines.find((line) => /^[A-Za-zÀ-ÿ0-9'"\- ,]{6,80}$/.test(line));
+  if (titleLike) return titleLike;
   return null;
 }
 
@@ -437,6 +461,7 @@ function normalizeCanonical(raw: Record<string, unknown>, text: string, fileName
     const flight = inferFlightCode(text, fileName);
     const provider = inferProvider(text, fileName);
     const stayAddress = inferStayAddress(text);
+    const stayName = inferStayName(text);
 
     canonical.dados_principais.provedor = canonical.dados_principais.provedor ?? provider;
 
@@ -465,6 +490,7 @@ function normalizeCanonical(raw: Record<string, unknown>, text: string, fileName
     if (canonical.metadata.tipo === 'Hospedagem') {
       canonical.dados_principais.nome_exibicao =
         canonical.dados_principais.nome_exibicao ??
+        stayName ??
         (provider ? `${provider} reserva` : null);
       canonical.dados_principais.destino = canonical.dados_principais.destino ?? stayAddress ?? null;
     }
