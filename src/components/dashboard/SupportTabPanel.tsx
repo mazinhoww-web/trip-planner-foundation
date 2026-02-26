@@ -65,7 +65,12 @@ export function SupportTabPanel({
 
       {collabEnabled ? (
         <div className="space-y-2">
-          <p className="text-sm font-medium">Gerenciar usuários da viagem</p>
+          <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+            <p className="text-sm font-semibold text-primary">Gestão de acesso da viagem</p>
+            <p className="text-xs text-muted-foreground">
+              Convide pessoas, ajuste papéis e acompanhe convites pendentes em tempo real.
+            </p>
+          </div>
           <TripUsersPanel tripMembers={tripMembers} currentUserId={userId} currentTripId={currentTripId} />
         </div>
       ) : (

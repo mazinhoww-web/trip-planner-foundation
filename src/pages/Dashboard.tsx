@@ -1300,7 +1300,12 @@ export default function Dashboard() {
               coverImage={tripCoverImage(currentTrip.destino)}
             />
 
-            <TripTopActions isReconciling={isReconciling} onReconcile={reconcileFromServer}>
+            <TripTopActions
+              isReconciling={isReconciling}
+              onReconcile={reconcileFromServer}
+              showManageUsers={collabGate.enabled}
+              onManageUsers={() => setActiveTab('apoio')}
+            >
               {canEditTrip ? (
                 aiImportGate.enabled ? (
                   <Suspense fallback={<Button disabled>Carregando importação...</Button>}>
