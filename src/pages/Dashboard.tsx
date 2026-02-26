@@ -35,6 +35,7 @@ import { calculateStayCoverageGaps, calculateTransportCoverageGaps } from '@/ser
 import { supabase } from '@/integrations/supabase/client';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useTripExportActions } from '@/hooks/useTripExportActions';
+import { useSupportResources } from '@/hooks/useSupportResources';
 import {
   buildDayChips,
   buildMapsUrl,
@@ -45,7 +46,6 @@ import {
   emptyFlight,
   emptyRestaurant,
   emptyStay,
-  emptySupportForms,
   emptyTask,
   emptyTransport,
   formatByCurrency,
@@ -67,7 +67,6 @@ import {
   type ReservaStatus,
   type RestaurantFormState,
   type StayFormState,
-  type SupportForms,
   type TarefaPrioridade,
   type TaskFormState,
   type TransportFormState,
@@ -166,10 +165,7 @@ export default function Dashboard() {
   const [expenseDialogOpen, setExpenseDialogOpen] = useState(false);
   const [expenseForm, setExpenseForm] = useState<ExpenseFormState>(emptyExpense);
   const [restaurantForm, setRestaurantForm] = useState<RestaurantFormState>(emptyRestaurant);
-  const [supportForms, setSupportForms] = useState<SupportForms>(emptySupportForms);
   const [isReconciling, setIsReconciling] = useState(false);
-  const [openingDocumentPath, setOpeningDocumentPath] = useState<string | null>(null);
-  const [downloadingDocumentPath, setDownloadingDocumentPath] = useState<string | null>(null);
   const [generatingTasks, setGeneratingTasks] = useState(false);
   const [generatingItinerary, setGeneratingItinerary] = useState(false);
   const [profile, setProfile] = useState<Tables<'profiles'> | null>(null);
@@ -182,6 +178,13 @@ export default function Dashboard() {
   const publicApiGate = useFeatureGate('ff_public_api_access');
   const webhookGate = useFeatureGate('ff_webhooks_enabled');
   const { isExportingData, exportJson, exportPdf } = useTripExportActions(currentTripId);
+  const supportResources = useSupportResources({
+    canEditTrip,
+    documentsModule,
+    luggageModule,
+    travelersModule,
+    prepModule,
+  });
   const isAnyCrudDialogOpen =
     flightDialogOpen ||
     flightDetailOpen ||
@@ -1084,142 +1087,6 @@ export default function Dashboard() {
     await restaurantsModule.remove(id);
   };
 
-  const createDocument = async () => {
-    if (!ensureCanEdit()) return;
-    if (!supportForms.documentoNome.trim()) return;
-    await documentsModule.create({
-      nome: supportForms.documentoNome.trim(),
-      tipo: supportForms.documentoTipo.trim() || null,
-      arquivo_url: supportForms.documentoUrl.trim() || null,
-    });
-    setSupportForms((s) => ({ ...s, documentoNome: '', documentoTipo: '', documentoUrl: '' }));
-  };
-
-  const removeDocument = async (id: string) => {
-    if (!ensureCanEdit()) return;
-    await documentsModule.remove(id);
-  };
-
-  const resolveDocumentUrl = async (path: string) => {
-    if (path.startsWith('http://') || path.startsWith('https://')) {
-      return path;
-    }
-
-    const { data, error } = await supabase.storage.from('imports').createSignedUrl(path, 60 * 15);
-    if (error || !data?.signedUrl) {
-      throw new Error(error?.message || 'Não foi possível abrir o comprovante.');
-    }
-
-    return data.signedUrl;
-  };
-
-  const openSupportDocument = async (path: string | null) => {
-    if (!path) {
-      toast.error('Documento sem caminho disponível.');
-      return;
-    }
-
-    setOpeningDocumentPath(path);
-    try {
-      const url = await resolveDocumentUrl(path);
-      window.open(url, '_blank', 'noopener,noreferrer');
-    } catch (error) {
-      console.error('[dashboard][document_open_failure]', { path, error });
-      toast.error(error instanceof Error ? error.message : 'Não foi possível abrir o documento.');
-    } finally {
-      setOpeningDocumentPath((current) => (current === path ? null : current));
-    }
-  };
-
-  const downloadSupportDocument = async (path: string | null, fileName?: string | null) => {
-    if (!path) {
-      toast.error('Documento sem caminho disponível.');
-      return;
-    }
-
-    setDownloadingDocumentPath(path);
-    try {
-      const url = await resolveDocumentUrl(path);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName || 'comprovante';
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (error) {
-      console.error('[dashboard][document_download_failure]', { path, error });
-      toast.error(error instanceof Error ? error.message : 'Não foi possível baixar o documento.');
-    } finally {
-      setDownloadingDocumentPath((current) => (current === path ? null : current));
-    }
-  };
-
-  const createLuggageItem = async () => {
-    if (!ensureCanEdit()) return;
-    if (!supportForms.bagagemItem.trim()) return;
-    await luggageModule.create({
-      item: supportForms.bagagemItem.trim(),
-      quantidade: Number(supportForms.bagagemQuantidade || 1),
-      conferido: false,
-    });
-    setSupportForms((s) => ({ ...s, bagagemItem: '', bagagemQuantidade: '1' }));
-  };
-
-  const toggleLuggageChecked = async (item: Tables<'bagagem'>) => {
-    if (!ensureCanEdit()) return;
-    await luggageModule.update({
-      id: item.id,
-      updates: { conferido: !item.conferido },
-    });
-  };
-
-  const removeLuggageItem = async (id: string) => {
-    if (!ensureCanEdit()) return;
-    await luggageModule.remove(id);
-  };
-
-  const createTraveler = async () => {
-    if (!ensureCanEdit()) return;
-    if (!supportForms.viajanteNome.trim()) return;
-    await travelersModule.create({
-      nome: supportForms.viajanteNome.trim(),
-      email: supportForms.viajanteEmail.trim() || null,
-      telefone: supportForms.viajanteTelefone.trim() || null,
-    });
-    setSupportForms((s) => ({ ...s, viajanteNome: '', viajanteEmail: '', viajanteTelefone: '' }));
-  };
-
-  const removeTraveler = async (id: string) => {
-    if (!ensureCanEdit()) return;
-    await travelersModule.remove(id);
-  };
-
-  const createPrepItem = async () => {
-    if (!ensureCanEdit()) return;
-    if (!supportForms.preparativoTitulo.trim()) return;
-    await prepModule.create({
-      titulo: supportForms.preparativoTitulo.trim(),
-      descricao: supportForms.preparativoDescricao.trim() || null,
-      concluido: false,
-    });
-    setSupportForms((s) => ({ ...s, preparativoTitulo: '', preparativoDescricao: '' }));
-  };
-
-  const togglePrepDone = async (item: Tables<'preparativos'>) => {
-    if (!ensureCanEdit()) return;
-    await prepModule.update({
-      id: item.id,
-      updates: { concluido: !item.concluido },
-    });
-  };
-
-  const removePrepItem = async (id: string) => {
-    if (!ensureCanEdit()) return;
-    await prepModule.remove(id);
-  };
-
   if (tripLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -1474,11 +1341,11 @@ export default function Dashboard() {
                     splitInsightList={splitInsightList}
                     stayHighlight={stayHighlight}
                     selectedStayDocuments={selectedStayDocuments}
-                    openSupportDocument={openSupportDocument}
-                    openingDocumentPath={openingDocumentPath}
-                    downloadSupportDocument={downloadSupportDocument}
-                    downloadingDocumentPath={downloadingDocumentPath}
-                    removeDocument={removeDocument}
+                    openSupportDocument={supportResources.openSupportDocument}
+                    openingDocumentPath={supportResources.openingDocumentPath}
+                    downloadSupportDocument={supportResources.downloadSupportDocument}
+                    downloadingDocumentPath={supportResources.downloadingDocumentPath}
+                    removeDocument={supportResources.removeDocument}
                   />
                 </Suspense>
               </TabsContent>
@@ -1641,26 +1508,26 @@ export default function Dashboard() {
                     webhookEnabled={webhookGate.enabled}
                     supportResourcesProps={{
                       canEditTrip,
-                      supportForms,
-                      setSupportForms,
+                      supportForms: supportResources.supportForms,
+                      setSupportForms: supportResources.setSupportForms,
                       documentsModule,
                       luggageModule,
                       travelersModule,
                       prepModule,
-                      openingDocumentPath,
-                      downloadingDocumentPath,
-                      createDocument,
-                      removeDocument,
-                      openSupportDocument,
-                      downloadSupportDocument,
-                      createLuggageItem,
-                      toggleLuggageChecked,
-                      removeLuggageItem,
-                      createTraveler,
-                      removeTraveler,
-                      createPrepItem,
-                      togglePrepDone,
-                      removePrepItem,
+                      openingDocumentPath: supportResources.openingDocumentPath,
+                      downloadingDocumentPath: supportResources.downloadingDocumentPath,
+                      createDocument: supportResources.createDocument,
+                      removeDocument: supportResources.removeDocument,
+                      openSupportDocument: supportResources.openSupportDocument,
+                      downloadSupportDocument: supportResources.downloadSupportDocument,
+                      createLuggageItem: supportResources.createLuggageItem,
+                      toggleLuggageChecked: supportResources.toggleLuggageChecked,
+                      removeLuggageItem: supportResources.removeLuggageItem,
+                      createTraveler: supportResources.createTraveler,
+                      removeTraveler: supportResources.removeTraveler,
+                      createPrepItem: supportResources.createPrepItem,
+                      togglePrepDone: supportResources.togglePrepDone,
+                      removePrepItem: supportResources.removePrepItem,
                     }}
                   />
                 </Suspense>
