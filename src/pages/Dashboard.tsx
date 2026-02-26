@@ -21,16 +21,6 @@ import { TripHero } from '@/components/dashboard/TripHero';
 import { TripStatsGrid } from '@/components/dashboard/TripStatsGrid';
 import { TripTopActions } from '@/components/dashboard/TripTopActions';
 import { TripCollaborationBanner, TripViewerNotice } from '@/components/dashboard/TripCollaborationPanels';
-import { BudgetTabPanel } from '@/components/dashboard/BudgetTabPanel';
-import { GastronomyTabPanel } from '@/components/dashboard/GastronomyTabPanel';
-import { SupportTabPanel } from '@/components/dashboard/SupportTabPanel';
-import { TasksTabPanel } from '@/components/dashboard/TasksTabPanel';
-import { ExpensesTabPanel } from '@/components/dashboard/ExpensesTabPanel';
-import { FlightsTabPanel } from '@/components/dashboard/FlightsTabPanel';
-import { OverviewTabPanel } from '@/components/dashboard/OverviewTabPanel';
-import { TransportsTabPanel } from '@/components/dashboard/TransportsTabPanel';
-import { RoteiroTabPanel } from '@/components/dashboard/RoteiroTabPanel';
-import { StaysTabPanel } from '@/components/dashboard/StaysTabPanel';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -86,6 +76,44 @@ import {
 const ImportReservationDialog = lazy(() =>
   import('@/components/import/ImportReservationDialog').then((mod) => ({ default: mod.ImportReservationDialog })),
 );
+const OverviewTabPanel = lazy(() =>
+  import('@/components/dashboard/OverviewTabPanel').then((mod) => ({ default: mod.OverviewTabPanel })),
+);
+const FlightsTabPanel = lazy(() =>
+  import('@/components/dashboard/FlightsTabPanel').then((mod) => ({ default: mod.FlightsTabPanel })),
+);
+const StaysTabPanel = lazy(() =>
+  import('@/components/dashboard/StaysTabPanel').then((mod) => ({ default: mod.StaysTabPanel })),
+);
+const TransportsTabPanel = lazy(() =>
+  import('@/components/dashboard/TransportsTabPanel').then((mod) => ({ default: mod.TransportsTabPanel })),
+);
+const TasksTabPanel = lazy(() =>
+  import('@/components/dashboard/TasksTabPanel').then((mod) => ({ default: mod.TasksTabPanel })),
+);
+const RoteiroTabPanel = lazy(() =>
+  import('@/components/dashboard/RoteiroTabPanel').then((mod) => ({ default: mod.RoteiroTabPanel })),
+);
+const ExpensesTabPanel = lazy(() =>
+  import('@/components/dashboard/ExpensesTabPanel').then((mod) => ({ default: mod.ExpensesTabPanel })),
+);
+const BudgetTabPanel = lazy(() =>
+  import('@/components/dashboard/BudgetTabPanel').then((mod) => ({ default: mod.BudgetTabPanel })),
+);
+const GastronomyTabPanel = lazy(() =>
+  import('@/components/dashboard/GastronomyTabPanel').then((mod) => ({ default: mod.GastronomyTabPanel })),
+);
+const SupportTabPanel = lazy(() =>
+  import('@/components/dashboard/SupportTabPanel').then((mod) => ({ default: mod.SupportTabPanel })),
+);
+
+function TabPanelFallback({ label }: { label: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed bg-muted/30 p-6 text-sm text-muted-foreground">
+      Carregando {label}...
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
@@ -1331,286 +1359,306 @@ export default function Dashboard() {
               </div>
 
               <TabsContent value="visao" className="space-y-4">
-                <OverviewTabPanel
-                  upcomingEvents={upcomingEvents}
-                  formatDateTime={formatDateTime}
-                  stayCoverageGapCount={stayCoverageGaps.length}
-                  transportCoverageGapCount={transportCoverageGaps.length}
-                  restaurantsSavedCount={restaurantsFavorites.length}
-                  documentsCount={documentsModule.data.length}
-                  travelersCount={travelersModule.data.length}
-                  realTotal={realTotal}
-                  estimadoTotal={estimadoTotal}
-                  formatCurrency={formatCurrency}
-                  isAnyCrudDialogOpen={isAnyCrudDialogOpen}
-                  stays={staysModule.data}
-                  transports={transportsModule.data}
-                  flights={flightsModule.data}
-                />
+                <Suspense fallback={<TabPanelFallback label="dashboard" />}>
+                  <OverviewTabPanel
+                    upcomingEvents={upcomingEvents}
+                    formatDateTime={formatDateTime}
+                    stayCoverageGapCount={stayCoverageGaps.length}
+                    transportCoverageGapCount={transportCoverageGaps.length}
+                    restaurantsSavedCount={restaurantsFavorites.length}
+                    documentsCount={documentsModule.data.length}
+                    travelersCount={travelersModule.data.length}
+                    realTotal={realTotal}
+                    estimadoTotal={estimadoTotal}
+                    formatCurrency={formatCurrency}
+                    isAnyCrudDialogOpen={isAnyCrudDialogOpen}
+                    stays={staysModule.data}
+                    transports={transportsModule.data}
+                    flights={flightsModule.data}
+                  />
+                </Suspense>
               </TabsContent>
 
               <TabsContent value="voos" className="space-y-4">
-                <FlightsTabPanel
-                  canEditTrip={canEditTrip}
-                  flightDialogOpen={flightDialogOpen}
-                  setFlightDialogOpen={setFlightDialogOpen}
-                  openCreateFlight={openCreateFlight}
-                  editingFlight={editingFlight}
-                  flightForm={flightForm}
-                  setFlightForm={setFlightForm}
-                  submitFlight={submitFlight}
-                  isCreatingFlight={flightsModule.isCreating}
-                  isUpdatingFlight={flightsModule.isUpdating}
-                  flightSearch={flightSearch}
-                  setFlightSearch={setFlightSearch}
-                  flightStatus={flightStatus}
-                  setFlightStatus={setFlightStatus}
-                  flightStats={flightStats}
-                  formatByCurrency={formatByCurrency}
-                  flightDayChips={flightDayChips}
-                  flightsLoading={flightsModule.isLoading}
-                  flightsFiltered={flightsFiltered}
-                  onSelectFlight={(flight) => {
-                    setSelectedFlight(flight);
-                    setFlightDetailOpen(true);
-                  }}
-                  buildMapsUrl={buildMapsUrl}
-                  statusBadge={statusBadge}
-                  openEditFlight={openEditFlight}
-                  removeFlight={removeFlight}
-                  isRemovingFlight={flightsModule.isRemoving}
-                  flightDetailOpen={flightDetailOpen}
-                  setFlightDetailOpen={setFlightDetailOpen}
-                  selectedFlight={selectedFlight}
-                  formatDateTime={formatDateTime}
-                  formatCurrency={formatCurrency}
-                />
+                <Suspense fallback={<TabPanelFallback label="voos" />}>
+                  <FlightsTabPanel
+                    canEditTrip={canEditTrip}
+                    flightDialogOpen={flightDialogOpen}
+                    setFlightDialogOpen={setFlightDialogOpen}
+                    openCreateFlight={openCreateFlight}
+                    editingFlight={editingFlight}
+                    flightForm={flightForm}
+                    setFlightForm={setFlightForm}
+                    submitFlight={submitFlight}
+                    isCreatingFlight={flightsModule.isCreating}
+                    isUpdatingFlight={flightsModule.isUpdating}
+                    flightSearch={flightSearch}
+                    setFlightSearch={setFlightSearch}
+                    flightStatus={flightStatus}
+                    setFlightStatus={setFlightStatus}
+                    flightStats={flightStats}
+                    formatByCurrency={formatByCurrency}
+                    flightDayChips={flightDayChips}
+                    flightsLoading={flightsModule.isLoading}
+                    flightsFiltered={flightsFiltered}
+                    onSelectFlight={(flight) => {
+                      setSelectedFlight(flight);
+                      setFlightDetailOpen(true);
+                    }}
+                    buildMapsUrl={buildMapsUrl}
+                    statusBadge={statusBadge}
+                    openEditFlight={openEditFlight}
+                    removeFlight={removeFlight}
+                    isRemovingFlight={flightsModule.isRemoving}
+                    flightDetailOpen={flightDetailOpen}
+                    setFlightDetailOpen={setFlightDetailOpen}
+                    selectedFlight={selectedFlight}
+                    formatDateTime={formatDateTime}
+                    formatCurrency={formatCurrency}
+                  />
+                </Suspense>
               </TabsContent>
 
               <TabsContent value="hospedagens" className="space-y-4">
-                <StaysTabPanel
-                  canEditTrip={canEditTrip}
-                  stayDialogOpen={stayDialogOpen}
-                  setStayDialogOpen={setStayDialogOpen}
-                  openCreateStay={openCreateStay}
-                  editingStay={editingStay}
-                  stayForm={stayForm}
-                  setStayForm={setStayForm}
-                  submitStay={submitStay}
-                  isCreatingStay={staysModule.isCreating}
-                  isUpdatingStay={staysModule.isUpdating}
-                  staySearch={staySearch}
-                  setStaySearch={setStaySearch}
-                  stayStatus={stayStatus}
-                  setStayStatus={setStayStatus}
-                  stayStats={stayStats}
-                  stayNightsTotal={stayNightsTotal}
-                  formatByCurrency={formatByCurrency}
-                  stayDayChips={stayDayChips}
-                  isAnyCrudDialogOpen={isAnyCrudDialogOpen}
-                  staysFiltered={staysFiltered}
-                  transports={transportsModule.data}
-                  flights={flightsModule.data}
-                  stayCoverageGaps={stayCoverageGaps}
-                  transportCoverageGaps={transportCoverageGaps}
-                  formatDateShort={formatDateShort}
-                  staysLoading={staysModule.isLoading}
-                  statusBadge={statusBadge}
-                  buildMapsUrl={buildMapsUrl}
-                  onEnrichStay={enrichStay}
-                  onSuggestRestaurants={suggestAndSaveRestaurants}
-                  onOpenStayDetail={(stay) => {
-                    setSelectedStay(stay);
-                    setStayDetailOpen(true);
-                  }}
-                  openEditStay={openEditStay}
-                  removeStay={removeStay}
-                  isRemovingStay={staysModule.isRemoving}
-                  enrichingStayId={enrichingStayId}
-                  suggestingRestaurantsStayId={suggestingRestaurantsStayId}
-                  stayDetailOpen={stayDetailOpen}
-                  setStayDetailOpen={setStayDetailOpen}
-                  selectedStay={selectedStay}
-                  formatDate={formatDate}
-                  formatCurrency={formatCurrency}
-                  splitInsightList={splitInsightList}
-                  stayHighlight={stayHighlight}
-                  selectedStayDocuments={selectedStayDocuments}
-                  openSupportDocument={openSupportDocument}
-                  openingDocumentPath={openingDocumentPath}
-                  downloadSupportDocument={downloadSupportDocument}
-                  downloadingDocumentPath={downloadingDocumentPath}
-                  removeDocument={removeDocument}
-                />
+                <Suspense fallback={<TabPanelFallback label="hospedagens" />}>
+                  <StaysTabPanel
+                    canEditTrip={canEditTrip}
+                    stayDialogOpen={stayDialogOpen}
+                    setStayDialogOpen={setStayDialogOpen}
+                    openCreateStay={openCreateStay}
+                    editingStay={editingStay}
+                    stayForm={stayForm}
+                    setStayForm={setStayForm}
+                    submitStay={submitStay}
+                    isCreatingStay={staysModule.isCreating}
+                    isUpdatingStay={staysModule.isUpdating}
+                    staySearch={staySearch}
+                    setStaySearch={setStaySearch}
+                    stayStatus={stayStatus}
+                    setStayStatus={setStayStatus}
+                    stayStats={stayStats}
+                    stayNightsTotal={stayNightsTotal}
+                    formatByCurrency={formatByCurrency}
+                    stayDayChips={stayDayChips}
+                    isAnyCrudDialogOpen={isAnyCrudDialogOpen}
+                    staysFiltered={staysFiltered}
+                    transports={transportsModule.data}
+                    flights={flightsModule.data}
+                    stayCoverageGaps={stayCoverageGaps}
+                    transportCoverageGaps={transportCoverageGaps}
+                    formatDateShort={formatDateShort}
+                    staysLoading={staysModule.isLoading}
+                    statusBadge={statusBadge}
+                    buildMapsUrl={buildMapsUrl}
+                    onEnrichStay={enrichStay}
+                    onSuggestRestaurants={suggestAndSaveRestaurants}
+                    onOpenStayDetail={(stay) => {
+                      setSelectedStay(stay);
+                      setStayDetailOpen(true);
+                    }}
+                    openEditStay={openEditStay}
+                    removeStay={removeStay}
+                    isRemovingStay={staysModule.isRemoving}
+                    enrichingStayId={enrichingStayId}
+                    suggestingRestaurantsStayId={suggestingRestaurantsStayId}
+                    stayDetailOpen={stayDetailOpen}
+                    setStayDetailOpen={setStayDetailOpen}
+                    selectedStay={selectedStay}
+                    formatDate={formatDate}
+                    formatCurrency={formatCurrency}
+                    splitInsightList={splitInsightList}
+                    stayHighlight={stayHighlight}
+                    selectedStayDocuments={selectedStayDocuments}
+                    openSupportDocument={openSupportDocument}
+                    openingDocumentPath={openingDocumentPath}
+                    downloadSupportDocument={downloadSupportDocument}
+                    downloadingDocumentPath={downloadingDocumentPath}
+                    removeDocument={removeDocument}
+                  />
+                </Suspense>
               </TabsContent>
 
               <TabsContent value="transportes" className="space-y-4">
-                <TransportsTabPanel
-                  canEditTrip={canEditTrip}
-                  transportDialogOpen={transportDialogOpen}
-                  setTransportDialogOpen={setTransportDialogOpen}
-                  openCreateTransport={openCreateTransport}
-                  editingTransport={editingTransport}
-                  transportForm={transportForm}
-                  setTransportForm={setTransportForm}
-                  submitTransport={submitTransport}
-                  isCreatingTransport={transportsModule.isCreating}
-                  isUpdatingTransport={transportsModule.isUpdating}
-                  transportSearch={transportSearch}
-                  setTransportSearch={setTransportSearch}
-                  transportStatus={transportStatus}
-                  setTransportStatus={setTransportStatus}
-                  transportStats={transportStats}
-                  formatByCurrency={formatByCurrency}
-                  transportDayChips={transportDayChips}
-                  isAnyCrudDialogOpen={isAnyCrudDialogOpen}
-                  stays={staysModule.data}
-                  transportFiltered={transportFiltered}
-                  flights={flightsModule.data}
-                  transportsLoading={transportsModule.isLoading}
-                  onSelectTransport={(transport) => {
-                    setSelectedTransport(transport);
-                    setTransportDetailOpen(true);
-                  }}
-                  buildMapsUrl={buildMapsUrl}
-                  statusBadge={statusBadge}
-                  openEditTransport={openEditTransport}
-                  removeTransport={removeTransport}
-                  isRemovingTransport={transportsModule.isRemoving}
-                  transportDetailOpen={transportDetailOpen}
-                  setTransportDetailOpen={setTransportDetailOpen}
-                  selectedTransport={selectedTransport}
-                  formatDateTime={formatDateTime}
-                  formatCurrency={formatCurrency}
-                  transportReservationCode={transportReservationCode}
-                  buildTransportInsights={buildTransportInsights}
-                />
+                <Suspense fallback={<TabPanelFallback label="transportes" />}>
+                  <TransportsTabPanel
+                    canEditTrip={canEditTrip}
+                    transportDialogOpen={transportDialogOpen}
+                    setTransportDialogOpen={setTransportDialogOpen}
+                    openCreateTransport={openCreateTransport}
+                    editingTransport={editingTransport}
+                    transportForm={transportForm}
+                    setTransportForm={setTransportForm}
+                    submitTransport={submitTransport}
+                    isCreatingTransport={transportsModule.isCreating}
+                    isUpdatingTransport={transportsModule.isUpdating}
+                    transportSearch={transportSearch}
+                    setTransportSearch={setTransportSearch}
+                    transportStatus={transportStatus}
+                    setTransportStatus={setTransportStatus}
+                    transportStats={transportStats}
+                    formatByCurrency={formatByCurrency}
+                    transportDayChips={transportDayChips}
+                    isAnyCrudDialogOpen={isAnyCrudDialogOpen}
+                    stays={staysModule.data}
+                    transportFiltered={transportFiltered}
+                    flights={flightsModule.data}
+                    transportsLoading={transportsModule.isLoading}
+                    onSelectTransport={(transport) => {
+                      setSelectedTransport(transport);
+                      setTransportDetailOpen(true);
+                    }}
+                    buildMapsUrl={buildMapsUrl}
+                    statusBadge={statusBadge}
+                    openEditTransport={openEditTransport}
+                    removeTransport={removeTransport}
+                    isRemovingTransport={transportsModule.isRemoving}
+                    transportDetailOpen={transportDetailOpen}
+                    setTransportDetailOpen={setTransportDetailOpen}
+                    selectedTransport={selectedTransport}
+                    formatDateTime={formatDateTime}
+                    formatCurrency={formatCurrency}
+                    transportReservationCode={transportReservationCode}
+                    buildTransportInsights={buildTransportInsights}
+                  />
+                </Suspense>
               </TabsContent>
 
               <TabsContent value="tarefas" className="space-y-4">
-                <TasksTabPanel
-                  canEditTrip={canEditTrip}
-                  generatingTasks={generatingTasks}
-                  onGenerateTasks={generateTasksWithAi}
-                  taskForm={taskForm}
-                  onTaskTitleChange={(value) => setTaskForm((current) => ({ ...current, titulo: value }))}
-                  onTaskCategoryChange={(value) => setTaskForm((current) => ({ ...current, categoria: value }))}
-                  onTaskPriorityChange={(value) => setTaskForm((current) => ({ ...current, prioridade: value }))}
-                  onCreateTask={createTask}
-                  isCreatingTask={tasksModule.isCreating}
-                  taskSearch={taskSearch}
-                  onTaskSearchChange={setTaskSearch}
-                  tasksLoading={tasksModule.isLoading}
-                  tasksFiltered={tasksFiltered}
-                  onToggleTask={toggleTask}
-                  isUpdatingTask={tasksModule.isUpdating}
-                  onRemoveTask={removeTask}
-                  isRemovingTask={tasksModule.isRemoving}
-                  prioridadeBadge={prioridadeBadge}
-                />
+                <Suspense fallback={<TabPanelFallback label="tarefas" />}>
+                  <TasksTabPanel
+                    canEditTrip={canEditTrip}
+                    generatingTasks={generatingTasks}
+                    onGenerateTasks={generateTasksWithAi}
+                    taskForm={taskForm}
+                    onTaskTitleChange={(value) => setTaskForm((current) => ({ ...current, titulo: value }))}
+                    onTaskCategoryChange={(value) => setTaskForm((current) => ({ ...current, categoria: value }))}
+                    onTaskPriorityChange={(value) => setTaskForm((current) => ({ ...current, prioridade: value }))}
+                    onCreateTask={createTask}
+                    isCreatingTask={tasksModule.isCreating}
+                    taskSearch={taskSearch}
+                    onTaskSearchChange={setTaskSearch}
+                    tasksLoading={tasksModule.isLoading}
+                    tasksFiltered={tasksFiltered}
+                    onToggleTask={toggleTask}
+                    isUpdatingTask={tasksModule.isUpdating}
+                    onRemoveTask={removeTask}
+                    isRemovingTask={tasksModule.isRemoving}
+                    prioridadeBadge={prioridadeBadge}
+                  />
+                </Suspense>
               </TabsContent>
 
               <TabsContent value="roteiro" className="space-y-4">
-                <RoteiroTabPanel
-                  canEditTrip={canEditTrip}
-                  generatingItinerary={generatingItinerary}
-                  onGenerateItinerary={generateRoteiroWithAi}
-                  roteiroLoading={roteiroModule.isLoading}
-                  roteiroItems={roteiroModule.data}
-                  formatDate={formatDate}
-                  onReorder={reorderRoteiroItem}
-                  onRemove={removeRoteiroItem}
-                />
+                <Suspense fallback={<TabPanelFallback label="roteiro" />}>
+                  <RoteiroTabPanel
+                    canEditTrip={canEditTrip}
+                    generatingItinerary={generatingItinerary}
+                    onGenerateItinerary={generateRoteiroWithAi}
+                    roteiroLoading={roteiroModule.isLoading}
+                    roteiroItems={roteiroModule.data}
+                    formatDate={formatDate}
+                    onReorder={reorderRoteiroItem}
+                    onRemove={removeRoteiroItem}
+                  />
+                </Suspense>
               </TabsContent>
 
               <TabsContent value="despesas" className="space-y-4">
-                <ExpensesTabPanel
-                  canEditTrip={canEditTrip}
-                  expenseDialogOpen={expenseDialogOpen}
-                  setExpenseDialogOpen={setExpenseDialogOpen}
-                  expenseForm={expenseForm}
-                  setExpenseForm={setExpenseForm}
-                  onCreateExpense={createExpense}
-                  isCreatingExpense={expensesModule.isCreating}
-                  expensesLoading={expensesModule.isLoading}
-                  expenses={expensesModule.data}
-                  onRemoveExpense={removeExpense}
-                  isRemovingExpense={expensesModule.isRemoving}
-                  formatDate={formatDate}
-                  formatCurrency={formatCurrency}
-                />
+                <Suspense fallback={<TabPanelFallback label="despesas" />}>
+                  <ExpensesTabPanel
+                    canEditTrip={canEditTrip}
+                    expenseDialogOpen={expenseDialogOpen}
+                    setExpenseDialogOpen={setExpenseDialogOpen}
+                    expenseForm={expenseForm}
+                    setExpenseForm={setExpenseForm}
+                    onCreateExpense={createExpense}
+                    isCreatingExpense={expensesModule.isCreating}
+                    expensesLoading={expensesModule.isLoading}
+                    expenses={expensesModule.data}
+                    onRemoveExpense={removeExpense}
+                    isRemovingExpense={expensesModule.isRemoving}
+                    formatDate={formatDate}
+                    formatCurrency={formatCurrency}
+                  />
+                </Suspense>
               </TabsContent>
 
               <TabsContent value="orcamento" className="space-y-4">
-                <BudgetTabPanel
-                  canExportPdf={exportPdfGate.enabled}
-                  canExportJson={exportJsonGate.enabled}
-                  isExportingData={isExportingData}
-                  planTier={collabGate.planTier}
-                  onExportJson={exportJson}
-                  onExportPdf={exportPdf}
-                  realByCurrency={realByCurrency}
-                  estimadoByCurrency={estimadoByCurrency}
-                  flightByCurrency={flightStats.byCurrency}
-                  stayByCurrency={stayStats.byCurrency}
-                  transportByCurrency={transportStats.byCurrency}
-                  variacaoTotal={variacaoTotal}
-                  expensesByCategory={expensesByCategory}
-                  expensesByDate={expensesByDate}
-                  formatByCurrency={formatByCurrency}
-                  formatCurrency={formatCurrency}
-                />
+                <Suspense fallback={<TabPanelFallback label="orçamento" />}>
+                  <BudgetTabPanel
+                    canExportPdf={exportPdfGate.enabled}
+                    canExportJson={exportJsonGate.enabled}
+                    isExportingData={isExportingData}
+                    planTier={collabGate.planTier}
+                    onExportJson={exportJson}
+                    onExportPdf={exportPdf}
+                    realByCurrency={realByCurrency}
+                    estimadoByCurrency={estimadoByCurrency}
+                    flightByCurrency={flightStats.byCurrency}
+                    stayByCurrency={stayStats.byCurrency}
+                    transportByCurrency={transportStats.byCurrency}
+                    variacaoTotal={variacaoTotal}
+                    expensesByCategory={expensesByCategory}
+                    expensesByDate={expensesByDate}
+                    formatByCurrency={formatByCurrency}
+                    formatCurrency={formatCurrency}
+                  />
+                </Suspense>
               </TabsContent>
 
               <TabsContent value="gastronomia" className="space-y-4">
-                <GastronomyTabPanel
-                  restaurantForm={restaurantForm}
-                  setRestaurantForm={setRestaurantForm}
-                  canEditTrip={canEditTrip}
-                  restaurantsModule={restaurantsModule}
-                  createRestaurant={createRestaurant}
-                  toggleRestaurantFavorite={toggleRestaurantFavorite}
-                  removeRestaurant={removeRestaurant}
-                />
+                <Suspense fallback={<TabPanelFallback label="gastronomia" />}>
+                  <GastronomyTabPanel
+                    restaurantForm={restaurantForm}
+                    setRestaurantForm={setRestaurantForm}
+                    canEditTrip={canEditTrip}
+                    restaurantsModule={restaurantsModule}
+                    createRestaurant={createRestaurant}
+                    toggleRestaurantFavorite={toggleRestaurantFavorite}
+                    removeRestaurant={removeRestaurant}
+                  />
+                </Suspense>
               </TabsContent>
 
               <TabsContent value="apoio" className="space-y-4">
-                <SupportTabPanel
-                  supportError={supportError}
-                  supportIsLoading={supportIsLoading}
-                  userId={user?.id}
-                  userEmail={user?.email}
-                  profile={profile}
-                  onProfileRefresh={loadProfile}
-                  collabEnabled={collabGate.enabled}
-                  tripMembers={tripMembers}
-                  currentTripId={currentTripId}
-                  publicApiEnabled={publicApiGate.enabled}
-                  webhookEnabled={webhookGate.enabled}
-                  supportResourcesProps={{
-                    canEditTrip,
-                    supportForms,
-                    setSupportForms,
-                    documentsModule,
-                    luggageModule,
-                    travelersModule,
-                    prepModule,
-                    openingDocumentPath,
-                    downloadingDocumentPath,
-                    createDocument,
-                    removeDocument,
-                    openSupportDocument,
-                    downloadSupportDocument,
-                    createLuggageItem,
-                    toggleLuggageChecked,
-                    removeLuggageItem,
-                    createTraveler,
-                    removeTraveler,
-                    createPrepItem,
-                    togglePrepDone,
-                    removePrepItem,
-                  }}
-                />
+                <Suspense fallback={<TabPanelFallback label="apoio" />}>
+                  <SupportTabPanel
+                    supportError={supportError}
+                    supportIsLoading={supportIsLoading}
+                    userId={user?.id}
+                    userEmail={user?.email}
+                    profile={profile}
+                    onProfileRefresh={loadProfile}
+                    collabEnabled={collabGate.enabled}
+                    tripMembers={tripMembers}
+                    currentTripId={currentTripId}
+                    publicApiEnabled={publicApiGate.enabled}
+                    webhookEnabled={webhookGate.enabled}
+                    supportResourcesProps={{
+                      canEditTrip,
+                      supportForms,
+                      setSupportForms,
+                      documentsModule,
+                      luggageModule,
+                      travelersModule,
+                      prepModule,
+                      openingDocumentPath,
+                      downloadingDocumentPath,
+                      createDocument,
+                      removeDocument,
+                      openSupportDocument,
+                      downloadSupportDocument,
+                      createLuggageItem,
+                      toggleLuggageChecked,
+                      removeLuggageItem,
+                      createTraveler,
+                      removeTraveler,
+                      createPrepItem,
+                      togglePrepDone,
+                      removePrepItem,
+                    }}
+                  />
+                </Suspense>
               </TabsContent>
             </Tabs>
             </section>

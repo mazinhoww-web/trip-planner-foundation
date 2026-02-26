@@ -5,9 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PaginationControls } from '@/components/ui/pagination-controls';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { usePagination } from '@/hooks/usePagination';
 import { Tables } from '@/integrations/supabase/types';
 import { ExternalLink, Pencil, Plane, Plus, Trash2 } from 'lucide-react';
+import { useMemo } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
 type ReservaStatus = 'confirmado' | 'pendente' | 'cancelado';
@@ -109,6 +112,12 @@ export function FlightsTabPanel({
   formatDateTime,
   formatCurrency,
 }: Props) {
+  const flightsPagination = usePagination(flightsFiltered, {
+    pageSize: 8,
+    resetKey: `${flightSearch}:${flightStatus}:${flightsFiltered.length}`,
+  });
+  const visibleFlights = useMemo(() => flightsPagination.pageItems, [flightsPagination.pageItems]);
+
   return (
     <>
       <Card className="border-border/50">
@@ -239,7 +248,7 @@ export function FlightsTabPanel({
             </div>
           ) : (
             <div className="space-y-3">
-              {flightsFiltered.map((flight) => (
+              {visibleFlights.map((flight) => (
                 <Card key={flight.id} className="border-border/50">
                   <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                     <button
@@ -292,6 +301,20 @@ export function FlightsTabPanel({
                 </Card>
               ))}
             </div>
+          )}
+          {!flightsLoading && flightsFiltered.length > 0 && (
+            <PaginationControls
+              page={flightsPagination.page}
+              totalPages={flightsPagination.totalPages}
+              totalItems={flightsPagination.totalItems}
+              startIndex={flightsPagination.startIndex}
+              endIndex={flightsPagination.endIndex}
+              onPrevious={flightsPagination.previous}
+              onNext={flightsPagination.next}
+              canPrevious={flightsPagination.canPrevious}
+              canNext={flightsPagination.canNext}
+              label="voos"
+            />
           )}
         </CardContent>
       </Card>

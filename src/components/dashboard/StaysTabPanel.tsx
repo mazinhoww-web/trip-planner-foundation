@@ -4,11 +4,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PaginationControls } from '@/components/ui/pagination-controls';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { usePagination } from '@/hooks/usePagination';
 import { Tables } from '@/integrations/supabase/types';
 import { ExternalLink, Hotel, MapPin, Pencil, Plus, Trash2 } from 'lucide-react';
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useMemo } from 'react';
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
 
 const TripOpenMap = lazy(() =>
@@ -168,6 +170,12 @@ export function StaysTabPanel({
   downloadingDocumentPath,
   removeDocument,
 }: Props) {
+  const staysPagination = usePagination(staysFiltered, {
+    pageSize: 6,
+    resetKey: `${staySearch}:${stayStatus}:${staysFiltered.length}`,
+  });
+  const visibleStays = useMemo(() => staysPagination.pageItems, [staysPagination.pageItems]);
+
   return (
     <>
       <Card className="border-border/50">
@@ -350,7 +358,7 @@ export function StaysTabPanel({
             </div>
           ) : (
             <div className="grid gap-3 lg:grid-cols-2">
-              {staysFiltered.map((stay) => (
+              {visibleStays.map((stay) => (
                 <Card key={stay.id} className="border-border/50">
                   <CardContent className="space-y-2 p-4">
                     <div className="w-full text-left">
@@ -435,6 +443,20 @@ export function StaysTabPanel({
                 </Card>
               ))}
             </div>
+          )}
+          {!staysLoading && staysFiltered.length > 0 && (
+            <PaginationControls
+              page={staysPagination.page}
+              totalPages={staysPagination.totalPages}
+              totalItems={staysPagination.totalItems}
+              startIndex={staysPagination.startIndex}
+              endIndex={staysPagination.endIndex}
+              onPrevious={staysPagination.previous}
+              onNext={staysPagination.next}
+              canPrevious={staysPagination.canPrevious}
+              canNext={staysPagination.canNext}
+              label="hospedagens"
+            />
           )}
         </CardContent>
       </Card>
