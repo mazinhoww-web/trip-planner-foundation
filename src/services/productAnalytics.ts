@@ -7,7 +7,8 @@ type ProductEventName =
   | 'invite_sent'
   | 'member_role_changed'
   | 'export_triggered'
-  | 'api_snapshot_requested';
+  | 'api_snapshot_requested'
+  | 'webhook_dispatched';
 
 type ProductEventInput = {
   eventName: ProductEventName;

@@ -103,6 +103,7 @@ const EVENT_TO_FEATURE: Record<string, string> = {
   member_role_changed: 'ff_collab_editor_role',
   export_triggered: 'ff_export_json_full',
   api_snapshot_requested: 'ff_public_api_access',
+  webhook_dispatched: 'ff_webhooks_enabled',
 };
 
 function normalizeTierOrder(tier: PlanTier) {

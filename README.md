@@ -64,6 +64,7 @@ supabase functions deploy ocr-document
 supabase functions deploy extract-reservation
 supabase functions deploy public-trip-api
 supabase functions deploy trip-webhook-dispatch
+supabase functions deploy trip-export
 ```
 
 > Active Supabase project ref linked in this workspace: `ffiwqovhjrjrspqbayrx`.

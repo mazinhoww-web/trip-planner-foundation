@@ -81,7 +81,7 @@ else
 fi
 
 # 3) Functions deploy + proteção (espera 401 sem Authorization)
-for fn in generate-tips suggest-restaurants ocr-document extract-reservation trip-members feature-entitlements public-trip-api trip-webhook-dispatch; do
+for fn in generate-tips suggest-restaurants ocr-document extract-reservation trip-members feature-entitlements public-trip-api trip-webhook-dispatch trip-export; do
   code="$(http_code POST "$SUPABASE_URL/functions/v1/$fn" "$tmp_dir/$fn.h" "$tmp_dir/$fn.b" \
     -H "apikey: $SUPABASE_ANON_KEY" \
     -H "Content-Type: application/json" \
@@ -233,6 +233,27 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
       fi
     else
       fail "public-trip-api autenticado falhou ($code)"
+    fi
+
+    code="$(http_code POST "$SUPABASE_URL/functions/v1/trip-export" "$tmp_dir/auth-trip-export.h" "$tmp_dir/auth-trip-export.b" \
+      -H "apikey: $SUPABASE_ANON_KEY" \
+      -H "Authorization: Bearer $TEST_USER_JWT" \
+      -H "Content-Type: application/json" \
+      --data "{\"viagemId\":\"$TEST_TRIP_ID\",\"format\":\"json\"}")"
+    if [[ "$code" =~ ^(200|403|429|502)$ ]]; then
+      if [ "$code" = "200" ]; then
+        if grep -q "\"snapshot\"" "$tmp_dir/auth-trip-export.b"; then
+          pass "trip-export autenticado retornou snapshot (200)"
+        else
+          warn "trip-export respondeu 200 sem snapshot"
+        fi
+      elif [ "$code" = "403" ]; then
+        pass "trip-export bloqueado por plano (403) - esperado no free"
+      else
+        warn "trip-export retornou $code"
+      fi
+    else
+      fail "trip-export autenticado falhou ($code)"
     fi
 
     code="$(http_code POST "$SUPABASE_URL/functions/v1/trip-webhook-dispatch" "$tmp_dir/auth-webhook.h" "$tmp_dir/auth-webhook.b" \

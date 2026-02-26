@@ -5,11 +5,13 @@
 - Frontend endpoint acessível: ✅
 - Supabase Auth health: ✅
 - RLS anônimo sem vazamento: ✅
-- Functions críticas deployadas: ❌ (404 no ambiente alvo atual)
+- Functions críticas deployadas: ✅ (projeto `ffiwqovhjrjrspqbayrx`)
 - Smoke autenticado: ⚠️ pendente (requer `TEST_USER_JWT`)
 
 ## Status atual
-**NO-GO** enquanto as functions críticas não estiverem deployadas em Supabase:
+**GO condicional**: liberar publicação após smoke autenticado com `FAIL=0`.
+
+Functions críticas já deployadas em Supabase:
 - `trip-members`
 - `feature-entitlements`
 - `generate-tips`
@@ -18,11 +20,11 @@
 - `extract-reservation`
 - `public-trip-api`
 - `trip-webhook-dispatch`
+- `trip-export`
 
-## Ação para virar GO
-1. Deploy das functions (runbook).
-2. Reexecutar `scripts/smoke-tests.sh`.
-3. Exigir `FAIL=0` para promoção.
+## Ação para manter GO
+1. Reexecutar `scripts/smoke-tests.sh`.
+2. Exigir `FAIL=0` para promoção.
 
 ## Escopo funcional confirmado (MVP)
 - Auth + callback + app protegido.

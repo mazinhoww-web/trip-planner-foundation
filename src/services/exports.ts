@@ -19,10 +19,23 @@ function triggerDownload(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
-export function exportTripSnapshotJson(snapshot: TripSnapshot) {
-  const fileName = `${normalizeFileName(snapshot.trip.nome || 'trip')}-snapshot.json`;
+export function exportTripSnapshotJson(snapshot: TripSnapshot, fileName?: string) {
+  const resolvedFileName = fileName || `${normalizeFileName(snapshot.trip.nome || 'trip')}-snapshot.json`;
   const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json;charset=utf-8' });
-  triggerDownload(blob, fileName);
+  triggerDownload(blob, resolvedFileName);
+}
+
+export function openPrintHtml(html: string) {
+  const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=960,height=720');
+  if (!printWindow) {
+    throw new Error('Não foi possível abrir a janela de impressão. Verifique se pop-ups estão bloqueados.');
+  }
+
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
 }
 
 export function exportTripSnapshotPdf(snapshot: TripSnapshot) {
@@ -63,15 +76,5 @@ export function exportTripSnapshotPdf(snapshot: TripSnapshot) {
       </body>
     </html>
   `;
-
-  const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=960,height=720');
-  if (!printWindow) {
-    throw new Error('Não foi possível abrir a janela de impressão. Verifique se pop-ups estão bloqueados.');
-  }
-
-  printWindow.document.open();
-  printWindow.document.write(html);
-  printWindow.document.close();
-  printWindow.focus();
-  printWindow.print();
+  openPrintHtml(html);
 }

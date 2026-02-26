@@ -1,4 +1,4 @@
-project_id = "ugibxiaqrvrmxaniylaz"
+project_id = "ffiwqovhjrjrspqbayrx"
 
 [functions.ocr-document]
 verify_jwt = false
@@ -25,4 +25,13 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.feature-entitlements]
+verify_jwt = true
+
+[functions.public-trip-api]
+verify_jwt = true
+
+[functions.trip-webhook-dispatch]
+verify_jwt = true
+
+[functions.trip-export]
 verify_jwt = true

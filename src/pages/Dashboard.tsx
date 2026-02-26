@@ -25,6 +25,7 @@ import { TripCollaborationBanner, TripViewerNotice } from '@/components/dashboar
 import { TripUsersPanel } from '@/components/dashboard/TripUsersPanel';
 import { UserSettingsPanel } from '@/components/dashboard/UserSettingsPanel';
 import { PublicApiPanel } from '@/components/dashboard/PublicApiPanel';
+import { WebhookDispatchPanel } from '@/components/dashboard/WebhookDispatchPanel';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { BudgetExportActions } from '@/components/dashboard/BudgetExportActions';
 import { Button } from '@/components/ui/button';
@@ -45,8 +46,8 @@ import { generateStayTips, suggestRestaurants, generateTripTasks, generateItiner
 import { calculateStayCoverageGaps, calculateTransportCoverageGaps } from '@/services/tripInsights';
 import { supabase } from '@/integrations/supabase/client';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
-import { buildTripSnapshot } from '@/services/tripSnapshot';
-import { exportTripSnapshotJson, exportTripSnapshotPdf } from '@/services/exports';
+import { exportTripSnapshotJson, openPrintHtml } from '@/services/exports';
+import { requestTripExport } from '@/services/tripExport';
 import { trackProductEvent } from '@/services/productAnalytics';
 
 const ImportReservationDialog = lazy(() =>
@@ -493,6 +494,7 @@ export default function Dashboard() {
   const exportPdfGate = useFeatureGate('ff_export_pdf');
   const exportJsonGate = useFeatureGate('ff_export_json_full');
   const publicApiGate = useFeatureGate('ff_public_api_access');
+  const webhookGate = useFeatureGate('ff_webhooks_enabled');
   const [isExportingData, setIsExportingData] = useState(false);
   const isAnyCrudDialogOpen =
     flightDialogOpen ||
@@ -3110,21 +3112,14 @@ export default function Dashboard() {
                     if (!currentTrip) return;
                     setIsExportingData(true);
                     try {
-                      const snapshot = buildTripSnapshot({
-                        trip: currentTrip,
-                        flights: flightsModule.data,
-                        stays: staysModule.data,
-                        transports: transportsModule.data,
-                        expenses: expensesModule.data,
-                        tasks: tasksModule.data,
-                        restaurants: restaurantsModule.data,
-                        documents: documentsModule.data,
-                        luggage: luggageModule.data,
-                        travelers: travelersModule.data,
-                        preparativos: prepModule.data,
-                        roteiro: roteiroModule.data,
+                      const result = await requestTripExport({
+                        viagemId: currentTripId,
+                        format: 'json',
                       });
-                      exportTripSnapshotJson(snapshot);
+                      if (result.error || !result.data?.snapshot) {
+                        throw new Error(result.error ?? 'Não foi possível exportar o JSON completo.');
+                      }
+                      exportTripSnapshotJson(result.data.snapshot, result.data.fileName);
                       await trackProductEvent({
                         eventName: 'export_triggered',
                         featureKey: 'ff_export_json_full',
@@ -3143,21 +3138,14 @@ export default function Dashboard() {
                     if (!currentTrip) return;
                     setIsExportingData(true);
                     try {
-                      const snapshot = buildTripSnapshot({
-                        trip: currentTrip,
-                        flights: flightsModule.data,
-                        stays: staysModule.data,
-                        transports: transportsModule.data,
-                        expenses: expensesModule.data,
-                        tasks: tasksModule.data,
-                        restaurants: restaurantsModule.data,
-                        documents: documentsModule.data,
-                        luggage: luggageModule.data,
-                        travelers: travelersModule.data,
-                        preparativos: prepModule.data,
-                        roteiro: roteiroModule.data,
+                      const result = await requestTripExport({
+                        viagemId: currentTripId,
+                        format: 'pdf',
                       });
-                      exportTripSnapshotPdf(snapshot);
+                      if (result.error || !result.data?.html) {
+                        throw new Error(result.error ?? 'Não foi possível iniciar a exportação em PDF.');
+                      }
+                      openPrintHtml(result.data.html);
                       await trackProductEvent({
                         eventName: 'export_triggered',
                         featureKey: 'ff_export_pdf',
@@ -3401,6 +3389,7 @@ export default function Dashboard() {
                     )}
 
                     <PublicApiPanel enabled={publicApiGate.enabled} currentTripId={currentTripId} />
+                    <WebhookDispatchPanel enabled={webhookGate.enabled} currentTripId={currentTripId} />
 
                     <div className="grid gap-4 xl:grid-cols-2">
                       <Card className="border-border/50">
