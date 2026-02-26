@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { DragEvent, useEffect, useId, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,7 +50,7 @@ import {
   toIsoDateTime,
   toTimeInput,
 } from '@/components/import/import-helpers';
-import { FileUp, Loader2, WandSparkles, FileText, Sparkles } from 'lucide-react';
+import { FileUp, Loader2, WandSparkles, FileText, Sparkles, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
 function toReviewState(extracted: ExtractedReservation, resolvedType: ImportType): ReviewState {
@@ -308,6 +308,7 @@ export function ImportReservationDialog() {
   const [isReprocessing, setIsReprocessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showAdvancedEditor, setShowAdvancedEditor] = useState(false);
+  const [isDragActive, setIsDragActive] = useState(false);
   const descriptionId = useId();
   const fileInputId = useId();
 
@@ -365,6 +366,13 @@ export function ImportReservationDialog() {
     const nextQueue = accepted.map(makeQueueItem);
     setQueue(nextQueue);
     setActiveId(nextQueue[0]?.id ?? null);
+  };
+
+  const handleDropFiles = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragActive(false);
+    onSelectFiles(event.dataTransfer?.files ?? null);
   };
 
   const processOneFile = async (itemId: string, options?: { reprocess?: boolean }) => {
@@ -1062,7 +1070,32 @@ export function ImportReservationDialog() {
         <div className="space-y-4">
           <Card className="border-primary/15 bg-white/95 shadow-sm">
             <CardContent className="pt-4">
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px] md:items-end xl:grid-cols-[minmax(0,1fr)_260px]">
+              <div
+                className={`rounded-xl border border-dashed p-3 transition-colors sm:p-4 ${
+                  isDragActive ? 'border-primary bg-primary/5' : 'border-border/60 bg-background/40'
+                }`}
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setIsDragActive(true);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setIsDragActive(true);
+                }}
+                onDragLeave={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setIsDragActive(false);
+                }}
+                onDrop={handleDropFiles}
+              >
+                <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  <Upload className="h-4 w-4" />
+                  Arraste e solte arquivos aqui ou selecione pelo campo abaixo.
+                </div>
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px] md:items-end xl:grid-cols-[minmax(0,1fr)_260px]">
                 <div className="min-w-0 space-y-2">
                   <Label htmlFor={fileInputId}>Arquivos da viagem</Label>
                   <Input
@@ -1091,6 +1124,7 @@ export function ImportReservationDialog() {
                     OCR + IA classifica cada arquivo e prepara confirmação final.
                   </p>
                 </div>
+              </div>
               </div>
             </CardContent>
           </Card>
