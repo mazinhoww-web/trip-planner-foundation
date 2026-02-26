@@ -1193,8 +1193,8 @@ export function ImportReservationDialog() {
             eventName: 'webhook_dispatched',
             featureKey: 'ff_webhooks_enabled',
             viagemId: currentTripId,
-            status: 'failed',
             metadata: {
+              status: 'failed',
               source: 'import.confirmed',
               error: webhook.error,
             },
@@ -1208,8 +1208,8 @@ export function ImportReservationDialog() {
             eventName: 'webhook_dispatched',
             featureKey: 'ff_webhooks_enabled',
             viagemId: currentTripId,
-            status: 'success',
             metadata: {
+              status: 'success',
               source: 'import.confirmed',
             },
           });
