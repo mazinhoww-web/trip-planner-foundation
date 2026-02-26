@@ -56,6 +56,7 @@ import {
   formatDate,
   formatDateShort,
   formatDateTime,
+  normalizeDate,
   prioridadeBadge,
   splitInsightList,
   statCards,
@@ -481,6 +482,55 @@ export default function Dashboard() {
     return notifications.slice(0, 5);
   }, [daysUntilTrip, pendingTasksTotal, stayGapLines.length, transportGapLines.length]);
 
+  const dailySummary = useMemo(() => {
+    const todayDate = new Date();
+    const todayKey = todayDate.toISOString().slice(0, 10);
+    const referenceDate = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'full' }).format(todayDate);
+
+    const todayFlights = flightsModule.data.filter((flight) => normalizeDate(flight.data) === todayKey);
+    const todayCheckIns = staysModule.data.filter((stay) => normalizeDate(stay.check_in) === todayKey);
+    const todayCheckOuts = staysModule.data.filter((stay) => normalizeDate(stay.check_out) === todayKey);
+    const todayTransports = transportsModule.data.filter((transport) => normalizeDate(transport.data) === todayKey);
+    const pendingTasks = tasksModule.data.filter((task) => !task.concluida).length;
+
+    const lines: string[] = [];
+    let focusTab = 'visao';
+
+    if (todayFlights.length > 0) {
+      lines.push(`${todayFlights.length} voo(s) previsto(s) para hoje.`);
+      focusTab = 'voos';
+    }
+    if (todayCheckIns.length > 0 || todayCheckOuts.length > 0) {
+      lines.push(`${todayCheckIns.length} check-in(s) e ${todayCheckOuts.length} check-out(s) no dia.`);
+      if (focusTab === 'visao') focusTab = 'hospedagens';
+    }
+    if (todayTransports.length > 0) {
+      lines.push(`${todayTransports.length} transporte(s) planejado(s) hoje.`);
+      if (focusTab === 'visao') focusTab = 'transportes';
+    }
+    if (pendingTasks > 0) {
+      lines.push(`${pendingTasks} tarefa(s) pendente(s) para concluir.`);
+      if (focusTab === 'visao') focusTab = 'tarefas';
+    }
+    if (upcomingEvents[0]) {
+      lines.push(`Próximo evento: ${upcomingEvents[0].titulo} (${formatDateTime(upcomingEvents[0].data)}).`);
+    }
+
+    return {
+      title: lines.length > 0 ? 'Plano do dia' : 'Dia sem eventos críticos',
+      referenceDate,
+      lines: lines.length > 0 ? lines.slice(0, 4) : ['Sem pendências urgentes para hoje. Aproveite para revisar orçamento e roteiro.'],
+      focusTab,
+    };
+  }, [
+    flightsModule.data,
+    formatDateTime,
+    staysModule.data,
+    tasksModule.data,
+    transportsModule.data,
+    upcomingEvents,
+  ]);
+
   useEffect(() => {
     if (flightDialogOpen) setFlightDetailOpen(false);
   }, [flightDialogOpen]);
@@ -708,6 +758,7 @@ export default function Dashboard() {
                     smartChecklistItems={smartChecklistItems}
                     onOpenTab={setActiveTab}
                     tripCountdown={tripCountdown}
+                    dailySummary={dailySummary}
                   />
                 </Suspense>
               </TabsContent>

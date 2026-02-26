@@ -19,6 +19,13 @@ type UpcomingEvent = {
   data: string | null;
 };
 
+type DailySummary = {
+  title: string;
+  referenceDate: string;
+  lines: string[];
+  focusTab: string;
+};
+
 type Props = {
   upcomingEvents: UpcomingEvent[];
   formatDateTime: (iso?: string | null) => string;
@@ -40,6 +47,7 @@ type Props = {
   smartChecklistItems: SmartChecklistItem[];
   onOpenTab: (tabKey: string) => void;
   tripCountdown: TripCountdown;
+  dailySummary: DailySummary;
 };
 
 export function OverviewTabPanel({
@@ -63,6 +71,7 @@ export function OverviewTabPanel({
   smartChecklistItems,
   onOpenTab,
   tripCountdown,
+  dailySummary,
 }: Props) {
   return (
     <>
@@ -238,6 +247,32 @@ export function OverviewTabPanel({
                   </div>
                 ))
               )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Resumo diário</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div>
+                <p className="font-medium">{dailySummary.title}</p>
+                <p className="text-xs text-muted-foreground">Referência: {dailySummary.referenceDate}</p>
+              </div>
+              <ul className="space-y-1 text-sm text-muted-foreground">
+                {dailySummary.lines.map((line, index) => (
+                  <li key={`${line}-${index}`}>• {line}</li>
+                ))}
+              </ul>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-0 text-xs text-primary hover:bg-transparent hover:text-primary/80"
+                onClick={() => onOpenTab(dailySummary.focusTab)}
+              >
+                Abrir módulo recomendado
+              </Button>
             </CardContent>
           </Card>
         </div>
