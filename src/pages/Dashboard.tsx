@@ -25,6 +25,7 @@ import { ThemeToggle } from '@/components/dashboard/ThemeToggle';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tables, TablesInsert } from '@/integrations/supabase/types';
@@ -109,9 +110,22 @@ const SupportTabPanel = lazy(() =>
 
 function TabPanelFallback({ label }: { label: string }) {
   return (
-    <div className="rounded-2xl border border-dashed bg-muted/30 p-6 text-sm text-muted-foreground">
-      Carregando {label}...
-    </div>
+    <Card className="border-border/50">
+      <CardContent className="space-y-4 p-4 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Skeleton className="h-5 w-44" />
+          <Skeleton className="h-9 w-32" />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Skeleton className="h-20" />
+          <Skeleton className="h-20" />
+          <Skeleton className="h-20" />
+          <Skeleton className="h-20" />
+        </div>
+        <Skeleton className="h-40 w-full" />
+        <p className="text-xs text-muted-foreground">Carregando {label}...</p>
+      </CardContent>
+    </Card>
   );
 }
 
