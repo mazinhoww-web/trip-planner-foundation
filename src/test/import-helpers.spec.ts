@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  computeCriticalMissingFields,
   detectTypeFromText,
   inferFallbackExtraction,
+  mergeMissingFields,
   resolveImportScope,
   resolveImportType,
   toIsoDateTime,
 } from '@/components/import/import-helpers';
 import { ExtractedReservation } from '@/services/importPipeline';
+import { ReviewState } from '@/components/import/import-types';
 
 function makeBaseExtraction(type: ExtractedReservation['type'] = null): ExtractedReservation {
   return {
@@ -19,6 +22,78 @@ function makeBaseExtraction(type: ExtractedReservation['type'] = null): Extracte
       hospedagem: null,
       transporte: null,
       restaurante: null,
+    },
+  };
+}
+
+function makeReviewState(type: ReviewState['type']): ReviewState {
+  return {
+    type,
+    voo: {
+      nome_exibicao: '',
+      provedor: '',
+      codigo_reserva: '',
+      passageiro_hospede: '',
+      numero: '',
+      companhia: '',
+      origem: '',
+      destino: '',
+      data_inicio: '',
+      hora_inicio: '',
+      data_fim: '',
+      hora_fim: '',
+      status: 'pendente',
+      valor: '',
+      moeda: 'BRL',
+      metodo_pagamento: '',
+      pontos_utilizados: '',
+    },
+    hospedagem: {
+      nome_exibicao: '',
+      provedor: '',
+      codigo_reserva: '',
+      passageiro_hospede: '',
+      nome: '',
+      localizacao: '',
+      check_in: '',
+      hora_inicio: '',
+      check_out: '',
+      hora_fim: '',
+      status: 'pendente',
+      valor: '',
+      moeda: 'BRL',
+      metodo_pagamento: '',
+      pontos_utilizados: '',
+      dica_viagem: '',
+      como_chegar: '',
+      atracoes_proximas: '',
+      restaurantes_proximos: '',
+      dica_ia: '',
+    },
+    transporte: {
+      nome_exibicao: '',
+      provedor: '',
+      codigo_reserva: '',
+      passageiro_hospede: '',
+      tipo: '',
+      operadora: '',
+      origem: '',
+      destino: '',
+      data_inicio: '',
+      hora_inicio: '',
+      data_fim: '',
+      hora_fim: '',
+      status: 'pendente',
+      valor: '',
+      moeda: 'BRL',
+      metodo_pagamento: '',
+      pontos_utilizados: '',
+    },
+    restaurante: {
+      nome: '',
+      cidade: '',
+      tipo: '',
+      rating: '',
     },
   };
 }
@@ -83,5 +158,27 @@ describe('import helpers', () => {
   it('converts date + time into ISO datetime when both are valid', () => {
     const iso = toIsoDateTime('2026-04-02', '15:40');
     expect(iso).toContain('2026-04-02T15:40:00');
+  });
+
+  it('computes critical missing fields for flight reviews', () => {
+    const review = makeReviewState('voo');
+    review.voo.origem = 'FLN';
+
+    const missing = computeCriticalMissingFields('voo', review, 'trip_related');
+    expect(missing).toEqual(expect.arrayContaining(['voo.destino', 'voo.data_inicio', 'voo.identificador']));
+    expect(missing).not.toContain('voo.origem');
+  });
+
+  it('merges static missing fields with computed fields and removes transient ones', () => {
+    const merged = mergeMissingFields(
+      ['metadata.tipo', 'review_manual_requerida', 'hospedagem.data_inicio'],
+      ['hospedagem.data_fim', 'hospedagem.valor_total'],
+    );
+
+    expect(merged).toContain('metadata.tipo');
+    expect(merged).toContain('hospedagem.data_fim');
+    expect(merged).toContain('hospedagem.valor_total');
+    expect(merged).not.toContain('review_manual_requerida');
+    expect(merged).not.toContain('hospedagem.data_inicio');
   });
 });

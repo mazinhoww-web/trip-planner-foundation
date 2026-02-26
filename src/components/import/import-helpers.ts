@@ -1,4 +1,4 @@
-import { ImportScope } from '@/components/import/import-types';
+import { ImportScope, type ReviewState } from '@/components/import/import-types';
 import { ArceeExtractionPayload, ExtractedReservation, ImportType } from '@/services/importPipeline';
 
 export function toDateInput(value?: string | null) {
@@ -383,4 +383,61 @@ export function inferFallbackExtraction(raw: string, fileName: string, tripDesti
           : null,
     },
   };
+}
+
+const TYPE_SPECIFIC_PREFIXES = ['voo.', 'hospedagem.', 'transporte.', 'restaurante.'] as const;
+const TRANSIENT_MISSING_FIELDS = new Set(['review_manual_requerida']);
+
+function hasValue(value?: string | null) {
+  return typeof value === 'string' ? value.trim().length > 0 : false;
+}
+
+export function computeCriticalMissingFields(
+  type: ImportType | null | undefined,
+  reviewState: ReviewState | null,
+  scope: ImportScope,
+) {
+  if (scope === 'outside_scope' || !type || !reviewState) return [] as string[];
+
+  const missing: string[] = [];
+
+  if (type === 'voo') {
+    if (!hasValue(reviewState.voo.origem)) missing.push('voo.origem');
+    if (!hasValue(reviewState.voo.destino)) missing.push('voo.destino');
+    if (!hasValue(reviewState.voo.data_inicio)) missing.push('voo.data_inicio');
+    const hasIdentifier =
+      hasValue(reviewState.voo.codigo_reserva) ||
+      hasValue(reviewState.voo.numero) ||
+      hasValue(reviewState.voo.nome_exibicao);
+    if (!hasIdentifier) missing.push('voo.identificador');
+  }
+
+  if (type === 'hospedagem') {
+    const hasName = hasValue(reviewState.hospedagem.nome) || hasValue(reviewState.hospedagem.nome_exibicao);
+    if (!hasName) missing.push('hospedagem.nome_exibicao');
+    if (!hasValue(reviewState.hospedagem.check_in)) missing.push('hospedagem.data_inicio');
+    if (!hasValue(reviewState.hospedagem.check_out)) missing.push('hospedagem.data_fim');
+    if (!hasValue(reviewState.hospedagem.valor)) missing.push('hospedagem.valor_total');
+  }
+
+  if (type === 'transporte') {
+    if (!hasValue(reviewState.transporte.origem)) missing.push('transporte.origem');
+    if (!hasValue(reviewState.transporte.destino)) missing.push('transporte.destino');
+    if (!hasValue(reviewState.transporte.data_inicio)) missing.push('transporte.data_inicio');
+  }
+
+  if (type === 'restaurante') {
+    if (!hasValue(reviewState.restaurante.nome)) missing.push('restaurante.nome');
+    if (!hasValue(reviewState.restaurante.cidade)) missing.push('restaurante.cidade');
+  }
+
+  return missing;
+}
+
+export function mergeMissingFields(existing: string[], computed: string[]) {
+  const preserved = existing.filter((field) => {
+    if (TRANSIENT_MISSING_FIELDS.has(field)) return false;
+    return !TYPE_SPECIFIC_PREFIXES.some((prefix) => field.startsWith(prefix));
+  });
+  return [...new Set([...preserved, ...computed])];
 }

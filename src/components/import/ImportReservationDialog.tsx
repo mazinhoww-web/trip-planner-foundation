@@ -39,8 +39,10 @@ import {
   uploadImportFile,
 } from '@/services/importPipeline';
 import {
+  computeCriticalMissingFields,
   inferFallbackExtraction,
   mapCanonicalTypeToImportType,
+  mergeMissingFields,
   resolveImportScope,
   resolveImportType,
   toDateInput,
@@ -495,6 +497,8 @@ export function ImportReservationDialog() {
       const resolvedScope = resolveImportScope(extracted, extractedText, file.name);
       const resolvedType = resolveImportType(extracted, extractedText, file.name);
       const review = resolvedScope === 'trip_related' ? toReviewState(extracted, resolvedType) : null;
+      const computedMissingFields = computeCriticalMissingFields(review?.type ?? resolvedType, review, resolvedScope);
+      const missingFields = mergeMissingFields(extracted.missingFields ?? [], computedMissingFields);
       const quality = extracted.extraction_quality ?? (extractedText.length > 500 ? 'high' : extractedText.length > 120 ? 'medium' : 'low');
       const canonicalForStorage = withImportHash(extracted.canonical, fileHash, file.name);
       const typeConfidenceFromCanonical = extracted.canonical?.metadata?.confianca != null
@@ -531,7 +535,7 @@ export function ImportReservationDialog() {
         confidence: extracted.confidence,
         typeConfidence,
         extractionQuality: quality,
-        missingFields: extracted.missingFields ?? [],
+        missingFields,
         identifiedType: resolvedScope === 'trip_related' ? resolvedType : null,
         needsUserConfirmation,
         reviewState: review,
@@ -625,7 +629,13 @@ export function ImportReservationDialog() {
     if (!activeItem?.reviewState) return;
     setItem(activeItem.id, (item) => {
       if (!item.reviewState) return item;
-      return { ...item, reviewState: updater(item.reviewState) };
+      const nextReview = updater(item.reviewState);
+      const computedMissingFields = computeCriticalMissingFields(nextReview.type, nextReview, item.scope);
+      return {
+        ...item,
+        reviewState: nextReview,
+        missingFields: mergeMissingFields(item.missingFields, computedMissingFields),
+      };
     });
   };
 
@@ -656,6 +666,9 @@ export function ImportReservationDialog() {
       let photos: string[] = [];
 
       if (activeItem.scope === 'outside_scope') {
+        if (!activeItem.documentId) {
+          throw new Error('Não foi possível salvar este arquivo em Documentos agora. Tente novamente.');
+        }
         if (activeItem.documentId) {
           try {
             await documentsModule.update({
@@ -692,7 +705,10 @@ export function ImportReservationDialog() {
         };
         const displayName = reviewState.voo.nome_exibicao || null;
         const created = await flightsModule.create(payload);
-        if (created) flightsAfter = [created, ...flightsAfter];
+        if (!created) {
+          throw new Error('Não foi possível salvar o voo importado.');
+        }
+        flightsAfter = [created, ...flightsAfter];
 
         title = displayName || payload.numero || payload.companhia || 'Voo importado';
         subtitle = `${payload.origem || 'Origem'} → ${payload.destino || 'Destino'}`;
@@ -731,50 +747,51 @@ export function ImportReservationDialog() {
         const stayDisplayName = reviewState.hospedagem.nome_exibicao || null;
 
         const created = await staysModule.create(payload);
-        if (created) {
-          staysAfter = [created, ...staysAfter];
-          setItemStep(activeItem.id, 'photos', 'in_progress');
-          photos = hotelPhotoUrls(created.nome ?? '', created.localizacao ?? '');
-          setItemStep(activeItem.id, 'photos', 'completed');
+        if (!created) {
+          throw new Error('Não foi possível salvar a hospedagem importada.');
+        }
+        staysAfter = [created, ...staysAfter];
+        setItemStep(activeItem.id, 'photos', 'in_progress');
+        photos = hotelPhotoUrls(created.nome ?? '', created.localizacao ?? '');
+        setItemStep(activeItem.id, 'photos', 'completed');
 
-          setItemStep(activeItem.id, 'tips', 'in_progress');
-          const hasAnyTip = !!(
-            inferredTips.dica_viagem ||
-            inferredTips.como_chegar ||
-            inferredTips.atracoes_proximas ||
-            inferredTips.restaurantes_proximos
-          );
-          if (!hasAnyTip) {
-            const tips = await generateStayTips({
-              hotelName: created.nome,
-              location: created.localizacao,
-              checkIn: created.check_in,
-              checkOut: created.check_out,
-              tripDestination: currentTrip?.destino,
-            });
+        setItemStep(activeItem.id, 'tips', 'in_progress');
+        const hasAnyTip = !!(
+          inferredTips.dica_viagem ||
+          inferredTips.como_chegar ||
+          inferredTips.atracoes_proximas ||
+          inferredTips.restaurantes_proximos
+        );
+        if (!hasAnyTip) {
+          const tips = await generateStayTips({
+            hotelName: created.nome,
+            location: created.localizacao,
+            checkIn: created.check_in,
+            checkOut: created.check_out,
+            tripDestination: currentTrip?.destino,
+          });
 
-            if (tips.data) {
-              try {
-                await staysModule.update({ id: created.id, updates: tips.data });
-                staysAfter = [{ ...created, ...tips.data }, ...staysAfter.filter((entry) => entry.id !== created.id)];
-              } catch (tipError) {
-                console.error('[import][stay_tips_update_failed]', tipError);
-                setItem(activeItem.id, (item) => ({
-                  ...item,
-                  warnings: item.warnings.concat('Reserva salva, mas as dicas IA não puderam ser persistidas agora.'),
-                }));
-              }
-            }
-
-            if (tips.fromFallback) {
+          if (tips.data) {
+            try {
+              await staysModule.update({ id: created.id, updates: tips.data });
+              staysAfter = [{ ...created, ...tips.data }, ...staysAfter.filter((entry) => entry.id !== created.id)];
+            } catch (tipError) {
+              console.error('[import][stay_tips_update_failed]', tipError);
               setItem(activeItem.id, (item) => ({
                 ...item,
-                warnings: item.warnings.concat('Dicas de hospedagem em modo fallback; revise antes da viagem.'),
+                warnings: item.warnings.concat('Reserva salva, mas as dicas IA não puderam ser persistidas agora.'),
               }));
             }
           }
-          setItemStep(activeItem.id, 'tips', 'completed');
+
+          if (tips.fromFallback) {
+            setItem(activeItem.id, (item) => ({
+              ...item,
+              warnings: item.warnings.concat('Dicas de hospedagem em modo fallback; revise antes da viagem.'),
+            }));
+          }
         }
+        setItemStep(activeItem.id, 'tips', 'completed');
 
         title = stayDisplayName || payload.nome || 'Hospedagem importada';
         subtitle = `${payload.localizacao || 'Local não informado'} · ${payload.check_in || 'sem check-in'} a ${payload.check_out || 'sem check-out'}`;
@@ -797,7 +814,10 @@ export function ImportReservationDialog() {
         };
 
         const created = await transportsModule.create(payload);
-        if (created) transportsAfter = [created, ...transportsAfter];
+        if (!created) {
+          throw new Error('Não foi possível salvar o transporte importado.');
+        }
+        transportsAfter = [created, ...transportsAfter];
 
         title = payload.tipo || payload.operadora || 'Transporte importado';
         subtitle = `${payload.origem || 'Origem'} → ${payload.destino || 'Destino'}`;
@@ -816,7 +836,10 @@ export function ImportReservationDialog() {
           salvo: true,
         };
 
-        await restaurantsModule.create(payload);
+        const created = await restaurantsModule.create(payload);
+        if (!created) {
+          throw new Error('Não foi possível salvar o restaurante importado.');
+        }
         title = payload.nome;
         subtitle = `${payload.cidade || 'Cidade não informada'} · ${payload.tipo || 'Tipo não informado'}`;
         setItemStep(activeItem.id, 'photos', 'skipped');
