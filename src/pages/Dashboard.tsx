@@ -26,6 +26,7 @@ import { BudgetTabPanel } from '@/components/dashboard/BudgetTabPanel';
 import { GastronomyTabPanel } from '@/components/dashboard/GastronomyTabPanel';
 import { SupportTabPanel } from '@/components/dashboard/SupportTabPanel';
 import { TasksTabPanel } from '@/components/dashboard/TasksTabPanel';
+import { ExpensesTabPanel } from '@/components/dashboard/ExpensesTabPanel';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -2915,98 +2916,21 @@ export default function Dashboard() {
               </TabsContent>
 
               <TabsContent value="despesas" className="space-y-4">
-                <Card className="border-border/50">
-                  <CardHeader>
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <CardTitle className="font-display text-xl">Despesas reais</CardTitle>
-                      <Dialog open={expenseDialogOpen} onOpenChange={setExpenseDialogOpen}>
-                        <DialogTrigger asChild>
-                          <Button disabled={!canEditTrip}>
-                            <Plus className="mr-2 h-4 w-4" />
-                            Nova despesa
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-h-[90vh] w-[calc(100vw-1rem)] overflow-y-auto sm:w-full sm:max-w-xl">
-                          <DialogHeader>
-                            <DialogTitle>Nova despesa</DialogTitle>
-                            <DialogDescription>
-                              Essa despesa impacta imediatamente o orçamento real da viagem.
-                            </DialogDescription>
-                          </DialogHeader>
-                          <div className="grid gap-4 py-2 sm:grid-cols-2">
-                            <div className="space-y-2 sm:col-span-2">
-                              <Label>Título</Label>
-                              <Input value={expenseForm.titulo} onChange={(e) => setExpenseForm((s) => ({ ...s, titulo: e.target.value }))} />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Valor</Label>
-                              <Input type="number" step="0.01" value={expenseForm.valor} onChange={(e) => setExpenseForm((s) => ({ ...s, valor: e.target.value }))} />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Moeda</Label>
-                              <Input value={expenseForm.moeda} onChange={(e) => setExpenseForm((s) => ({ ...s, moeda: e.target.value.toUpperCase() }))} />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Categoria</Label>
-                              <Input value={expenseForm.categoria} onChange={(e) => setExpenseForm((s) => ({ ...s, categoria: e.target.value }))} />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Data</Label>
-                              <Input type="date" value={expenseForm.data} onChange={(e) => setExpenseForm((s) => ({ ...s, data: e.target.value }))} />
-                            </div>
-                          </div>
-                          <DialogFooter>
-                            <Button variant="outline" onClick={() => setExpenseDialogOpen(false)}>Cancelar</Button>
-                            <Button
-                              onClick={createExpense}
-                              disabled={!canEditTrip || !expenseForm.titulo.trim() || !expenseForm.valor || expensesModule.isCreating}
-                            >
-                              Salvar despesa
-                            </Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {expensesModule.isLoading ? (
-                      <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
-                        Carregando despesas...
-                      </div>
-                    ) : expensesModule.data.length === 0 ? (
-                      <div className="rounded-lg border border-dashed p-8 text-center">
-                        <DollarSign className="mx-auto mb-2 h-5 w-5 text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground">Nenhuma despesa registrada ainda.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {expensesModule.data.map((expense) => (
-                          <Card key={expense.id} className="border-border/50">
-                            <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                              <div>
-                                <p className="font-medium">{expense.titulo}</p>
-                                <p className="text-sm text-muted-foreground">
-                                  {(expense.categoria?.trim() || 'Sem categoria')} · {formatDate(expense.data)}
-                                </p>
-                                <p className="text-sm font-semibold">{formatCurrency(expense.valor, expense.moeda ?? 'BRL')}</p>
-                              </div>
-                              <ConfirmActionButton
-                                ariaLabel="Remover despesa"
-                                title="Remover despesa"
-                                description="Essa despesa será removida e os totais serão recalculados."
-                                confirmLabel="Remover"
-                                disabled={!canEditTrip || expensesModule.isRemoving}
-                                onConfirm={() => removeExpense(expense.id)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </ConfirmActionButton>
-                            </CardContent>
-                          </Card>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                <ExpensesTabPanel
+                  canEditTrip={canEditTrip}
+                  expenseDialogOpen={expenseDialogOpen}
+                  setExpenseDialogOpen={setExpenseDialogOpen}
+                  expenseForm={expenseForm}
+                  setExpenseForm={setExpenseForm}
+                  onCreateExpense={createExpense}
+                  isCreatingExpense={expensesModule.isCreating}
+                  expensesLoading={expensesModule.isLoading}
+                  expenses={expensesModule.data}
+                  onRemoveExpense={removeExpense}
+                  isRemovingExpense={expensesModule.isRemoving}
+                  formatDate={formatDate}
+                  formatCurrency={formatCurrency}
+                />
               </TabsContent>
 
               <TabsContent value="orcamento" className="space-y-4">
