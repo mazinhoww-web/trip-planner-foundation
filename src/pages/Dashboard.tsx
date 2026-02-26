@@ -22,10 +22,10 @@ import { TripHero } from '@/components/dashboard/TripHero';
 import { TripStatsGrid } from '@/components/dashboard/TripStatsGrid';
 import { TripTopActions } from '@/components/dashboard/TripTopActions';
 import { TripCollaborationBanner, TripViewerNotice } from '@/components/dashboard/TripCollaborationPanels';
+import { BudgetTabPanel } from '@/components/dashboard/BudgetTabPanel';
 import { GastronomyTabPanel } from '@/components/dashboard/GastronomyTabPanel';
 import { SupportTabPanel } from '@/components/dashboard/SupportTabPanel';
 import { BrandLogo } from '@/components/brand/BrandLogo';
-import { BudgetExportActions } from '@/components/dashboard/BudgetExportActions';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,8 +36,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Tables, TablesInsert } from '@/integrations/supabase/types';
-import { Plane, Hotel, Bus, ListTodo, DollarSign, LogOut, Utensils, Briefcase, Users, FileText, Package, Plus, Pencil, Trash2, Clock3, Route, CheckCircle2, RotateCcw, TrendingUp, TrendingDown, Wallet, CalendarDays, Sparkles, MapPin, ChevronUp, ChevronDown, ExternalLink } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Plane, Hotel, Bus, ListTodo, DollarSign, LogOut, Utensils, Briefcase, Users, FileText, Package, Plus, Pencil, Trash2, Clock3, Route, CheckCircle2, RotateCcw, TrendingUp, Wallet, CalendarDays, Sparkles, MapPin, ChevronUp, ChevronDown, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { generateStayTips, suggestRestaurants, generateTripTasks, generateItinerary } from '@/services/ai';
@@ -105,8 +104,6 @@ const PRIORIDADE_BADGE: Record<TarefaPrioridade, string> = {
   media: 'bg-sky-500/15 text-sky-700 border-sky-600/30',
   alta: 'bg-rose-500/15 text-rose-700 border-rose-600/30',
 };
-
-const CHART_COLORS = ['#0f766e', '#2563eb', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#65a30d'];
 
 function statusBadge(status: ReservaStatus) {
   return (
@@ -3099,115 +3096,24 @@ export default function Dashboard() {
               </TabsContent>
 
               <TabsContent value="orcamento" className="space-y-4">
-                <BudgetExportActions
+                <BudgetTabPanel
                   canExportPdf={exportPdfGate.enabled}
                   canExportJson={exportJsonGate.enabled}
-                  isExporting={isExportingData}
+                  isExportingData={isExportingData}
                   planTier={collabGate.planTier}
                   onExportJson={exportJson}
                   onExportPdf={exportPdf}
+                  realByCurrency={realByCurrency}
+                  estimadoByCurrency={estimadoByCurrency}
+                  flightByCurrency={flightStats.byCurrency}
+                  stayByCurrency={stayStats.byCurrency}
+                  transportByCurrency={transportStats.byCurrency}
+                  variacaoTotal={variacaoTotal}
+                  expensesByCategory={expensesByCategory}
+                  expensesByDate={expensesByDate}
+                  formatByCurrency={formatByCurrency}
+                  formatCurrency={formatCurrency}
                 />
-
-                <div className="grid gap-4 md:grid-cols-3">
-                  <Card className="border-border/50">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm text-muted-foreground">Total real (despesas)</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center gap-2 text-2xl font-bold">
-                        <Wallet className="h-5 w-5 text-primary" />
-                        {formatByCurrency(realByCurrency)}
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">Baseado em despesas efetivamente lançadas.</p>
-                    </CardContent>
-                  </Card>
-                  <Card className="border-border/50">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm text-muted-foreground">Total estimado (reservas)</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-bold">{formatByCurrency(estimadoByCurrency)}</div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Soma de voos, hospedagens e transportes não cancelados.
-                      </p>
-                      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                        <p>✈ Voos: {formatByCurrency(flightStats.byCurrency)}</p>
-                        <p>🏨 Hospedagens: {formatByCurrency(stayStats.byCurrency)}</p>
-                        <p>🚌 Transportes: {formatByCurrency(transportStats.byCurrency)}</p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card className="border-border/50">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm text-muted-foreground">Variação (real - estimado)</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center gap-2 text-2xl font-bold">
-                        {variacaoTotal > 0 ? <TrendingUp className="h-5 w-5 text-rose-600" /> : <TrendingDown className="h-5 w-5 text-emerald-600" />}
-                        {formatCurrency(variacaoTotal, 'BRL')}
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {variacaoTotal > 0 ? 'Acima do estimado' : 'Dentro/abaixo do estimado'}
-                      </p>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <Card className="border-border/50">
-                    <CardHeader>
-                      <CardTitle className="text-base">Despesas por categoria</CardTitle>
-                    </CardHeader>
-                    <CardContent className="h-[300px]">
-                      {expensesByCategory.length === 0 ? (
-                        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                          Sem dados de categorias para exibir.
-                        </div>
-                      ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie
-                              data={expensesByCategory}
-                              dataKey="total"
-                              nameKey="categoria"
-                              innerRadius={60}
-                              outerRadius={95}
-                              paddingAngle={2}
-                            >
-                              {expensesByCategory.map((entry, index) => (
-                                <Cell key={entry.categoria} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <Tooltip formatter={(value: number) => formatCurrency(value, 'BRL')} />
-                          </PieChart>
-                        </ResponsiveContainer>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border-border/50">
-                    <CardHeader>
-                      <CardTitle className="text-base">Evolução de despesas por data</CardTitle>
-                    </CardHeader>
-                    <CardContent className="h-[300px]">
-                      {expensesByDate.length === 0 ? (
-                        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                          Sem dados de despesas para exibir.
-                        </div>
-                      ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={expensesByDate}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="data" />
-                            <YAxis />
-                            <Tooltip formatter={(value: number) => formatCurrency(value, 'BRL')} />
-                            <Bar dataKey="total" fill="#0f766e" radius={[6, 6, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
               </TabsContent>
 
               <TabsContent value="gastronomia" className="space-y-4">

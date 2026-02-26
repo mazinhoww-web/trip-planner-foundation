@@ -1,0 +1,168 @@
+import { BudgetExportActions } from '@/components/dashboard/BudgetExportActions';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+
+const CHART_COLORS = ['#0f766e', '#2563eb', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#65a30d'];
+
+export type BudgetByCurrency = Record<string, number>;
+export type ExpenseCategoryDatum = {
+  categoria: string;
+  total: number;
+};
+export type ExpenseByDateDatum = {
+  data: string;
+  total: number;
+};
+
+type BudgetTabPanelProps = {
+  canExportPdf: boolean;
+  canExportJson: boolean;
+  isExportingData: boolean;
+  planTier: string;
+  onExportJson: () => Promise<void> | void;
+  onExportPdf: () => Promise<void> | void;
+  realByCurrency: BudgetByCurrency;
+  estimadoByCurrency: BudgetByCurrency;
+  flightByCurrency: BudgetByCurrency;
+  stayByCurrency: BudgetByCurrency;
+  transportByCurrency: BudgetByCurrency;
+  variacaoTotal: number;
+  expensesByCategory: ExpenseCategoryDatum[];
+  expensesByDate: ExpenseByDateDatum[];
+  formatByCurrency: (values: BudgetByCurrency) => string;
+  formatCurrency: (value: number | null | undefined, currency: string) => string;
+};
+
+export function BudgetTabPanel({
+  canExportPdf,
+  canExportJson,
+  isExportingData,
+  planTier,
+  onExportJson,
+  onExportPdf,
+  realByCurrency,
+  estimadoByCurrency,
+  flightByCurrency,
+  stayByCurrency,
+  transportByCurrency,
+  variacaoTotal,
+  expensesByCategory,
+  expensesByDate,
+  formatByCurrency,
+  formatCurrency,
+}: BudgetTabPanelProps) {
+  return (
+    <>
+      <BudgetExportActions
+        canExportPdf={canExportPdf}
+        canExportJson={canExportJson}
+        isExporting={isExportingData}
+        planTier={planTier}
+        onExportJson={onExportJson}
+        onExportPdf={onExportPdf}
+      />
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="border-border/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">Total real (despesas)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2 text-2xl font-bold">
+              <Wallet className="h-5 w-5 text-primary" />
+              {formatByCurrency(realByCurrency)}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">Baseado em despesas efetivamente lançadas.</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">Total estimado (reservas)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatByCurrency(estimadoByCurrency)}</div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Soma de voos, hospedagens e transportes não cancelados.
+            </p>
+            <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+              <p>✈ Voos: {formatByCurrency(flightByCurrency)}</p>
+              <p>🏨 Hospedagens: {formatByCurrency(stayByCurrency)}</p>
+              <p>🚌 Transportes: {formatByCurrency(transportByCurrency)}</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-border/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">Variação (real - estimado)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2 text-2xl font-bold">
+              {variacaoTotal > 0 ? <TrendingUp className="h-5 w-5 text-rose-600" /> : <TrendingDown className="h-5 w-5 text-emerald-600" />}
+              {formatCurrency(variacaoTotal, 'BRL')}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {variacaoTotal > 0 ? 'Acima do estimado' : 'Dentro/abaixo do estimado'}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="border-border/50">
+          <CardHeader>
+            <CardTitle className="text-base">Despesas por categoria</CardTitle>
+          </CardHeader>
+          <CardContent className="h-[300px]">
+            {expensesByCategory.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                Sem dados de categorias para exibir.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={expensesByCategory}
+                    dataKey="total"
+                    nameKey="categoria"
+                    innerRadius={60}
+                    outerRadius={95}
+                    paddingAngle={2}
+                  >
+                    {expensesByCategory.map((entry, index) => (
+                      <Cell key={entry.categoria} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value: number) => formatCurrency(value, 'BRL')} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/50">
+          <CardHeader>
+            <CardTitle className="text-base">Evolução de despesas por data</CardTitle>
+          </CardHeader>
+          <CardContent className="h-[300px]">
+            {expensesByDate.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                Sem dados de despesas para exibir.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={expensesByDate}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="data" />
+                  <YAxis />
+                  <Tooltip formatter={(value: number) => formatCurrency(value, 'BRL')} />
+                  <Bar dataKey="total" fill="#0f766e" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </>
+  );
+}
