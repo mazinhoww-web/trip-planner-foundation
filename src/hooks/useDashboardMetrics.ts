@@ -13,6 +13,14 @@ type CurrencyTotal = { currency: string; total: number };
 type ExpenseByCategory = { categoria: string; total: number };
 type ExpenseByDate = { data: string; total: number };
 type UpcomingEvent = { id: string; tipo: string; titulo: string; data: string };
+export type SmartChecklistItem = {
+  key: string;
+  title: string;
+  description: string;
+  status: 'ok' | 'attention';
+  actionLabel: string;
+  tabKey: string;
+};
 
 type DashboardMetricsParams = {
   currentTrip: Tables<'viagens'> | null;
@@ -293,6 +301,108 @@ export function useDashboardMetrics(params: DashboardMetricsParams) {
     return dateDiffInDays(today, start);
   }, [currentTrip?.data_inicio]);
 
+  const pendingTasksCount = useMemo(() => tasks.filter((task) => !task.concluida).length, [tasks]);
+
+  const hasReservations = useMemo(
+    () => flights.length > 0 || stays.length > 0 || transports.length > 0,
+    [flights.length, stays.length, transports.length],
+  );
+
+  const smartChecklistItems = useMemo<SmartChecklistItem[]>(() => {
+    const items: SmartChecklistItem[] = [];
+
+    if (stayCoverageGaps.length > 0) {
+      items.push({
+        key: 'stay-coverage-gap',
+        title: 'Completar hospedagens sem cobertura',
+        description: `${stayCoverageGaps.length} intervalo(s) sem check-in/check-out.`,
+        status: 'attention',
+        actionLabel: 'Revisar hospedagens',
+        tabKey: 'hospedagens',
+      });
+    } else {
+      items.push({
+        key: 'stay-coverage-ok',
+        title: 'Cobertura de hospedagem concluída',
+        description: 'Todas as noites da viagem estão cobertas.',
+        status: 'ok',
+        actionLabel: 'Ver hospedagens',
+        tabKey: 'hospedagens',
+      });
+    }
+
+    if (transportCoverageGaps.length > 0) {
+      items.push({
+        key: 'transport-coverage-gap',
+        title: 'Fechar deslocamentos entre cidades',
+        description: `${transportCoverageGaps.length} trecho(s) ainda sem transporte registrado.`,
+        status: 'attention',
+        actionLabel: 'Revisar transportes',
+        tabKey: 'transportes',
+      });
+    } else {
+      items.push({
+        key: 'transport-coverage-ok',
+        title: 'Deslocamentos validados',
+        description: 'Não há trocas de cidade descobertas.',
+        status: 'ok',
+        actionLabel: 'Ver transportes',
+        tabKey: 'transportes',
+      });
+    }
+
+    if (pendingTasksCount > 0) {
+      items.push({
+        key: 'task-pending',
+        title: 'Concluir tarefas pendentes',
+        description: `${pendingTasksCount} tarefa(s) pendente(s) antes da viagem.`,
+        status: 'attention',
+        actionLabel: 'Abrir tarefas',
+        tabKey: 'tarefas',
+      });
+    } else {
+      items.push({
+        key: 'task-done',
+        title: 'Checklist de tarefas em dia',
+        description: 'Nenhuma tarefa pendente no momento.',
+        status: 'ok',
+        actionLabel: 'Ver tarefas',
+        tabKey: 'tarefas',
+      });
+    }
+
+    if (hasReservations && documents.length === 0) {
+      items.push({
+        key: 'documents-missing',
+        title: 'Anexar comprovantes da viagem',
+        description: 'Ainda não há documentos vinculados às reservas.',
+        status: 'attention',
+        actionLabel: 'Abrir apoio',
+        tabKey: 'apoio',
+      });
+    }
+
+    if (daysUntilTrip != null && daysUntilTrip <= 10) {
+      items.push({
+        key: 'departure-near',
+        title: 'Viagem próxima: revisar itens críticos',
+        description: `Faltam ${daysUntilTrip} dia(s). Valide embarque, vouchers e traslados.`,
+        status: 'attention',
+        actionLabel: 'Abrir dashboard',
+        tabKey: 'visao',
+      });
+    }
+
+    return items.slice(0, 5);
+  }, [
+    daysUntilTrip,
+    documents.length,
+    hasReservations,
+    pendingTasksCount,
+    stayCoverageGaps.length,
+    transportCoverageGaps.length,
+  ]);
+
   const flightStats = useMemo(() => {
     const active = flightsFiltered.filter((flight) => flight.status !== 'cancelado');
     const confirmed = active.filter((flight) => flight.status === 'confirmado').length;
@@ -365,6 +475,7 @@ export function useDashboardMetrics(params: DashboardMetricsParams) {
     stayDayChips,
     transportDayChips,
     daysUntilTrip,
+    smartChecklistItems,
     flightStats,
     stayStats,
     transportStats,

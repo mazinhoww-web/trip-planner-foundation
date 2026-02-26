@@ -66,6 +66,8 @@ describe('useDashboardMetrics', () => {
     expect(result.current.variacaoTotal).toBe(-1250);
     expect(result.current.restaurantsFavorites).toHaveLength(1);
     expect(result.current.inferredHomeCity).toBe('FLN');
+    expect(result.current.smartChecklistItems.some((item) => item.key === 'task-pending')).toBe(true);
+    expect(result.current.smartChecklistItems.some((item) => item.key === 'documents-missing')).toBe(true);
   });
 
   it('respects dismissed stay gaps and creates trip header date range', () => {
@@ -99,5 +101,6 @@ describe('useDashboardMetrics', () => {
     expect(result.current.heroDateRangeLabel).toContain('2026');
     expect(result.current.heroDateRangeLabel).toContain('-');
     expect(result.current.inferredHomeCity).toBe('RIO');
+    expect(result.current.smartChecklistItems.some((item) => item.key === 'stay-coverage-gap')).toBe(true);
   });
 });

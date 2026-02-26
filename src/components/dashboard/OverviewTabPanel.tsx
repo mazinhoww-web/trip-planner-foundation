@@ -1,5 +1,7 @@
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { SmartChecklistItem } from '@/hooks/useDashboardMetrics';
 import { Tables } from '@/integrations/supabase/types';
 import { WeatherSummary } from '@/services/weather';
 import { CalendarDays } from 'lucide-react';
@@ -34,6 +36,8 @@ type Props = {
   weatherSummary: WeatherSummary | null;
   weatherLoading: boolean;
   weatherError: string | null;
+  smartChecklistItems: SmartChecklistItem[];
+  onOpenTab: (tabKey: string) => void;
 };
 
 export function OverviewTabPanel({
@@ -54,6 +58,8 @@ export function OverviewTabPanel({
   weatherSummary,
   weatherLoading,
   weatherError,
+  smartChecklistItems,
+  onOpenTab,
 }: Props) {
   return (
     <>
@@ -154,6 +160,47 @@ export function OverviewTabPanel({
                   )}
                   <p className="text-[11px] text-muted-foreground">Fonte: Open-Meteo.</p>
                 </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Checklist inteligente</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {smartChecklistItems.length === 0 ? (
+                <p className="text-muted-foreground">Sem pendências detectadas no momento.</p>
+              ) : (
+                smartChecklistItems.map((item) => (
+                  <div key={item.key} className="space-y-2 rounded-lg border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="font-medium">{item.title}</p>
+                        <p className="text-xs text-muted-foreground">{item.description}</p>
+                      </div>
+                      <Badge
+                        className={
+                          item.status === 'ok'
+                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'
+                            : 'border-amber-500/30 bg-amber-500/10 text-amber-700'
+                        }
+                        variant="outline"
+                      >
+                        {item.status === 'ok' ? 'OK' : 'Atenção'}
+                      </Badge>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-0 text-xs text-primary hover:bg-transparent hover:text-primary/80"
+                      onClick={() => onOpenTab(item.tabKey)}
+                    >
+                      {item.actionLabel}
+                    </Button>
+                  </div>
+                ))
               )}
             </CardContent>
           </Card>

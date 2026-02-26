@@ -363,6 +363,7 @@ export default function Dashboard() {
     stayDayChips,
     transportDayChips,
     daysUntilTrip,
+    smartChecklistItems,
     flightStats,
     stayStats,
     transportStats,
@@ -648,6 +649,8 @@ export default function Dashboard() {
                     weatherSummary={destinationWeatherQuery.data ?? null}
                     weatherLoading={destinationWeatherQuery.isLoading}
                     weatherError={destinationWeatherQuery.error instanceof Error ? destinationWeatherQuery.error.message : null}
+                    smartChecklistItems={smartChecklistItems}
+                    onOpenTab={setActiveTab}
                   />
                 </Suspense>
               </TabsContent>
