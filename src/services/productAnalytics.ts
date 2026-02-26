@@ -5,7 +5,10 @@ type ProductEventName =
   | 'import_confirmed'
   | 'import_reprocessed'
   | 'invite_sent'
+  | 'invite_resent'
+  | 'invite_revoked'
   | 'member_role_changed'
+  | 'member_removed'
   | 'export_triggered'
   | 'api_snapshot_requested'
   | 'webhook_dispatched';

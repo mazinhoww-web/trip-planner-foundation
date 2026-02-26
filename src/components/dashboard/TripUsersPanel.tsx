@@ -94,6 +94,48 @@ export function TripUsersPanel({ tripMembers, currentUserId, currentTripId }: Tr
     }
   };
 
+  const handleRemoveMember = async (memberId: string) => {
+    try {
+      await tripMembers.removeMember(memberId);
+      await trackProductEvent({
+        eventName: 'member_removed',
+        featureKey: 'ff_collab_enabled',
+        viagemId: currentTripId ?? null,
+        metadata: { memberId },
+      });
+    } catch {
+      // Toast já tratado no hook.
+    }
+  };
+
+  const handleResendInvite = async (inviteId: string) => {
+    try {
+      await tripMembers.resendInvite(inviteId);
+      await trackProductEvent({
+        eventName: 'invite_resent',
+        featureKey: 'ff_collab_enabled',
+        viagemId: currentTripId ?? null,
+        metadata: { inviteId },
+      });
+    } catch {
+      // Toast já tratado no hook.
+    }
+  };
+
+  const handleRevokeInvite = async (inviteId: string) => {
+    try {
+      await tripMembers.revokeInvite(inviteId);
+      await trackProductEvent({
+        eventName: 'invite_revoked',
+        featureKey: 'ff_collab_enabled',
+        viagemId: currentTripId ?? null,
+        metadata: { inviteId },
+      });
+    } catch {
+      // Toast já tratado no hook.
+    }
+  };
+
   return (
     <Card className="border-primary/20 bg-white/95 shadow-sm">
       <CardHeader>
@@ -250,7 +292,7 @@ export function TripUsersPanel({ tripMembers, currentUserId, currentTripId }: Tr
                               confirmLabel="Remover"
                               size="sm"
                               disabled={tripMembers.isRemovingMember}
-                              onConfirm={() => { void tripMembers.removeMember(member.id); }}
+                              onConfirm={() => { void handleRemoveMember(member.id); }}
                             >
                               Remover
                             </ConfirmActionButton>
@@ -288,7 +330,7 @@ export function TripUsersPanel({ tripMembers, currentUserId, currentTripId }: Tr
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => tripMembers.resendInvite(invite.id)}
+                            onClick={() => { void handleResendInvite(invite.id); }}
                             disabled={tripMembers.isResendingInvite}
                           >
                             Reenviar
@@ -300,7 +342,7 @@ export function TripUsersPanel({ tripMembers, currentUserId, currentTripId }: Tr
                             confirmLabel="Revogar"
                             size="sm"
                             disabled={tripMembers.isRevokingInvite}
-                            onConfirm={() => { void tripMembers.revokeInvite(invite.id); }}
+                            onConfirm={() => { void handleRevokeInvite(invite.id); }}
                           >
                             Revogar
                           </ConfirmActionButton>
