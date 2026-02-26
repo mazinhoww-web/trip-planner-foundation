@@ -23,10 +23,11 @@ import { TripTopActions } from '@/components/dashboard/TripTopActions';
 import { OnboardingWizard } from '@/components/dashboard/OnboardingWizard';
 import { TripCollaborationBanner, TripViewerNotice } from '@/components/dashboard/TripCollaborationPanels';
 import { DashboardShell } from '@/components/dashboard/DashboardShell';
+import { DashboardTabsNav } from '@/components/dashboard/DashboardTabsNav';
+import { DashboardTabPanelFallback } from '@/components/dashboard/DashboardTabPanelFallback';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { Tables } from '@/integrations/supabase/types';
 import { Compass } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -102,27 +103,6 @@ const GastronomyTabPanel = lazy(() =>
 const SupportTabPanel = lazy(() =>
   import('@/components/dashboard/SupportTabPanel').then((mod) => ({ default: mod.SupportTabPanel })),
 );
-
-function TabPanelFallback({ label }: { label: string }) {
-  return (
-    <Card className="border-border/50">
-      <CardContent className="space-y-4 p-4 sm:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Skeleton className="h-5 w-44" />
-          <Skeleton className="h-9 w-32" />
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Skeleton className="h-20" />
-          <Skeleton className="h-20" />
-          <Skeleton className="h-20" />
-          <Skeleton className="h-20" />
-        </div>
-        <Skeleton className="h-40 w-full" />
-        <p className="text-xs text-muted-foreground">Carregando {label}...</p>
-      </CardContent>
-    </Card>
-  );
-}
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
@@ -544,26 +524,10 @@ export default function Dashboard() {
             )}
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-8">
-              <div className="overflow-x-auto pb-1 tp-scroll">
-                <TabsList
-                  className="inline-flex h-auto w-max min-w-full snap-x snap-mandatory items-center gap-2 rounded-2xl border border-primary/15 bg-white/90 p-2 shadow-sm dark:bg-card/80"
-                  aria-label="Navegação entre módulos da viagem"
-                >
-                  {DASHBOARD_TABS.map((tab) => (
-                    <TabsTrigger
-                      key={tab.key}
-                      value={tab.key}
-                      className="min-h-9 shrink-0 snap-start whitespace-nowrap gap-2 rounded-xl px-3 py-2 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm sm:min-h-10 sm:px-4 sm:text-sm"
-                    >
-                      <tab.icon className="h-4 w-4" />
-                      {tab.label}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </div>
+              <DashboardTabsNav tabs={DASHBOARD_TABS} />
 
               <TabsContent value="visao" className="space-y-4">
-                <Suspense fallback={<TabPanelFallback label="dashboard" />}>
+                <Suspense fallback={<DashboardTabPanelFallback label="dashboard" />}>
                   <OverviewTabPanel
                     upcomingEvents={upcomingEvents}
                     formatDateTime={formatDateTime}
@@ -584,7 +548,7 @@ export default function Dashboard() {
               </TabsContent>
 
               <TabsContent value="voos" className="space-y-4">
-                <Suspense fallback={<TabPanelFallback label="voos" />}>
+                <Suspense fallback={<DashboardTabPanelFallback label="voos" />}>
                   <FlightsTabPanel
                     canEditTrip={canEditTrip}
                     flightDialogOpen={flightDialogOpen}
@@ -624,7 +588,7 @@ export default function Dashboard() {
               </TabsContent>
 
               <TabsContent value="hospedagens" className="space-y-4">
-                <Suspense fallback={<TabPanelFallback label="hospedagens" />}>
+                <Suspense fallback={<DashboardTabPanelFallback label="hospedagens" />}>
                   <StaysTabPanel
                     canEditTrip={canEditTrip}
                     stayDialogOpen={stayDialogOpen}
@@ -683,7 +647,7 @@ export default function Dashboard() {
               </TabsContent>
 
               <TabsContent value="transportes" className="space-y-4">
-                <Suspense fallback={<TabPanelFallback label="transportes" />}>
+                <Suspense fallback={<DashboardTabPanelFallback label="transportes" />}>
                   <TransportsTabPanel
                     canEditTrip={canEditTrip}
                     transportDialogOpen={transportDialogOpen}
@@ -728,7 +692,7 @@ export default function Dashboard() {
               </TabsContent>
 
               <TabsContent value="tarefas" className="space-y-4">
-                <Suspense fallback={<TabPanelFallback label="tarefas" />}>
+                <Suspense fallback={<DashboardTabPanelFallback label="tarefas" />}>
                   <TasksTabPanel
                     canEditTrip={canEditTrip}
                     generatingTasks={generatingTasks}
@@ -753,7 +717,7 @@ export default function Dashboard() {
               </TabsContent>
 
               <TabsContent value="roteiro" className="space-y-4">
-                <Suspense fallback={<TabPanelFallback label="roteiro" />}>
+                <Suspense fallback={<DashboardTabPanelFallback label="roteiro" />}>
                   <RoteiroTabPanel
                     canEditTrip={canEditTrip}
                     generatingItinerary={generatingItinerary}
@@ -768,7 +732,7 @@ export default function Dashboard() {
               </TabsContent>
 
               <TabsContent value="despesas" className="space-y-4">
-                <Suspense fallback={<TabPanelFallback label="despesas" />}>
+                <Suspense fallback={<DashboardTabPanelFallback label="despesas" />}>
                   <ExpensesTabPanel
                     canEditTrip={canEditTrip}
                     expenseDialogOpen={expenseDialogOpen}
@@ -788,7 +752,7 @@ export default function Dashboard() {
               </TabsContent>
 
               <TabsContent value="orcamento" className="space-y-4">
-                <Suspense fallback={<TabPanelFallback label="orçamento" />}>
+                <Suspense fallback={<DashboardTabPanelFallback label="orçamento" />}>
                   <BudgetTabPanel
                     canExportPdf={exportPdfGate.enabled}
                     canExportJson={exportJsonGate.enabled}
@@ -811,7 +775,7 @@ export default function Dashboard() {
               </TabsContent>
 
               <TabsContent value="gastronomia" className="space-y-4">
-                <Suspense fallback={<TabPanelFallback label="gastronomia" />}>
+                <Suspense fallback={<DashboardTabPanelFallback label="gastronomia" />}>
                   <GastronomyTabPanel
                     restaurantForm={restaurantForm}
                     setRestaurantForm={setRestaurantForm}
@@ -825,7 +789,7 @@ export default function Dashboard() {
               </TabsContent>
 
               <TabsContent value="apoio" className="space-y-4">
-                <Suspense fallback={<TabPanelFallback label="apoio" />}>
+                <Suspense fallback={<DashboardTabPanelFallback label="apoio" />}>
                   <SupportTabPanel
                     supportError={supportError}
                     supportIsLoading={supportIsLoading}
