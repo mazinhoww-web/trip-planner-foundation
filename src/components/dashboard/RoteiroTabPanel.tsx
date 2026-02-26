@@ -1,18 +1,31 @@
+import { useMemo, useState } from 'react';
 import { ConfirmActionButton } from '@/components/common/ConfirmActionButton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Tables } from '@/integrations/supabase/types';
-import { CalendarDays, ChevronDown, ChevronUp, Clock3, ExternalLink, MapPin, Sparkles, Trash2 } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronUp, Clock3, ExternalLink, MapPin, NotebookPen, Sparkles, Trash2 } from 'lucide-react';
 
 type Props = {
   canEditTrip: boolean;
   generatingItinerary: boolean;
   onGenerateItinerary: () => Promise<void> | void;
+  onCreateDiaryEntry: (entry: {
+    dia: string;
+    titulo: string;
+    descricao?: string | null;
+    localizacao?: string | null;
+    link_maps?: string | null;
+  }) => Promise<void> | void;
+  isCreatingDiaryEntry: boolean;
   roteiroLoading: boolean;
-  roteiroItems: Tables<'roteiro'>[];
+  roteiroItems: Tables<'roteiro_dias'>[];
   formatDate: (date?: string | null) => string;
-  onReorder: (current: Tables<'roteiro'>, target: Tables<'roteiro'>) => Promise<void> | void;
+  onReorder: (current: Tables<'roteiro_dias'>, target: Tables<'roteiro_dias'>) => Promise<void> | void;
   onRemove: (id: string) => Promise<void> | void;
 };
 
@@ -20,25 +33,141 @@ export function RoteiroTabPanel({
   canEditTrip,
   generatingItinerary,
   onGenerateItinerary,
+  onCreateDiaryEntry,
+  isCreatingDiaryEntry,
   roteiroLoading,
   roteiroItems,
   formatDate,
   onReorder,
   onRemove,
 }: Props) {
+  const [entryOpen, setEntryOpen] = useState(false);
+  const [entryDay, setEntryDay] = useState(() => new Date().toISOString().slice(0, 10));
+  const [entryTitle, setEntryTitle] = useState('');
+  const [entryDescription, setEntryDescription] = useState('');
+  const [entryLocation, setEntryLocation] = useState('');
+  const [entryMapsLink, setEntryMapsLink] = useState('');
+
+  const hasDiaryEntries = useMemo(
+    () => roteiroItems.some((item) => item.categoria?.toLowerCase().includes('diário') || item.categoria?.toLowerCase().includes('diario')),
+    [roteiroItems],
+  );
+
+  const resetEntryForm = () => {
+    setEntryTitle('');
+    setEntryDescription('');
+    setEntryLocation('');
+    setEntryMapsLink('');
+  };
+
+  const handleCreateDiaryEntry = async () => {
+    if (!entryTitle.trim() || !entryDay) return;
+    await onCreateDiaryEntry({
+      dia: entryDay,
+      titulo: entryTitle,
+      descricao: entryDescription,
+      localizacao: entryLocation,
+      link_maps: entryMapsLink,
+    });
+    resetEntryForm();
+    setEntryOpen(false);
+  };
+
   return (
     <Card className="border-border/50">
       <CardHeader>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3">
           <CardTitle className="font-display text-xl">Roteiro da viagem</CardTitle>
-          <Button
-            variant="outline"
-            disabled={!canEditTrip || generatingItinerary}
-            onClick={() => void onGenerateItinerary()}
-          >
-            <Sparkles className="mr-2 h-4 w-4" />
-            {generatingItinerary ? 'Gerando roteiro...' : 'Gerar roteiro com IA'}
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                disabled={!canEditTrip || generatingItinerary}
+                onClick={() => void onGenerateItinerary()}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                {generatingItinerary ? 'Gerando roteiro...' : 'Gerar roteiro com IA'}
+              </Button>
+              <Dialog open={entryOpen} onOpenChange={setEntryOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" disabled={!canEditTrip}>
+                    <NotebookPen className="mr-2 h-4 w-4" />
+                    Nova nota do diário
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-xl">
+                  <DialogHeader>
+                    <DialogTitle>Registrar nota do diário</DialogTitle>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-1">
+                    <div className="grid gap-2">
+                      <Label htmlFor="diario-dia">Data</Label>
+                      <Input
+                        id="diario-dia"
+                        type="date"
+                        value={entryDay}
+                        onChange={(event) => setEntryDay(event.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="diario-titulo">Título</Label>
+                      <Input
+                        id="diario-titulo"
+                        placeholder="Ex.: Chegada em Zurique"
+                        value={entryTitle}
+                        onChange={(event) => setEntryTitle(event.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="diario-descricao">Descrição</Label>
+                      <Textarea
+                        id="diario-descricao"
+                        rows={4}
+                        placeholder="Resumo do dia, observações e próximos passos."
+                        value={entryDescription}
+                        onChange={(event) => setEntryDescription(event.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="diario-local">Localização (opcional)</Label>
+                      <Input
+                        id="diario-local"
+                        placeholder="Cidade, bairro ou ponto de referência"
+                        value={entryLocation}
+                        onChange={(event) => setEntryLocation(event.target.value)}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="diario-maps">Link Maps (opcional)</Label>
+                      <Input
+                        id="diario-maps"
+                        placeholder="https://maps.google.com/..."
+                        value={entryMapsLink}
+                        onChange={(event) => setEntryMapsLink(event.target.value)}
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="ghost" type="button" onClick={() => setEntryOpen(false)}>
+                        Cancelar
+                      </Button>
+                      <Button
+                        type="button"
+                        disabled={isCreatingDiaryEntry || !entryTitle.trim() || !entryDay}
+                        onClick={() => void handleCreateDiaryEntry()}
+                      >
+                        {isCreatingDiaryEntry ? 'Salvando...' : 'Salvar nota'}
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {hasDiaryEntries
+                ? 'Use o diário para registrar contexto real da viagem por dia.'
+                : 'Ainda não há notas manuais. Crie a primeira entrada para começar o diário.'}
+            </p>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -57,7 +186,7 @@ export function RoteiroTabPanel({
         ) : (
           <div className="space-y-6">
             {(() => {
-              const byDay = new Map<string, Tables<'roteiro'>[]>();
+              const byDay = new Map<string, Tables<'roteiro_dias'>[]>();
               for (const item of roteiroItems) {
                 const day = item.dia;
                 if (!byDay.has(day)) byDay.set(day, []);

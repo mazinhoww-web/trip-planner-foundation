@@ -551,6 +551,7 @@ export default function Dashboard() {
     removeTask,
     generateTasksWithAi,
     generateRoteiroWithAi,
+    createRoteiroEntry,
     reorderRoteiroItem,
     removeRoteiroItem,
     createExpense,
@@ -886,6 +887,8 @@ export default function Dashboard() {
                     canEditTrip={canEditTrip}
                     generatingItinerary={generatingItinerary}
                     onGenerateItinerary={generateRoteiroWithAi}
+                    onCreateDiaryEntry={createRoteiroEntry}
+                    isCreatingDiaryEntry={roteiroModule.isCreating}
                     roteiroLoading={roteiroModule.isLoading}
                     roteiroItems={roteiroModule.data}
                     formatDate={formatDate}

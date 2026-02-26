@@ -74,7 +74,14 @@ type UseTripOperationsResult = {
   removeTask: (id: string) => Promise<void>;
   generateTasksWithAi: () => Promise<void>;
   generateRoteiroWithAi: () => Promise<void>;
-  reorderRoteiroItem: (current: Tables<'roteiro'>, target: Tables<'roteiro'>) => Promise<void>;
+  createRoteiroEntry: (entry: {
+    dia: string;
+    titulo: string;
+    descricao?: string | null;
+    localizacao?: string | null;
+    link_maps?: string | null;
+  }) => Promise<void>;
+  reorderRoteiroItem: (current: Tables<'roteiro_dias'>, target: Tables<'roteiro_dias'>) => Promise<void>;
   removeRoteiroItem: (id: string) => Promise<void>;
   createExpense: () => Promise<void>;
   removeExpense: (id: string) => Promise<void>;
@@ -259,7 +266,33 @@ export function useTripOperations({
     }
   };
 
-  const reorderRoteiroItem = async (current: Tables<'roteiro'>, target: Tables<'roteiro'>) => {
+  const createRoteiroEntry = async (entry: {
+    dia: string;
+    titulo: string;
+    descricao?: string | null;
+    localizacao?: string | null;
+    link_maps?: string | null;
+  }) => {
+    if (!ensureCanEdit()) return;
+    if (!entry.dia || !entry.titulo.trim()) return;
+
+    const sameDayItems = roteiroModule.data.filter((item) => item.dia === entry.dia);
+    const highestOrder = sameDayItems.reduce((max, item) => Math.max(max, Number(item.ordem || 0)), 0);
+
+    await roteiroModule.create({
+      dia: entry.dia,
+      ordem: highestOrder + 1,
+      titulo: entry.titulo.trim(),
+      descricao: entry.descricao?.trim() || null,
+      localizacao: entry.localizacao?.trim() || null,
+      link_maps: entry.link_maps?.trim() || null,
+      categoria: 'Diário',
+      horario_sugerido: null,
+      sugerido_por_ia: false,
+    });
+  };
+
+  const reorderRoteiroItem = async (current: Tables<'roteiro_dias'>, target: Tables<'roteiro_dias'>) => {
     if (!ensureCanEdit()) return;
     await roteiroModule.update({ id: current.id, updates: { ordem: target.ordem } });
     await roteiroModule.update({ id: target.id, updates: { ordem: current.ordem } });
@@ -351,6 +384,7 @@ export function useTripOperations({
     removeTask,
     generateTasksWithAi,
     generateRoteiroWithAi,
+    createRoteiroEntry,
     reorderRoteiroItem,
     removeRoteiroItem,
     createExpense,
