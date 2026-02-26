@@ -39,6 +39,7 @@ import { useReservationActions } from '@/hooks/useReservationActions';
 import { useSupportResources } from '@/hooks/useSupportResources';
 import { useTripOperations } from '@/hooks/useTripOperations';
 import { useDashboardMetrics } from '@/hooks/useDashboardMetrics';
+import { useDestinationWeather } from '@/hooks/useDestinationWeather';
 import {
   buildMapsUrl,
   buildTransportInsights,
@@ -294,6 +295,7 @@ export default function Dashboard() {
     userHomeCity,
     dismissedGapKeys,
   });
+  const destinationWeatherQuery = useDestinationWeather(currentTrip?.destino ?? null, currentTrip?.data_inicio ?? null);
 
   const handleAddTransportFromGap = async (from: string, to: string) => {
     if (!ensureCanEdit()) return;
@@ -543,6 +545,9 @@ export default function Dashboard() {
                     stays={staysModule.data}
                     transports={transportsModule.data}
                     flights={flightsModule.data}
+                    weatherSummary={destinationWeatherQuery.data ?? null}
+                    weatherLoading={destinationWeatherQuery.isLoading}
+                    weatherError={destinationWeatherQuery.error instanceof Error ? destinationWeatherQuery.error.message : null}
                   />
                 </Suspense>
               </TabsContent>

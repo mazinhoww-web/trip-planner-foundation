@@ -1,6 +1,7 @@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tables } from '@/integrations/supabase/types';
+import { WeatherSummary } from '@/services/weather';
 import { CalendarDays } from 'lucide-react';
 import { Suspense, lazy } from 'react';
 
@@ -30,6 +31,9 @@ type Props = {
   stays: Tables<'hospedagens'>[];
   transports: Tables<'transportes'>[];
   flights: Tables<'voos'>[];
+  weatherSummary: WeatherSummary | null;
+  weatherLoading: boolean;
+  weatherError: string | null;
 };
 
 export function OverviewTabPanel({
@@ -47,6 +51,9 @@ export function OverviewTabPanel({
   stays,
   transports,
   flights,
+  weatherSummary,
+  weatherLoading,
+  weatherError,
 }: Props) {
   return (
     <>
@@ -79,37 +86,78 @@ export function OverviewTabPanel({
           </CardContent>
         </Card>
 
-        <Card className="border-border/50">
-          <CardHeader>
-            <CardTitle className="text-base">Cobertura da viagem</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
-              <p className="font-medium text-emerald-700">
-                {stayCoverageGapCount === 0 ? 'Hospedagens cobertas' : `${stayCoverageGapCount} gap(s) de hospedagem`}
-              </p>
-              <p className="text-xs text-emerald-700/80">
-                {stayCoverageGapCount === 0
-                  ? 'Sem noites descobertas no intervalo atual.'
-                  : 'Revise os períodos sem check-in/check-out registrados.'}
-              </p>
-            </div>
-            <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3">
-              <p className="font-medium text-sky-700">
-                {transportCoverageGapCount === 0 ? 'Trocas de cidade cobertas' : `${transportCoverageGapCount} trecho(s) sem transporte`}
-              </p>
-              <p className="text-xs text-sky-700/80">
-                {transportCoverageGapCount === 0
-                  ? 'Nenhum deslocamento entre cidades ficou descoberto.'
-                  : 'Adicione voos/transportes para fechar os deslocamentos faltantes.'}
-              </p>
-            </div>
-            <p><strong>Restaurantes salvos:</strong> {restaurantsSavedCount}</p>
-            <p><strong>Documentos:</strong> {documentsCount}</p>
-            <p><strong>Viajantes:</strong> {travelersCount}</p>
-            <p><strong>Real x estimado:</strong> {formatCurrency(realTotal)} / {formatCurrency(estimadoTotal)}</p>
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <Card className="border-border/50">
+            <CardHeader>
+              <CardTitle className="text-base">Cobertura da viagem</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+                <p className="font-medium text-emerald-700">
+                  {stayCoverageGapCount === 0 ? 'Hospedagens cobertas' : `${stayCoverageGapCount} gap(s) de hospedagem`}
+                </p>
+                <p className="text-xs text-emerald-700/80">
+                  {stayCoverageGapCount === 0
+                    ? 'Sem noites descobertas no intervalo atual.'
+                    : 'Revise os períodos sem check-in/check-out registrados.'}
+                </p>
+              </div>
+              <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3">
+                <p className="font-medium text-sky-700">
+                  {transportCoverageGapCount === 0 ? 'Trocas de cidade cobertas' : `${transportCoverageGapCount} trecho(s) sem transporte`}
+                </p>
+                <p className="text-xs text-sky-700/80">
+                  {transportCoverageGapCount === 0
+                    ? 'Nenhum deslocamento entre cidades ficou descoberto.'
+                    : 'Adicione voos/transportes para fechar os deslocamentos faltantes.'}
+                </p>
+              </div>
+              <p><strong>Restaurantes salvos:</strong> {restaurantsSavedCount}</p>
+              <p><strong>Documentos:</strong> {documentsCount}</p>
+              <p><strong>Viajantes:</strong> {travelersCount}</p>
+              <p><strong>Real x estimado:</strong> {formatCurrency(realTotal)} / {formatCurrency(estimadoTotal)}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Clima no destino</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              {weatherLoading ? (
+                <p className="text-muted-foreground">Buscando previsão...</p>
+              ) : weatherError ? (
+                <p className="text-amber-700">Não foi possível carregar o clima agora.</p>
+              ) : !weatherSummary ? (
+                <p className="text-muted-foreground">Defina um destino para mostrar previsão de clima.</p>
+              ) : (
+                <>
+                  <p className="font-medium">{weatherSummary.locationLabel}</p>
+                  <p className="text-muted-foreground">
+                    Agora: {weatherSummary.currentCondition}
+                    {typeof weatherSummary.currentTempC === 'number' ? ` • ${Math.round(weatherSummary.currentTempC)}°C` : ''}
+                  </p>
+                  {typeof weatherSummary.currentWindKmh === 'number' && (
+                    <p className="text-xs text-muted-foreground">
+                      Vento: {Math.round(weatherSummary.currentWindKmh)} km/h
+                    </p>
+                  )}
+                  {weatherSummary.tripDate && (
+                    <div className="rounded-lg border bg-muted/25 p-2 text-xs">
+                      <p className="font-medium">Previsão para início da viagem ({weatherSummary.tripDate})</p>
+                      <p className="text-muted-foreground">
+                        {weatherSummary.tripCondition ?? 'Condição indisponível'}
+                        {(typeof weatherSummary.tripTempMinC === 'number' || typeof weatherSummary.tripTempMaxC === 'number') &&
+                          ` • ${typeof weatherSummary.tripTempMinC === 'number' ? Math.round(weatherSummary.tripTempMinC) : '--'}°C a ${typeof weatherSummary.tripTempMaxC === 'number' ? Math.round(weatherSummary.tripTempMaxC) : '--'}°C`}
+                      </p>
+                    </div>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">Fonte: Open-Meteo.</p>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       <Card className="border-border/50">
