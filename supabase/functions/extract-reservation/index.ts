@@ -93,6 +93,51 @@ type CanonicalPayload = {
 };
 
 const allowedTipo = new Set(['voo', 'hospedagem', 'transporte', 'restaurante']);
+const MONTH_INDEX: Record<string, string> = {
+  jan: '01',
+  janeiro: '01',
+  january: '01',
+  fev: '02',
+  fevereiro: '02',
+  feb: '02',
+  february: '02',
+  mar: '03',
+  março: '03',
+  marco: '03',
+  march: '03',
+  abr: '04',
+  abril: '04',
+  apr: '04',
+  april: '04',
+  mai: '05',
+  maio: '05',
+  may: '05',
+  jun: '06',
+  junho: '06',
+  june: '06',
+  jul: '07',
+  julho: '07',
+  july: '07',
+  ago: '08',
+  agosto: '08',
+  aug: '08',
+  august: '08',
+  set: '09',
+  setembro: '09',
+  sep: '09',
+  september: '09',
+  out: '10',
+  outubro: '10',
+  oct: '10',
+  october: '10',
+  nov: '11',
+  novembro: '11',
+  november: '11',
+  dez: '12',
+  dezembro: '12',
+  dec: '12',
+  december: '12',
+};
 
 function strOrNull(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -128,6 +173,15 @@ function normalizeDateLike(value: unknown): string | null {
   if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
   const br = raw.match(/\b(\d{1,2})[-/\.](\d{1,2})[-/\.](20\d{2})\b/);
   if (br) return `${br[3]}-${br[2].padStart(2, '0')}-${br[1].padStart(2, '0')}`;
+  const textMonth = raw.match(
+    /\b(\d{1,2})\s*(?:de\s*)?([A-Za-zÀ-ÿ]{3,12})\.?,?\s*(?:de\s*)?(20\d{2})\b/i,
+  );
+  if (textMonth) {
+    const day = textMonth[1].padStart(2, '0');
+    const monthToken = textMonth[2].normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const month = MONTH_INDEX[monthToken];
+    if (month) return `${textMonth[3]}-${month}-${day}`;
+  }
   return null;
 }
 
@@ -255,14 +309,46 @@ function inferFlightCode(text: string, fileName: string) {
 }
 
 function inferDates(text: string) {
+  const collectDateCandidates = () => {
+    const candidates: string[] = [];
+    const normalizedText = text.replace(/\s+/g, ' ');
+
+    const numericRegex = /\b(?:20\d{2}[-/\.]\d{1,2}[-/\.]\d{1,2}|\d{1,2}[-/\.]\d{1,2}[-/\.]20\d{2})\b/g;
+    let numericMatch: RegExpExecArray | null = null;
+    while ((numericMatch = numericRegex.exec(normalizedText)) !== null) {
+      const isoDate = normalizeDateLike(numericMatch[0]);
+      if (isoDate) candidates.push(isoDate);
+    }
+
+    const monthRegex = /\b\d{1,2}\s*(?:de\s*)?[A-Za-zÀ-ÿ]{3,12}\.?,?\s*(?:de\s*)?20\d{2}\b/gi;
+    let monthMatch: RegExpExecArray | null = null;
+    while ((monthMatch = monthRegex.exec(normalizedText)) !== null) {
+      const isoDate = normalizeDateLike(monthMatch[0]);
+      if (isoDate) candidates.push(isoDate);
+    }
+
+    return Array.from(new Set(candidates));
+  };
+
   const iso = text.match(/\b(20\d{2})[-/\.](\d{1,2})[-/\.](\d{1,2})\b/);
   const br = text.match(/\b(\d{1,2})[-/\.](\d{1,2})[-/\.](20\d{2})\b/);
   const checkIn = text.match(/(?:check[ -]?in|entrada)\s*[:\-]?\s*([0-9]{1,2}[/.\-][0-9]{1,2}[/.\-](?:20[0-9]{2}|[0-9]{2})|20[0-9]{2}[/.\-][0-9]{1,2}[/.\-][0-9]{1,2})/i);
   const checkOut = text.match(/(?:check[ -]?out|sa[ií]da)\s*[:\-]?\s*([0-9]{1,2}[/.\-][0-9]{1,2}[/.\-](?:20[0-9]{2}|[0-9]{2})|20[0-9]{2}[/.\-][0-9]{1,2}[/.\-][0-9]{1,2})/i);
+  const checkInMonth = text.match(/(?:check[ -]?in|entrada)\s*[:\-]?\s*(\d{1,2}\s*(?:de\s*)?[A-Za-zÀ-ÿ]{3,12}\.?,?\s*(?:de\s*)?20\d{2})/i);
+  const checkOutMonth = text.match(/(?:check[ -]?out|sa[ií]da)\s*[:\-]?\s*(\d{1,2}\s*(?:de\s*)?[A-Za-zÀ-ÿ]{3,12}\.?,?\s*(?:de\s*)?20\d{2})/i);
+  const candidates = collectDateCandidates();
+
+  const normalizedCheckIn = normalizeDateLike(checkIn?.[1] ?? checkInMonth?.[1] ?? null);
+  const normalizedCheckOut = normalizeDateLike(checkOut?.[1] ?? checkOutMonth?.[1] ?? null);
+  const genericPrimary = normalizeDateLike(iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : br ? `${br[1]}-${br[2]}-${br[3]}` : null);
+  const generic = genericPrimary ?? candidates[0] ?? null;
+  const secondary = candidates.length > 1 ? candidates[1] : null;
+
   return {
-    generic: normalizeDateLike(iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : br ? `${br[1]}-${br[2]}-${br[3]}` : null),
-    checkIn: normalizeDateLike(checkIn?.[1] ?? null),
-    checkOut: normalizeDateLike(checkOut?.[1] ?? null),
+    generic,
+    secondary,
+    checkIn: normalizedCheckIn ?? candidates[0] ?? null,
+    checkOut: normalizedCheckOut ?? (candidates.length > 1 ? candidates[1] : null),
   };
 }
 
@@ -365,7 +451,9 @@ function normalizeCanonical(raw: Record<string, unknown>, text: string, fileName
       (canonical.metadata.tipo === 'Hospedagem' ? stayAddress ?? cityRoute.destino : cityRoute.destino) ??
       null;
     canonical.dados_principais.data_inicio = canonical.dados_principais.data_inicio ?? (canonical.metadata.tipo === 'Hospedagem' ? dates.checkIn : dates.generic);
-    canonical.dados_principais.data_fim = canonical.dados_principais.data_fim ?? (canonical.metadata.tipo === 'Hospedagem' ? dates.checkOut : null);
+    canonical.dados_principais.data_fim =
+      canonical.dados_principais.data_fim ??
+      (canonical.metadata.tipo === 'Hospedagem' ? dates.checkOut : dates.secondary ?? null);
     canonical.dados_principais.hora_inicio = canonical.dados_principais.hora_inicio ?? firstTime;
 
     if (canonical.metadata.tipo === 'Voo') {
