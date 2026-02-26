@@ -25,6 +25,7 @@ import { TripCollaborationBanner, TripViewerNotice } from '@/components/dashboar
 import { BudgetTabPanel } from '@/components/dashboard/BudgetTabPanel';
 import { GastronomyTabPanel } from '@/components/dashboard/GastronomyTabPanel';
 import { SupportTabPanel } from '@/components/dashboard/SupportTabPanel';
+import { TasksTabPanel } from '@/components/dashboard/TasksTabPanel';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -36,7 +37,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Tables, TablesInsert } from '@/integrations/supabase/types';
-import { Plane, Hotel, Bus, ListTodo, DollarSign, LogOut, Utensils, Briefcase, Users, FileText, Package, Plus, Pencil, Trash2, Clock3, Route, CheckCircle2, RotateCcw, TrendingUp, Wallet, CalendarDays, Sparkles, MapPin, ChevronUp, ChevronDown, ExternalLink } from 'lucide-react';
+import { Plane, Hotel, Bus, ListTodo, DollarSign, LogOut, Utensils, Briefcase, Users, FileText, Package, Plus, Pencil, Trash2, Clock3, Route, TrendingUp, Wallet, CalendarDays, Sparkles, MapPin, ChevronUp, ChevronDown, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { generateStayTips, suggestRestaurants, generateTripTasks, generateItinerary } from '@/services/ai';
@@ -1197,6 +1198,44 @@ export default function Dashboard() {
   const removeTask = async (id: string) => {
     if (!ensureCanEdit()) return;
     await tasksModule.remove(id);
+  };
+
+  const generateTasksWithAi = async () => {
+    if (!ensureCanEdit()) return;
+    setGeneratingTasks(true);
+    try {
+      const result = await generateTripTasks({
+        destination: currentTrip?.destino,
+        startDate: currentTrip?.data_inicio,
+        endDate: currentTrip?.data_fim,
+        userHomeCity,
+        flights: flightsModule.data.map((f) => ({ origem: f.origem, destino: f.destino })),
+        stays: staysModule.data.map((s) => ({ localizacao: s.localizacao, check_in: s.check_in })),
+        existingTasks: tasksModule.data.map((t) => t.titulo),
+      });
+      if (result.data && result.data.length > 0) {
+        let created = 0;
+        for (const task of result.data) {
+          try {
+            await tasksModule.create({
+              titulo: task.titulo,
+              categoria: task.categoria,
+              prioridade: task.prioridade as TarefaPrioridade,
+            });
+            created++;
+          } catch {
+            // Skip possible duplicates.
+          }
+        }
+        toast.success(`${created} tarefa(s) gerada(s) por IA.`);
+      } else {
+        toast.error(result.error || 'Não foi possível gerar tarefas.');
+      }
+    } catch {
+      toast.error('Erro ao gerar tarefas com IA.');
+    } finally {
+      setGeneratingTasks(false);
+    }
   };
 
   const createExpense = async () => {
@@ -2645,151 +2684,26 @@ export default function Dashboard() {
               </TabsContent>
 
               <TabsContent value="tarefas" className="space-y-4">
-                <Card className="border-border/50">
-                  <CardHeader>
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <CardTitle className="font-display text-xl">Tarefas da viagem</CardTitle>
-                      <Button
-                        variant="outline"
-                        disabled={!canEditTrip || generatingTasks}
-                        onClick={async () => {
-                          if (!ensureCanEdit()) return;
-                          setGeneratingTasks(true);
-                          try {
-                            const result = await generateTripTasks({
-                              destination: currentTrip?.destino,
-                              startDate: currentTrip?.data_inicio,
-                              endDate: currentTrip?.data_fim,
-                              userHomeCity,
-                              flights: flightsModule.data.map((f) => ({ origem: f.origem, destino: f.destino })),
-                              stays: staysModule.data.map((s) => ({ localizacao: s.localizacao, check_in: s.check_in })),
-                              existingTasks: tasksModule.data.map((t) => t.titulo),
-                            });
-                            if (result.data && result.data.length > 0) {
-                              let created = 0;
-                              for (const task of result.data) {
-                                try {
-                                  await tasksModule.create({
-                                    titulo: task.titulo,
-                                    categoria: task.categoria,
-                                    prioridade: task.prioridade as TarefaPrioridade,
-                                  });
-                                  created++;
-                                } catch { /* skip duplicates */ }
-                              }
-                              toast.success(`${created} tarefa(s) gerada(s) por IA.`);
-                            } else {
-                              toast.error(result.error || 'Não foi possível gerar tarefas.');
-                            }
-                          } catch (err) {
-                            toast.error('Erro ao gerar tarefas com IA.');
-                          } finally {
-                            setGeneratingTasks(false);
-                          }
-                        }}
-                      >
-                        <Sparkles className="mr-2 h-4 w-4" />
-                        {generatingTasks ? 'Gerando...' : 'Gerar tarefas com IA'}
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid gap-3 sm:grid-cols-[1fr_180px_180px]">
-                      <Input
-                        placeholder="Título da tarefa"
-                        value={taskForm.titulo}
-                        onChange={(e) => setTaskForm((s) => ({ ...s, titulo: e.target.value }))}
-                      />
-                      <Input
-                        placeholder="Categoria"
-                        value={taskForm.categoria}
-                        onChange={(e) => setTaskForm((s) => ({ ...s, categoria: e.target.value }))}
-                      />
-                      <Select
-                        value={taskForm.prioridade}
-                        onValueChange={(value: TarefaPrioridade) => setTaskForm((s) => ({ ...s, prioridade: value }))}
-                      >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="baixa">Baixa</SelectItem>
-                          <SelectItem value="media">Média</SelectItem>
-                          <SelectItem value="alta">Alta</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex justify-end">
-                      <Button onClick={createTask} disabled={!canEditTrip || !taskForm.titulo.trim() || tasksModule.isCreating}>
-                        <Plus className="mr-2 h-4 w-4" />
-                        Criar tarefa
-                      </Button>
-                    </div>
-
-                    <Input
-                      placeholder="Buscar tarefa por título ou categoria"
-                      value={taskSearch}
-                      onChange={(e) => setTaskSearch(e.target.value)}
-                    />
-
-                    {tasksModule.isLoading ? (
-                      <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
-                        Carregando tarefas...
-                      </div>
-                    ) : tasksFiltered.length === 0 ? (
-                      <div className="rounded-lg border border-dashed p-8 text-center">
-                        <ListTodo className="mx-auto mb-2 h-5 w-5 text-muted-foreground" />
-                        <p className="text-sm text-muted-foreground">Nenhuma tarefa encontrada.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {tasksFiltered.map((task) => (
-                          <Card key={task.id} className="border-border/50">
-                            <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                              <div>
-                                <p className={`font-medium ${task.concluida ? 'line-through text-muted-foreground' : ''}`}>
-                                  {task.titulo}
-                                </p>
-                                <div className="mt-1 flex items-center gap-2">
-                                  {prioridadeBadge(task.prioridade)}
-                                  {task.categoria && <Badge variant="secondary">{task.categoria}</Badge>}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => toggleTask(task)}
-                                  disabled={!canEditTrip || tasksModule.isUpdating}
-                                >
-                                  {task.concluida ? (
-                                    <>
-                                      <RotateCcw className="mr-1 h-4 w-4" />
-                                      Reabrir
-                                    </>
-                                  ) : (
-                                    <>
-                                      <CheckCircle2 className="mr-1 h-4 w-4" />
-                                      Concluir
-                                    </>
-                                  )}
-                                </Button>
-                                <ConfirmActionButton
-                                  ariaLabel="Remover tarefa"
-                                  title="Remover tarefa"
-                                  description="Esta tarefa será removida da lista."
-                                  confirmLabel="Remover"
-                                  disabled={!canEditTrip || tasksModule.isRemoving}
-                                  onConfirm={() => removeTask(task.id)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </ConfirmActionButton>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                <TasksTabPanel
+                  canEditTrip={canEditTrip}
+                  generatingTasks={generatingTasks}
+                  onGenerateTasks={generateTasksWithAi}
+                  taskForm={taskForm}
+                  onTaskTitleChange={(value) => setTaskForm((current) => ({ ...current, titulo: value }))}
+                  onTaskCategoryChange={(value) => setTaskForm((current) => ({ ...current, categoria: value }))}
+                  onTaskPriorityChange={(value) => setTaskForm((current) => ({ ...current, prioridade: value }))}
+                  onCreateTask={createTask}
+                  isCreatingTask={tasksModule.isCreating}
+                  taskSearch={taskSearch}
+                  onTaskSearchChange={setTaskSearch}
+                  tasksLoading={tasksModule.isLoading}
+                  tasksFiltered={tasksFiltered}
+                  onToggleTask={toggleTask}
+                  isUpdatingTask={tasksModule.isUpdating}
+                  onRemoveTask={removeTask}
+                  isRemovingTask={tasksModule.isRemoving}
+                  prioridadeBadge={prioridadeBadge}
+                />
               </TabsContent>
 
               <TabsContent value="roteiro" className="space-y-4">
