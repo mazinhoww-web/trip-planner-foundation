@@ -2,7 +2,13 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/http.ts';
 import { requireAuthenticatedUser } from '../_shared/security.ts';
-import { isFeatureEnabled, loadFeatureGateContext, trackFeatureUsage } from '../_shared/feature-gates.ts';
+import {
+  getFeatureUsageCountInWindow,
+  isFeatureEnabled,
+  loadFeatureGateContext,
+  resolveFeatureLimit,
+  trackFeatureUsage,
+} from '../_shared/feature-gates.ts';
 
 type RequestBody = {
   action?: unknown;
@@ -86,6 +92,36 @@ Deno.serve(async (req) => {
       }, serviceClient ?? undefined);
 
       return errorResponse(requestId, 'UNAUTHORIZED', 'API pública disponível no plano Team.', 403);
+    }
+
+    const apiLimit = resolveFeatureLimit(context, 'ff_public_api_access', 30);
+    const usageCount = await getFeatureUsageCountInWindow({
+      userId: auth.userId,
+      featureKey: 'ff_public_api_access',
+      windowMinutes: 24 * 60,
+    }, serviceClient ?? undefined);
+
+    if (usageCount != null && usageCount >= apiLimit) {
+      await trackFeatureUsage({
+        userId: auth.userId,
+        featureKey: 'ff_public_api_access',
+        viagemId,
+        metadata: {
+          operation: 'public-trip-api',
+          status: 'blocked',
+          reason: 'rate_limit',
+          requestId,
+          usageCount,
+          limit: apiLimit,
+        },
+      }, serviceClient ?? undefined);
+
+      return errorResponse(
+        requestId,
+        'RATE_LIMITED',
+        'Limite diário da API pública atingido para o seu plano.',
+        429,
+      );
     }
 
     const authorization = req.headers.get('Authorization');

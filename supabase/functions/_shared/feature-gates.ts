@@ -250,6 +250,50 @@ export function resolveAiTimeout(baseTimeoutMs: number, context: FeatureGateCont
   return context.entitlements.ff_ai_priority_inference ? Math.round(baseTimeoutMs * 1.4) : baseTimeoutMs;
 }
 
+export function resolveFeatureLimit(
+  context: FeatureGateContext,
+  featureKey: FeatureKey,
+  defaultLimit: number,
+) {
+  const configured = context.limits[featureKey];
+  if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+    return Math.round(configured);
+  }
+  return defaultLimit;
+}
+
+export async function getFeatureUsageCountInWindow(
+  params: {
+    userId: string;
+    featureKey: FeatureKey;
+    windowMinutes: number;
+  },
+  serviceClient?: SupabaseClient,
+) {
+  const client = getServiceClient(serviceClient);
+  if (!client) return null;
+
+  const windowMinutes = Math.max(1, Math.round(params.windowMinutes));
+  const sinceIso = new Date(Date.now() - windowMinutes * 60_000).toISOString();
+  const { count, error } = await client
+    .from('feature_usage_events')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', params.userId)
+    .eq('feature_key', params.featureKey)
+    .gte('created_at', sinceIso);
+
+  if (error) {
+    console.warn('[feature-gates] usage_count_failed', {
+      userId: params.userId,
+      featureKey: params.featureKey,
+      error: error.message,
+    });
+    return null;
+  }
+
+  return count ?? 0;
+}
+
 export async function loadFeatureGateContext(userId: string, serviceClient?: SupabaseClient): Promise<FeatureGateContext> {
   const selfServiceEnabled = resolveSelfServiceEnabled();
   const client = getServiceClient(serviceClient);

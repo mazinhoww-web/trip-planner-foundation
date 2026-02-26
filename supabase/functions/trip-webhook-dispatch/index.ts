@@ -1,7 +1,14 @@
 import { corsHeaders } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/http.ts';
 import { requireAuthenticatedUser } from '../_shared/security.ts';
-import { isFeatureEnabled, loadFeatureGateContext, trackFeatureUsage } from '../_shared/feature-gates.ts';
+import {
+  getFeatureUsageCountInWindow,
+  isFeatureEnabled,
+  loadFeatureGateContext,
+  resolveFeatureLimit,
+  trackFeatureUsage,
+} from '../_shared/feature-gates.ts';
+import { createClient } from 'npm:@supabase/supabase-js@2';
 
 type RequestBody = {
   eventType?: unknown;
@@ -41,6 +48,19 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function createServiceClient() {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!supabaseUrl || !serviceRoleKey) return null;
+  return createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -62,15 +82,41 @@ Deno.serve(async (req) => {
       return errorResponse(requestId, 'BAD_REQUEST', 'eventType e viagemId são obrigatórios.', 400);
     }
 
-    const context = await loadFeatureGateContext(auth.userId);
+    const serviceClient = createServiceClient();
+    const context = await loadFeatureGateContext(auth.userId, serviceClient ?? undefined);
     if (!isFeatureEnabled(context, 'ff_webhooks_enabled')) {
       await trackFeatureUsage({
         userId: auth.userId,
         featureKey: 'ff_webhooks_enabled',
         viagemId,
         metadata: { operation: 'trip-webhook-dispatch', status: 'blocked', eventType, requestId },
-      });
+      }, serviceClient ?? undefined);
       return errorResponse(requestId, 'UNAUTHORIZED', 'Webhooks disponíveis no plano Team.', 403);
+    }
+
+    const webhookLimit = resolveFeatureLimit(context, 'ff_webhooks_enabled', 120);
+    const usageCount = await getFeatureUsageCountInWindow({
+      userId: auth.userId,
+      featureKey: 'ff_webhooks_enabled',
+      windowMinutes: 24 * 60,
+    }, serviceClient ?? undefined);
+
+    if (usageCount != null && usageCount >= webhookLimit) {
+      await trackFeatureUsage({
+        userId: auth.userId,
+        featureKey: 'ff_webhooks_enabled',
+        viagemId,
+        metadata: {
+          operation: 'trip-webhook-dispatch',
+          status: 'blocked',
+          reason: 'rate_limit',
+          eventType,
+          requestId,
+          usageCount,
+          limit: webhookLimit,
+        },
+      }, serviceClient ?? undefined);
+      return errorResponse(requestId, 'RATE_LIMITED', 'Limite diário de webhooks atingido para o seu plano.', 429);
     }
 
     const targetUrl = Deno.env.get('WEBHOOK_TARGET_URL');
@@ -80,7 +126,7 @@ Deno.serve(async (req) => {
         featureKey: 'ff_webhooks_enabled',
         viagemId,
         metadata: { operation: 'trip-webhook-dispatch', status: 'skipped', reason: 'missing_target_url', eventType, requestId },
-      });
+      }, serviceClient ?? undefined);
 
       return successResponse({
         delivered: false,
@@ -154,7 +200,7 @@ Deno.serve(async (req) => {
           attempts,
           error: lastError,
         },
-      });
+      }, serviceClient ?? undefined);
 
       return errorResponse(requestId, 'UPSTREAM_ERROR', 'Webhook recusado pelo endpoint configurado.', 502);
     }
@@ -170,7 +216,7 @@ Deno.serve(async (req) => {
         requestId,
         attempts,
       },
-    });
+    }, serviceClient ?? undefined);
 
     return successResponse({
       delivered: true,

@@ -2,7 +2,13 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
 import { errorResponse, successResponse } from '../_shared/http.ts';
 import { requireAuthenticatedUser } from '../_shared/security.ts';
-import { isFeatureEnabled, loadFeatureGateContext, trackFeatureUsage } from '../_shared/feature-gates.ts';
+import {
+  getFeatureUsageCountInWindow,
+  isFeatureEnabled,
+  loadFeatureGateContext,
+  resolveFeatureLimit,
+  trackFeatureUsage,
+} from '../_shared/feature-gates.ts';
 
 type ExportFormat = 'json' | 'pdf';
 
@@ -148,6 +154,39 @@ Deno.serve(async (req) => {
         ? 'Exportação PDF disponível nos planos Pro/Team.'
         : 'Exportação JSON completa disponível nos planos Pro/Team.';
       return errorResponse(requestId, 'UNAUTHORIZED', planMessage, 403);
+    }
+
+    const exportLimit = format === 'pdf'
+      ? resolveFeatureLimit(context, 'ff_export_pdf', 20)
+      : resolveFeatureLimit(context, 'ff_export_json_full', 60);
+    const usageCount = await getFeatureUsageCountInWindow({
+      userId: auth.userId,
+      featureKey: requiredFeature,
+      windowMinutes: 24 * 60,
+    }, serviceClient ?? undefined);
+
+    if (usageCount != null && usageCount >= exportLimit) {
+      await trackFeatureUsage({
+        userId: auth.userId,
+        featureKey: requiredFeature,
+        viagemId,
+        metadata: {
+          operation: 'trip-export',
+          status: 'blocked',
+          reason: 'rate_limit',
+          requestId,
+          format,
+          usageCount,
+          limit: exportLimit,
+        },
+      }, serviceClient ?? undefined);
+
+      return errorResponse(
+        requestId,
+        'RATE_LIMITED',
+        'Limite diário de exportações atingido para o seu plano.',
+        429,
+      );
     }
 
     const authorization = req.headers.get('Authorization');
