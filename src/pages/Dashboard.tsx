@@ -28,6 +28,7 @@ import { SupportTabPanel } from '@/components/dashboard/SupportTabPanel';
 import { TasksTabPanel } from '@/components/dashboard/TasksTabPanel';
 import { ExpensesTabPanel } from '@/components/dashboard/ExpensesTabPanel';
 import { FlightsTabPanel } from '@/components/dashboard/FlightsTabPanel';
+import { OverviewTabPanel } from '@/components/dashboard/OverviewTabPanel';
 import { BrandLogo } from '@/components/brand/BrandLogo';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -1587,97 +1588,22 @@ export default function Dashboard() {
               </div>
 
               <TabsContent value="visao" className="space-y-4">
-                <div className="grid gap-4 lg:grid-cols-3">
-                  <Card className="border-border/50 lg:col-span-2">
-                    <CardHeader>
-                      <CardTitle className="font-display text-xl">Próximos eventos</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {upcomingEvents.length === 0 ? (
-                        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-                          Sem eventos futuros no momento.
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          {upcomingEvents.map((event) => (
-                            <div key={event.id} className="flex items-start justify-between rounded-lg border p-3">
-                              <div>
-                                <p className="font-medium">{event.titulo}</p>
-                                <p className="text-sm text-muted-foreground">{event.tipo}</p>
-                              </div>
-                              <Badge variant="secondary" className="whitespace-nowrap">
-                                <CalendarDays className="mr-1 h-3.5 w-3.5" />
-                                {formatDateTime(event.data)}
-                              </Badge>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border-border/50">
-                    <CardHeader>
-                      <CardTitle className="text-base">Cobertura da viagem</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3 text-sm">
-                      <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
-                        <p className="font-medium text-emerald-700">
-                          {stayCoverageGaps.length === 0 ? 'Hospedagens cobertas' : `${stayCoverageGaps.length} gap(s) de hospedagem`}
-                        </p>
-                        <p className="text-xs text-emerald-700/80">
-                          {stayCoverageGaps.length === 0
-                            ? 'Sem noites descobertas no intervalo atual.'
-                            : 'Revise os períodos sem check-in/check-out registrados.'}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3">
-                        <p className="font-medium text-sky-700">
-                          {transportCoverageGaps.length === 0 ? 'Trocas de cidade cobertas' : `${transportCoverageGaps.length} trecho(s) sem transporte`}
-                        </p>
-                        <p className="text-xs text-sky-700/80">
-                          {transportCoverageGaps.length === 0
-                            ? 'Nenhum deslocamento entre cidades ficou descoberto.'
-                            : 'Adicione voos/transportes para fechar os deslocamentos faltantes.'}
-                        </p>
-                      </div>
-                      <p><strong>Restaurantes salvos:</strong> {restaurantsFavorites.length}</p>
-                      <p><strong>Documentos:</strong> {documentsModule.data.length}</p>
-                      <p><strong>Viajantes:</strong> {travelersModule.data.length}</p>
-                      <p><strong>Real x estimado:</strong> {formatCurrency(realTotal)} / {formatCurrency(estimadoTotal)}</p>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                <Card className="border-border/50">
-                  <CardHeader>
-                    <CardTitle className="text-base">Mapa da viagem (OpenStreetMap)</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {isAnyCrudDialogOpen ? (
-                      <div className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">
-                        Mapa temporariamente oculto enquanto um modal está aberto.
-                      </div>
-                    ) : (
-                      <Suspense fallback={<div className="h-[320px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
-                        <TripOpenMap
-                          stays={staysModule.data}
-                          transports={transportsModule.data}
-                          flights={flightsModule.data}
-                          height="clamp(220px, 42vh, 320px)"
-                          disabled={isAnyCrudDialogOpen}
-                          background
-                        />
-                      </Suspense>
-                    )}
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      <Badge variant="outline" className="border-emerald-400/60 bg-emerald-50 text-emerald-700">Hospedagens</Badge>
-                      <Badge variant="outline" className="border-sky-400/60 bg-sky-50 text-sky-700">Transportes</Badge>
-                      <Badge variant="outline" className="border-indigo-400/60 bg-indigo-50 text-indigo-700">Voos</Badge>
-                      <span className="self-center">Pins numerados mostram ordem de estadias no roteiro.</span>
-                    </div>
-                  </CardContent>
-                </Card>
+                <OverviewTabPanel
+                  upcomingEvents={upcomingEvents}
+                  formatDateTime={formatDateTime}
+                  stayCoverageGapCount={stayCoverageGaps.length}
+                  transportCoverageGapCount={transportCoverageGaps.length}
+                  restaurantsSavedCount={restaurantsFavorites.length}
+                  documentsCount={documentsModule.data.length}
+                  travelersCount={travelersModule.data.length}
+                  realTotal={realTotal}
+                  estimadoTotal={estimadoTotal}
+                  formatCurrency={formatCurrency}
+                  isAnyCrudDialogOpen={isAnyCrudDialogOpen}
+                  stays={staysModule.data}
+                  transports={transportsModule.data}
+                  flights={flightsModule.data}
+                />
               </TabsContent>
 
               <TabsContent value="voos" className="space-y-4">
