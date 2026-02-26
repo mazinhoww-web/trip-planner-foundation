@@ -52,6 +52,7 @@ Set required environment variables:
 - Fallback paralelo obrigatório: `GEMINI_API_KEY`
 - OCR opcional: `OCR_SPACE_API_KEY`
 - Webhook opcional (M4): `WEBHOOK_TARGET_URL`
+- Assinatura opcional de webhook (M4): `WEBHOOK_SECRET`
 
 Deploy functions:
 

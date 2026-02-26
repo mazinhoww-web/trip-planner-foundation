@@ -9,8 +9,36 @@ type RequestBody = {
   payload?: unknown;
 };
 
+const MAX_WEBHOOK_ATTEMPTS = 3;
+const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function shouldRetryStatus(status: number) {
+  return RETRYABLE_STATUS_CODES.has(status);
+}
+
+function toHex(buffer: ArrayBuffer) {
+  return [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function signPayload(payloadRaw: string, secret: string) {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payloadRaw));
+  return `sha256=${toHex(signature)}`;
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 Deno.serve(async (req) => {
@@ -70,15 +98,49 @@ Deno.serve(async (req) => {
       payload,
     };
 
-    const response = await fetch(targetUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(outbound),
-    });
+    const serializedBody = JSON.stringify(outbound);
+    const webhookSecret = Deno.env.get('WEBHOOK_SECRET');
+    const signatureHeader = webhookSecret ? await signPayload(serializedBody, webhookSecret) : null;
 
-    if (!response.ok) {
+    let lastStatus: number | null = null;
+    let delivered = false;
+    let lastError: string | null = null;
+    let attempts = 0;
+
+    for (let attempt = 1; attempt <= MAX_WEBHOOK_ATTEMPTS; attempt += 1) {
+      attempts = attempt;
+      try {
+        const response = await fetch(targetUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(signatureHeader ? { 'X-Tripplanner-Signature': signatureHeader } : {}),
+            'X-Tripplanner-Request-Id': requestId,
+            'X-Tripplanner-Attempt': String(attempt),
+          },
+          body: serializedBody,
+        });
+
+        lastStatus = response.status;
+        if (response.ok) {
+          delivered = true;
+          break;
+        }
+
+        if (!shouldRetryStatus(response.status) || attempt === MAX_WEBHOOK_ATTEMPTS) {
+          break;
+        }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'network_error';
+        if (attempt === MAX_WEBHOOK_ATTEMPTS) {
+          break;
+        }
+      }
+
+      await wait(attempt * 300);
+    }
+
+    if (!delivered) {
       await trackFeatureUsage({
         userId: auth.userId,
         featureKey: 'ff_webhooks_enabled',
@@ -88,7 +150,9 @@ Deno.serve(async (req) => {
           status: 'failed',
           eventType,
           requestId,
-          statusCode: response.status,
+          statusCode: lastStatus,
+          attempts,
+          error: lastError,
         },
       });
 
@@ -104,10 +168,15 @@ Deno.serve(async (req) => {
         status: 'success',
         eventType,
         requestId,
+        attempts,
       },
     });
 
-    return successResponse({ delivered: true });
+    return successResponse({
+      delivered: true,
+      attempts,
+      signed: !!signatureHeader,
+    });
   } catch (error) {
     console.error('[trip-webhook-dispatch]', requestId, 'unexpected_error', error);
     return errorResponse(requestId, 'INTERNAL_ERROR', 'Não foi possível enviar webhook.', 500);
