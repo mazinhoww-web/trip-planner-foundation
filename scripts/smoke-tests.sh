@@ -81,7 +81,7 @@ else
 fi
 
 # 3) Functions deploy + proteção (espera 401 sem Authorization)
-for fn in generate-tips suggest-restaurants ocr-document extract-reservation trip-members feature-entitlements public-trip-api trip-webhook-dispatch trip-export; do
+for fn in generate-tips suggest-restaurants ocr-document extract-reservation trip-members trip-ai-chat feature-entitlements public-trip-api trip-webhook-dispatch trip-export; do
   code="$(http_code POST "$SUPABASE_URL/functions/v1/$fn" "$tmp_dir/$fn.h" "$tmp_dir/$fn.b" \
     -H "apikey: $SUPABASE_ANON_KEY" \
     -H "Content-Type: application/json" \
@@ -168,6 +168,29 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
     fi
   else
     fail "suggest-restaurants autenticado falhou ($code)"
+  fi
+
+  if [ -n "${TEST_TRIP_ID:-}" ]; then
+    code="$(http_code POST "$SUPABASE_URL/functions/v1/trip-ai-chat" "$tmp_dir/auth-trip-ai-chat.h" "$tmp_dir/auth-trip-ai-chat.b" \
+      -H "apikey: $SUPABASE_ANON_KEY" \
+      -H "Authorization: Bearer $TEST_USER_JWT" \
+      -H "Content-Type: application/json" \
+      --data "{\"viagemId\":\"$TEST_TRIP_ID\",\"message\":\"Resuma as principais pendências da viagem.\"}")"
+    if [[ "$code" =~ ^(200|403|429|502)$ ]]; then
+      if [ "$code" = "200" ]; then
+        if grep -q "\"answer\"" "$tmp_dir/auth-trip-ai-chat.b" && grep -q "\"quickActions\"" "$tmp_dir/auth-trip-ai-chat.b"; then
+          pass "trip-ai-chat autenticado retornou resposta estruturada (200)"
+        else
+          warn "trip-ai-chat respondeu 200 sem payload esperado"
+        fi
+      elif [ "$code" = "403" ]; then
+        pass "trip-ai-chat bloqueado por plano/permissão (403)"
+      else
+        warn "trip-ai-chat retornou $code"
+      fi
+    else
+      fail "trip-ai-chat autenticado falhou ($code)"
+    fi
   fi
 
   code="$(http_code POST "$SUPABASE_URL/functions/v1/feature-entitlements" "$tmp_dir/auth-ent.h" "$tmp_dir/auth-ent.b" \

@@ -60,6 +60,7 @@ supabase functions deploy extract-reservation
 supabase functions deploy ocr-document
 supabase functions deploy generate-tips
 supabase functions deploy suggest-restaurants
+supabase functions deploy trip-ai-chat
 supabase functions deploy public-trip-api
 supabase functions deploy trip-webhook-dispatch
 supabase functions deploy trip-export
