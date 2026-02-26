@@ -263,7 +263,11 @@ if [ -n "${TEST_USER_JWT:-}" ]; then
       --data "{\"eventType\":\"smoke.test\",\"viagemId\":\"$TEST_TRIP_ID\",\"payload\":{\"origin\":\"smoke\"}}")"
     if [[ "$code" =~ ^(200|403|429|502)$ ]]; then
       if [ "$code" = "200" ]; then
-        pass "trip-webhook-dispatch autenticado respondeu (200)"
+        if grep -q "\"attempts\"" "$tmp_dir/auth-webhook.b"; then
+          pass "trip-webhook-dispatch autenticado respondeu com metadata de tentativas (200)"
+        else
+          warn "trip-webhook-dispatch respondeu 200 sem campo attempts"
+        fi
       elif [ "$code" = "403" ]; then
         pass "trip-webhook-dispatch bloqueado por plano (403) - esperado no free/pro"
       else

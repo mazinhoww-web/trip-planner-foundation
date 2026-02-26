@@ -18,6 +18,26 @@ type Props = {
 };
 
 const MISSING_FIELD_LABELS: Record<string, string> = {
+  'metadata.tipo': 'Tipo da reserva',
+  'metadata.confianca': 'Confiança da extração',
+  'dados_principais.nome_exibicao': 'Nome para exibição',
+  'dados_principais.provedor': 'Provedor/companhia',
+  'dados_principais.codigo_reserva': 'Código da reserva',
+  'dados_principais.passageiro_hospede': 'Passageiro/hóspede',
+  'dados_principais.data_inicio': 'Data de início',
+  'dados_principais.hora_inicio': 'Hora de início',
+  'dados_principais.data_fim': 'Data de fim',
+  'dados_principais.hora_fim': 'Hora de fim',
+  'dados_principais.origem': 'Origem',
+  'dados_principais.destino': 'Destino',
+  'financeiro.valor_total': 'Valor total',
+  'financeiro.moeda': 'Moeda',
+  'financeiro.metodo': 'Método de pagamento',
+  'financeiro.pontos_utilizados': 'Pontos/milhas utilizados',
+  'enriquecimento_ia.dica_viagem': 'Dica de viagem',
+  'enriquecimento_ia.como_chegar': 'Como chegar',
+  'enriquecimento_ia.atracoes_proximas': 'Atrações próximas',
+  'enriquecimento_ia.restaurantes_proximos': 'Restaurantes próximos',
   'voo.origem': 'Origem do voo',
   'voo.destino': 'Destino do voo',
   'voo.data_inicio': 'Data do voo',
@@ -31,7 +51,12 @@ const MISSING_FIELD_LABELS: Record<string, string> = {
   'transporte.data_inicio': 'Data do transporte',
   'restaurante.nome': 'Nome do restaurante',
   'restaurante.cidade': 'Cidade do restaurante',
+  review_manual_requerida: 'Validação manual recomendada',
 };
+
+export function toMissingFieldLabel(field: string) {
+  return MISSING_FIELD_LABELS[field] ?? field;
+}
 
 function confidenceBadge(confidence: number | null) {
   if (confidence == null) return <Badge variant="secondary">Confiança não informada</Badge>;
@@ -71,7 +96,7 @@ export function ImportConfirmationCard({
   const transportDateLabel = review?.transporte.data_inicio
     ? `${review.transporte.data_inicio}${review.transporte.hora_inicio ? ` ${review.transporte.hora_inicio}` : ''}`
     : 'Data não identificada';
-  const missingCritical = activeItem.missingFields.slice(0, 5).map((field) => MISSING_FIELD_LABELS[field] ?? field);
+  const missingCritical = [...new Set(activeItem.missingFields)].slice(0, 5).map(toMissingFieldLabel);
 
   return (
     <Card className="border-primary/30 bg-primary/5">
