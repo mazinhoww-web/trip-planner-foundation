@@ -1,7 +1,9 @@
 import { BudgetExportActions } from '@/components/dashboard/BudgetExportActions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { convertTotalsRecordByReference } from '@/services/currencyConversion';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { TrendingDown, TrendingUp, Wallet } from 'lucide-react';
+import { useMemo } from 'react';
 
 const CHART_COLORS = ['#0f766e', '#2563eb', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#65a30d'];
 
@@ -56,6 +58,19 @@ export function BudgetTabPanel({
   formatByCurrency,
   formatCurrency,
 }: BudgetTabPanelProps) {
+  const conversionSnapshot = useMemo(() => {
+    const realBrl = convertTotalsRecordByReference(realByCurrency, 'BRL');
+    const estimadoBrl = convertTotalsRecordByReference(estimadoByCurrency, 'BRL');
+    const realUsd = convertTotalsRecordByReference(realByCurrency, 'USD');
+    const estimadoUsd = convertTotalsRecordByReference(estimadoByCurrency, 'USD');
+    return {
+      realBrl,
+      estimadoBrl,
+      realUsd,
+      estimadoUsd,
+    };
+  }, [estimadoByCurrency, realByCurrency]);
+
   return (
     <>
       <BudgetExportActions
@@ -69,7 +84,7 @@ export function BudgetTabPanel({
         onExportIcs={onExportIcs}
       />
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card className="border-border/50">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-muted-foreground">Total real (despesas)</CardTitle>
@@ -109,6 +124,25 @@ export function BudgetTabPanel({
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               {variacaoTotal > 0 ? 'Acima do estimado' : 'Dentro/abaixo do estimado'}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-border/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">Conversão de referência</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p className="font-medium">Totais normalizados por câmbio de referência:</p>
+            <div className="rounded-lg border bg-muted/25 p-2">
+              <p><strong>Real (BRL):</strong> {formatCurrency(conversionSnapshot.realBrl, 'BRL')}</p>
+              <p><strong>Estimado (BRL):</strong> {formatCurrency(conversionSnapshot.estimadoBrl, 'BRL')}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/25 p-2">
+              <p><strong>Real (USD):</strong> {formatCurrency(conversionSnapshot.realUsd, 'USD')}</p>
+              <p><strong>Estimado (USD):</strong> {formatCurrency(conversionSnapshot.estimadoUsd, 'USD')}</p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Taxas de referência para planejamento. Valores finais podem variar na liquidação real.
             </p>
           </CardContent>
         </Card>
