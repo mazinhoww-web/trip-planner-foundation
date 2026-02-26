@@ -20,10 +20,10 @@ const EMPTY_PERMISSION: TripPermissionContext = {
   isOwner: false,
 };
 
-type SetupReason = 'missing_schema' | 'missing_function' | null;
+export type TripMembersSetupReason = 'missing_schema' | 'missing_function' | null;
 
-function normalizeTripMembersError(raw: string | null | undefined) {
-  if (!raw) return { message: 'Falha ao carregar usuários da viagem.', setupReason: null as SetupReason };
+export function normalizeTripMembersError(raw: string | null | undefined) {
+  if (!raw) return { message: 'Falha ao carregar usuários da viagem.', setupReason: null as TripMembersSetupReason };
   const lower = raw.toLowerCase();
   if (
     (lower.includes('relation') && lower.includes('viagem_membros') && lower.includes('does not exist')) ||
@@ -31,16 +31,16 @@ function normalizeTripMembersError(raw: string | null | undefined) {
   ) {
     return {
       message: 'Colaboração ainda não está habilitada neste ambiente (migrations pendentes).',
-      setupReason: 'missing_schema' as SetupReason,
+      setupReason: 'missing_schema' as TripMembersSetupReason,
     };
   }
   if (lower.includes('trip-members') && (lower.includes('not found') || lower.includes('not active') || lower.includes('404'))) {
     return {
       message: 'A função de colaboração não está publicada neste ambiente.',
-      setupReason: 'missing_function' as SetupReason,
+      setupReason: 'missing_function' as TripMembersSetupReason,
     };
   }
-  return { message: raw, setupReason: null as SetupReason };
+  return { message: raw, setupReason: null as TripMembersSetupReason };
 }
 
 export function useTripMembers(viagemId: string | null) {
