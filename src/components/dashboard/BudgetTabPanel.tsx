@@ -18,10 +18,12 @@ export type ExpenseByDateDatum = {
 type BudgetTabPanelProps = {
   canExportPdf: boolean;
   canExportJson: boolean;
+  canExportIcs: boolean;
   isExportingData: boolean;
   planTier: string;
   onExportJson: () => Promise<void> | void;
   onExportPdf: () => Promise<void> | void;
+  onExportIcs: () => Promise<void> | void;
   realByCurrency: BudgetByCurrency;
   estimadoByCurrency: BudgetByCurrency;
   flightByCurrency: BudgetByCurrency;
@@ -37,10 +39,12 @@ type BudgetTabPanelProps = {
 export function BudgetTabPanel({
   canExportPdf,
   canExportJson,
+  canExportIcs,
   isExportingData,
   planTier,
   onExportJson,
   onExportPdf,
+  onExportIcs,
   realByCurrency,
   estimadoByCurrency,
   flightByCurrency,
@@ -57,10 +61,12 @@ export function BudgetTabPanel({
       <BudgetExportActions
         canExportPdf={canExportPdf}
         canExportJson={canExportJson}
+        canExportIcs={canExportIcs}
         isExporting={isExportingData}
         planTier={planTier}
         onExportJson={onExportJson}
         onExportPdf={onExportPdf}
+        onExportIcs={onExportIcs}
       />
 
       <div className="grid gap-4 md:grid-cols-3">

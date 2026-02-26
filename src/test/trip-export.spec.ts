@@ -39,6 +39,31 @@ describe('trip export service', () => {
     expect(vi.mocked(supabase.functions.invoke)).toHaveBeenCalledTimes(1);
   });
 
+  it('accepts calendar export payload when function returns ics', async () => {
+    vi.mocked(supabase.functions.invoke).mockResolvedValue({
+      data: {
+        data: {
+          format: 'ics',
+          fileName: 'trip-itinerario.ics',
+          ics: 'BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n',
+          snapshot: {
+            exportedAt: '2026-02-01T12:00:00.000Z',
+            trip: { id: 'trip-1', nome: 'Trip' },
+            totals: {},
+            modules: {},
+          },
+        },
+      },
+      error: null,
+    } as any);
+
+    const result = await requestTripExport({ viagemId: 'trip-1', format: 'ics' });
+
+    expect(result.error).toBeNull();
+    expect(result.data?.format).toBe('ics');
+    expect(result.data?.fileName).toBe('trip-itinerario.ics');
+  });
+
   it('returns friendly error when function fails', async () => {
     vi.mocked(supabase.functions.invoke).mockResolvedValue({
       data: { error: { message: 'blocked' } },

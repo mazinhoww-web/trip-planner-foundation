@@ -163,7 +163,7 @@ export default function Dashboard() {
   const exportJsonGate = useFeatureGate('ff_export_json_full');
   const publicApiGate = useFeatureGate('ff_public_api_access');
   const webhookGate = useFeatureGate('ff_webhooks_enabled');
-  const { isExportingData, exportJson, exportPdf } = useTripExportActions(currentTripId);
+  const { isExportingData, exportJson, exportPdf, exportIcs } = useTripExportActions(currentTripId);
   const supportResources = useSupportResources({
     canEditTrip,
     documentsModule,
@@ -756,10 +756,12 @@ export default function Dashboard() {
                   <BudgetTabPanel
                     canExportPdf={exportPdfGate.enabled}
                     canExportJson={exportJsonGate.enabled}
+                    canExportIcs={exportJsonGate.enabled}
                     isExportingData={isExportingData}
                     planTier={collabGate.planTier}
                     onExportJson={exportJson}
                     onExportPdf={exportPdf}
+                    onExportIcs={exportIcs}
                     realByCurrency={realByCurrency}
                     estimadoByCurrency={estimadoByCurrency}
                     flightByCurrency={flightStats.byCurrency}

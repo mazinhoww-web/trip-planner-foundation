@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { requestTripExport } from '@/services/tripExport';
-import { exportTripSnapshotJson, openPrintHtml } from '@/services/exports';
+import { exportTripCalendarIcs, exportTripSnapshotJson, openPrintHtml } from '@/services/exports';
 import { trackProductEvent } from '@/services/productAnalytics';
 
 export function useTripExportActions(currentTripId: string | null) {
@@ -63,9 +63,38 @@ export function useTripExportActions(currentTripId: string | null) {
     }
   };
 
+  const exportIcs = async () => {
+    if (!currentTripId) return;
+
+    setIsExportingData(true);
+    try {
+      const result = await requestTripExport({
+        viagemId: currentTripId,
+        format: 'ics',
+      });
+      if (result.error || !result.data?.ics) {
+        throw new Error(result.error ?? 'Não foi possível exportar o calendário da viagem.');
+      }
+      exportTripCalendarIcs(result.data.ics, result.data.fileName || 'trip-itinerario.ics');
+      await trackProductEvent({
+        eventName: 'export_triggered',
+        featureKey: 'ff_export_json_full',
+        viagemId: currentTripId,
+        metadata: { format: 'ics' },
+      });
+      toast.success('Calendário (.ics) exportado com sucesso.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Não foi possível exportar o calendário da viagem.';
+      toast.error(message);
+    } finally {
+      setIsExportingData(false);
+    }
+  };
+
   return {
     isExportingData,
     exportJson,
     exportPdf,
+    exportIcs,
   };
 }

@@ -2,13 +2,14 @@ import { supabase } from '@/integrations/supabase/client';
 import { parseFunctionError } from '@/services/errors';
 import { TripSnapshot } from '@/services/tripSnapshot';
 
-export type TripExportFormat = 'json' | 'pdf';
+export type TripExportFormat = 'json' | 'pdf' | 'ics';
 
 type TripExportResponse = {
   format: TripExportFormat;
   fileName: string;
   snapshot: TripSnapshot;
   html?: string;
+  ics?: string;
 };
 
 export async function requestTripExport(input: { viagemId: string; format: TripExportFormat }) {

@@ -25,6 +25,11 @@ export function exportTripSnapshotJson(snapshot: TripSnapshot, fileName?: string
   triggerDownload(blob, resolvedFileName);
 }
 
+export function exportTripCalendarIcs(ics: string, fileName: string) {
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+  triggerDownload(blob, fileName);
+}
+
 export function openPrintHtml(html: string) {
   const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=960,height=720');
   if (!printWindow) {

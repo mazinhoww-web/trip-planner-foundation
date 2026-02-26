@@ -1,25 +1,30 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Download, FileText, Lock } from 'lucide-react';
+import { CalendarDays, Download, FileText, Lock } from 'lucide-react';
 
 type BudgetExportActionsProps = {
   canExportPdf: boolean;
   canExportJson: boolean;
+  canExportIcs: boolean;
   isExporting: boolean;
   planTier: string;
   onExportPdf: () => Promise<void> | void;
   onExportJson: () => Promise<void> | void;
+  onExportIcs: () => Promise<void> | void;
 };
 
 export function BudgetExportActions({
   canExportPdf,
   canExportJson,
+  canExportIcs,
   isExporting,
   planTier,
   onExportPdf,
   onExportJson,
+  onExportIcs,
 }: BudgetExportActionsProps) {
+  const canUseAdvancedExport = canExportJson || canExportIcs;
   return (
     <Card className="border-border/50">
       <CardHeader className="pb-2">
@@ -32,7 +37,7 @@ export function BudgetExportActions({
         <p className="text-xs text-muted-foreground">
           Exporte os dados consolidados da viagem para análise externa e compartilhamento.
         </p>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <Button
             type="button"
             variant={canExportJson ? 'outline' : 'secondary'}
@@ -45,6 +50,16 @@ export function BudgetExportActions({
           </Button>
           <Button
             type="button"
+            variant={canExportIcs ? 'outline' : 'secondary'}
+            disabled={!canExportIcs || isExporting}
+            onClick={() => void onExportIcs()}
+            className="w-full justify-start"
+          >
+            {canExportIcs ? <CalendarDays className="mr-2 h-4 w-4" /> : <Lock className="mr-2 h-4 w-4" />}
+            Exportar calendário (.ics)
+          </Button>
+          <Button
+            type="button"
             variant={canExportPdf ? 'outline' : 'secondary'}
             disabled={!canExportPdf || isExporting}
             onClick={() => void onExportPdf()}
@@ -54,7 +69,7 @@ export function BudgetExportActions({
             Exportar PDF (impressão)
           </Button>
         </div>
-        {(!canExportJson || !canExportPdf) && (
+        {(!canUseAdvancedExport || !canExportPdf) && (
           <p className="text-xs text-amber-700">
             Recursos de exportação avançada disponíveis nos planos Pro/Team.
           </p>
