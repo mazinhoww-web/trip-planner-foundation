@@ -119,6 +119,16 @@ type Props = {
   removeDocument: (id: string) => Promise<void> | void;
 };
 
+function buildBookingUrl(stay: Tables<'hospedagens'>) {
+  const query = [stay.nome, stay.localizacao].filter(Boolean).join(' ').trim();
+  if (!query) return null;
+  const params = new URLSearchParams();
+  params.set('ss', query);
+  if (stay.check_in) params.set('checkin', stay.check_in);
+  if (stay.check_out) params.set('checkout', stay.check_out);
+  return `https://www.booking.com/searchresults.html?${params.toString()}`;
+}
+
 export function StaysTabPanel({
   canEditTrip,
   stayDialogOpen,
@@ -369,14 +379,24 @@ export function StaysTabPanel({
                       </p>
                       <p className="text-sm font-medium">{formatCurrency(stay.valor, stay.moeda ?? 'BRL')}</p>
                     </div>
-                    {buildMapsUrl('search', { query: [stay.nome, stay.localizacao].filter(Boolean).join(' ') }) && (
-                      <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
-                        <a href={buildMapsUrl('search', { query: [stay.nome, stay.localizacao].filter(Boolean).join(' ') })!} target="_blank" rel="noopener noreferrer">
-                          <MapPin className="h-3 w-3" />
-                          Ver no Google Maps
-                        </a>
-                      </Button>
-                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {buildMapsUrl('search', { query: [stay.nome, stay.localizacao].filter(Boolean).join(' ') }) && (
+                        <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
+                          <a href={buildMapsUrl('search', { query: [stay.nome, stay.localizacao].filter(Boolean).join(' ') })!} target="_blank" rel="noopener noreferrer">
+                            <MapPin className="h-3 w-3" />
+                            Ver no Google Maps
+                          </a>
+                        </Button>
+                      )}
+                      {buildBookingUrl(stay) && (
+                        <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
+                          <a href={buildBookingUrl(stay)!} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="h-3 w-3" />
+                            Buscar no Booking
+                          </a>
+                        </Button>
+                      )}
+                    </div>
                     <div className="flex items-center justify-between">
                       {statusBadge(stay.status)}
                       <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
@@ -500,14 +520,24 @@ export function StaysTabPanel({
                     <TripOpenMap stays={[selectedStay]} transports={[]} height="clamp(180px, 32vh, 220px)" />
                   </Suspense>
                 </div>
-                {buildMapsUrl('search', { query: [selectedStay.nome, selectedStay.localizacao].filter(Boolean).join(' ') }) && (
-                  <Button variant="outline" size="sm" className="mt-2 gap-1.5 text-xs" asChild>
-                    <a href={buildMapsUrl('search', { query: [selectedStay.nome, selectedStay.localizacao].filter(Boolean).join(' ') })!} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="h-3 w-3" />
-                      Abrir no Google Maps
-                    </a>
-                  </Button>
-                )}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {buildMapsUrl('search', { query: [selectedStay.nome, selectedStay.localizacao].filter(Boolean).join(' ') }) && (
+                    <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
+                      <a href={buildMapsUrl('search', { query: [selectedStay.nome, selectedStay.localizacao].filter(Boolean).join(' ') })!} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="h-3 w-3" />
+                        Abrir no Google Maps
+                      </a>
+                    </Button>
+                  )}
+                  {buildBookingUrl(selectedStay) && (
+                    <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
+                      <a href={buildBookingUrl(selectedStay)!} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="h-3 w-3" />
+                        Buscar no Booking
+                      </a>
+                    </Button>
+                  )}
+                </div>
               </div>
 
               <div className="rounded-xl border bg-muted/30 p-3">

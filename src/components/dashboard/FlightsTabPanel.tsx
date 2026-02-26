@@ -80,6 +80,15 @@ type Props = {
   formatCurrency: (value?: number | null, currency?: string) => string;
 };
 
+function buildGoogleFlightsUrl(origin?: string | null, destination?: string | null, date?: string | null) {
+  const from = origin?.trim();
+  const to = destination?.trim();
+  if (!from || !to) return null;
+  const dateToken = typeof date === 'string' && date.trim() ? date.slice(0, 10) : null;
+  const query = [from, to, dateToken].filter(Boolean).join(' ');
+  return `https://www.google.com/travel/flights?q=${encodeURIComponent(query)}`;
+}
+
 export function FlightsTabPanel({
   canEditTrip,
   flightDialogOpen,
@@ -264,14 +273,24 @@ export function FlightsTabPanel({
                       </p>
                       <p className="mt-1 text-sm font-medium">{formatCurrency(flight.valor, flight.moeda ?? 'BRL')}</p>
                     </button>
-                    {buildMapsUrl('route', { origin: flight.origem, destination: flight.destino }) && (
-                      <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
-                        <a href={buildMapsUrl('route', { origin: flight.origem, destination: flight.destino })!} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink className="h-3 w-3" />
-                          Ver rota
-                        </a>
-                      </Button>
-                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {buildMapsUrl('route', { origin: flight.origem, destination: flight.destino }) && (
+                        <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
+                          <a href={buildMapsUrl('route', { origin: flight.origem, destination: flight.destino })!} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="h-3 w-3" />
+                            Ver rota
+                          </a>
+                        </Button>
+                      )}
+                      {buildGoogleFlightsUrl(flight.origem, flight.destino, flight.data) && (
+                        <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
+                          <a href={buildGoogleFlightsUrl(flight.origem, flight.destino, flight.data)!} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="h-3 w-3" />
+                            Buscar no Google Flights
+                          </a>
+                        </Button>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2">
                       {statusBadge(flight.status)}
                       <Button
@@ -370,14 +389,24 @@ export function FlightsTabPanel({
                     </div>
                   </div>
                 </div>
-                {buildMapsUrl('route', { origin: selectedFlight.origem, destination: selectedFlight.destino }) && (
-                  <Button variant="outline" size="sm" className="mt-3 gap-1.5 text-xs" asChild>
-                    <a href={buildMapsUrl('route', { origin: selectedFlight.origem, destination: selectedFlight.destino })!} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="h-3 w-3" />
-                      Abrir rota no Google Maps
-                    </a>
-                  </Button>
-                )}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {buildMapsUrl('route', { origin: selectedFlight.origem, destination: selectedFlight.destino }) && (
+                    <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
+                      <a href={buildMapsUrl('route', { origin: selectedFlight.origem, destination: selectedFlight.destino })!} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="h-3 w-3" />
+                        Abrir rota no Google Maps
+                      </a>
+                    </Button>
+                  )}
+                  {buildGoogleFlightsUrl(selectedFlight.origem, selectedFlight.destino, selectedFlight.data) && (
+                    <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
+                      <a href={buildGoogleFlightsUrl(selectedFlight.origem, selectedFlight.destino, selectedFlight.data)!} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="h-3 w-3" />
+                        Buscar no Google Flights
+                      </a>
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           )}
