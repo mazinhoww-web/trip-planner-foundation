@@ -139,7 +139,7 @@ export function TripAiAssistantPanel({ enabled, currentTripId, onNavigateTab }: 
     const response = await askTripAssistant({
       viagemId: currentTripId,
       message: normalizedPrompt,
-      recentMessages: [...recentMessages, { role: 'user', content: normalizedPrompt }].slice(-8),
+      recentMessages: [...recentMessages, { role: 'user' as const, content: normalizedPrompt }].slice(-8),
     });
 
     if (response.error || !response.data) {
