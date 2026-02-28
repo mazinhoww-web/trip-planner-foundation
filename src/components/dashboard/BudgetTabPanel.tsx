@@ -10,7 +10,7 @@ import { useMemo, useState } from 'react';
 
 const CHART_COLORS = ['#0f766e', '#2563eb', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#65a30d'];
 
-export type BudgetByCurrency = Record<string, number>;
+export type BudgetByCurrency = { currency: string; total: number }[];
 export type ExpenseCategoryDatum = {
   categoria: string;
   total: number;
@@ -65,11 +65,16 @@ export function BudgetTabPanel({
   const [converterFrom, setConverterFrom] = useState('BRL');
   const [converterTo, setConverterTo] = useState('USD');
 
+  const toRecord = (items: BudgetByCurrency): Record<string, number> =>
+    Object.fromEntries(items.map(({ currency, total }) => [currency, total]));
+
   const conversionSnapshot = useMemo(() => {
-    const realBrl = convertTotalsRecordByReference(realByCurrency, 'BRL');
-    const estimadoBrl = convertTotalsRecordByReference(estimadoByCurrency, 'BRL');
-    const realUsd = convertTotalsRecordByReference(realByCurrency, 'USD');
-    const estimadoUsd = convertTotalsRecordByReference(estimadoByCurrency, 'USD');
+    const realRec = toRecord(realByCurrency);
+    const estimadoRec = toRecord(estimadoByCurrency);
+    const realBrl = convertTotalsRecordByReference(realRec, 'BRL');
+    const estimadoBrl = convertTotalsRecordByReference(estimadoRec, 'BRL');
+    const realUsd = convertTotalsRecordByReference(realRec, 'USD');
+    const estimadoUsd = convertTotalsRecordByReference(estimadoRec, 'USD');
     return {
       realBrl,
       estimadoBrl,
