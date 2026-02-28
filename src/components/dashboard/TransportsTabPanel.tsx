@@ -281,10 +281,10 @@ export function TransportsTabPanel({
                   <div className="absolute left-2 top-2 h-full w-px bg-border" />
                   <div className="absolute left-0 top-2 h-4 w-4 rounded-full border-2 border-primary bg-background" />
                   <Card className="border-border/50">
-                    <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <CardContent className="flex flex-col gap-3 p-3 sm:p-4 sm:flex-row sm:items-center sm:justify-between">
                       <button
                         type="button"
-                        className="text-left"
+                        className="min-w-0 text-left"
                         onClick={() => onSelectTransport(transport)}
                       >
                         <div className="flex items-center gap-2">
@@ -300,38 +300,40 @@ export function TransportsTabPanel({
                         </p>
                         <p className="text-sm font-medium">{formatCurrency(transport.valor, transport.moeda ?? 'BRL')}</p>
                       </button>
-                      {buildMapsUrl('route', { origin: transport.origem, destination: transport.destino }) && (
-                        <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
-                          <a href={buildMapsUrl('route', { origin: transport.origem, destination: transport.destino })!} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="h-3 w-3" />
-                            Ver rota
-                          </a>
-                        </Button>
-                      )}
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-between gap-2 sm:justify-end">
                         {statusBadge(transport.status)}
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          aria-label="Editar transporte"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openEditTransport(transport);
-                          }}
-                          disabled={!canEditTrip}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <ConfirmActionButton
-                          ariaLabel="Remover transporte"
-                          title="Remover transporte"
-                          description="Esse trecho de transporte será excluído da timeline."
-                          confirmLabel="Remover"
-                          disabled={!canEditTrip || isRemovingTransport}
-                          onConfirm={() => void removeTransport(transport.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </ConfirmActionButton>
+                        <div className="flex items-center gap-1.5">
+                          {buildMapsUrl('route', { origin: transport.origem, destination: transport.destino }) && (
+                            <Button variant="outline" size="icon" className="h-8 w-8" asChild>
+                              <a href={buildMapsUrl('route', { origin: transport.origem, destination: transport.destino })!} target="_blank" rel="noopener noreferrer" aria-label="Ver rota">
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </a>
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            aria-label="Editar transporte"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openEditTransport(transport);
+                            }}
+                            disabled={!canEditTrip}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <ConfirmActionButton
+                            ariaLabel="Remover transporte"
+                            title="Remover transporte"
+                            description="Esse trecho de transporte será excluído da timeline."
+                            confirmLabel="Remover"
+                            disabled={!canEditTrip || isRemovingTransport}
+                            onConfirm={() => void removeTransport(transport.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </ConfirmActionButton>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>

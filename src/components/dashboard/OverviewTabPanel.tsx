@@ -50,6 +50,69 @@ type Props = {
   dailySummary: DailySummary;
 };
 
+/* ── Countdown Card ── */
+function CountdownCard({ tripCountdown }: { tripCountdown: TripCountdown }) {
+  return (
+    <Card className="border-border/50">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Countdown da viagem</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        {!tripCountdown ? (
+          <p className="text-muted-foreground">Defina início e fim da viagem para ativar o countdown.</p>
+        ) : (
+          <>
+            {tripCountdown.phase === 'before' && (
+              <p className="font-medium">Faltam {tripCountdown.daysUntilStart} dia(s) para começar.</p>
+            )}
+            {tripCountdown.phase === 'during' && (
+              <p className="font-medium">Viagem em andamento, {tripCountdown.daysRemaining} dia(s) para finalizar.</p>
+            )}
+            {tripCountdown.phase === 'after' && (
+              <p className="font-medium">Viagem concluída há {tripCountdown.daysAfterEnd} dia(s).</p>
+            )}
+            <Progress value={tripCountdown.progressPercent} className="h-2" />
+            <p className="text-xs text-muted-foreground">
+              Progresso do período: {tripCountdown.progressPercent}% • duração total {tripCountdown.totalDays} dia(s)
+            </p>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ── Daily Summary Card ── */
+function DailySummaryCard({ dailySummary, onOpenTab }: { dailySummary: DailySummary; onOpenTab: (tabKey: string) => void }) {
+  return (
+    <Card className="border-border/50">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Resumo diário</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <div>
+          <p className="font-medium">{dailySummary.title}</p>
+          <p className="text-xs text-muted-foreground">Referência: {dailySummary.referenceDate}</p>
+        </div>
+        <ul className="space-y-1 text-sm text-muted-foreground">
+          {dailySummary.lines.map((line, index) => (
+            <li key={`${line}-${index}`}>• {line}</li>
+          ))}
+        </ul>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 px-0 text-xs text-primary hover:bg-transparent hover:text-primary/80"
+          onClick={() => onOpenTab(dailySummary.focusTab)}
+        >
+          Abrir módulo recomendado
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function OverviewTabPanel({
   upcomingEvents,
   formatDateTime,
@@ -75,26 +138,28 @@ export function OverviewTabPanel({
 }: Props) {
   return (
     <>
+      {/* Mobile-first: countdown + daily summary on top (order-first on mobile, revert on lg) */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="border-border/50 lg:col-span-2">
+        {/* Left column on desktop — upcoming events */}
+        <Card className="order-2 border-border/50 lg:order-1 lg:col-span-2">
           <CardHeader>
             <CardTitle className="font-display text-xl">Próximos eventos</CardTitle>
           </CardHeader>
           <CardContent>
             {upcomingEvents.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground sm:p-8">
                 Sem eventos futuros no momento.
               </div>
             ) : (
               <div className="space-y-3">
                 {upcomingEvents.map((event) => (
-                  <div key={event.id} className="flex items-start justify-between rounded-lg border p-3">
-                    <div>
+                  <div key={event.id} className="flex items-start justify-between gap-2 rounded-lg border p-3">
+                    <div className="min-w-0">
                       <p className="font-medium">{event.titulo}</p>
                       <p className="text-sm text-muted-foreground">{event.tipo}</p>
                     </div>
-                    <Badge variant="secondary" className="whitespace-nowrap">
-                      <CalendarDays className="mr-1 h-3.5 w-3.5" />
+                    <Badge variant="secondary" className="shrink-0 whitespace-nowrap text-[11px]">
+                      <CalendarDays className="mr-1 h-3 w-3" />
                       {formatDateTime(event.data)}
                     </Badge>
                   </div>
@@ -104,7 +169,11 @@ export function OverviewTabPanel({
           </CardContent>
         </Card>
 
-        <div className="space-y-4">
+        {/* Right column on desktop — priority cards */}
+        <div className="order-1 space-y-4 lg:order-2">
+          <CountdownCard tripCountdown={tripCountdown} />
+          <DailySummaryCard dailySummary={dailySummary} onOpenTab={onOpenTab} />
+
           <Card className="border-border/50">
             <CardHeader>
               <CardTitle className="text-base">Cobertura da viagem</CardTitle>
@@ -115,9 +184,7 @@ export function OverviewTabPanel({
                   {stayCoverageGapCount === 0 ? 'Hospedagens cobertas' : `${stayCoverageGapCount} gap(s) de hospedagem`}
                 </p>
                 <p className="text-xs text-emerald-700/80">
-                  {stayCoverageGapCount === 0
-                    ? 'Sem noites descobertas no intervalo atual.'
-                    : 'Revise os períodos sem check-in/check-out registrados.'}
+                  {stayCoverageGapCount === 0 ? 'Sem noites descobertas no intervalo atual.' : 'Revise os períodos sem check-in/check-out registrados.'}
                 </p>
               </div>
               <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3">
@@ -125,9 +192,7 @@ export function OverviewTabPanel({
                   {transportCoverageGapCount === 0 ? 'Trocas de cidade cobertas' : `${transportCoverageGapCount} trecho(s) sem transporte`}
                 </p>
                 <p className="text-xs text-sky-700/80">
-                  {transportCoverageGapCount === 0
-                    ? 'Nenhum deslocamento entre cidades ficou descoberto.'
-                    : 'Adicione voos/transportes para fechar os deslocamentos faltantes.'}
+                  {transportCoverageGapCount === 0 ? 'Nenhum deslocamento entre cidades ficou descoberto.' : 'Adicione voos/transportes para fechar os deslocamentos faltantes.'}
                 </p>
               </div>
               <p><strong>Restaurantes salvos:</strong> {restaurantsSavedCount}</p>
@@ -156,9 +221,7 @@ export function OverviewTabPanel({
                     {typeof weatherSummary.currentTempC === 'number' ? ` • ${Math.round(weatherSummary.currentTempC)}°C` : ''}
                   </p>
                   {typeof weatherSummary.currentWindKmh === 'number' && (
-                    <p className="text-xs text-muted-foreground">
-                      Vento: {Math.round(weatherSummary.currentWindKmh)} km/h
-                    </p>
+                    <p className="text-xs text-muted-foreground">Vento: {Math.round(weatherSummary.currentWindKmh)} km/h</p>
                   )}
                   {weatherSummary.tripDate && (
                     <div className="rounded-lg border bg-muted/25 p-2 text-xs">
@@ -171,39 +234,6 @@ export function OverviewTabPanel({
                     </div>
                   )}
                   <p className="text-[11px] text-muted-foreground">Fonte: Open-Meteo.</p>
-                </>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/50">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Countdown da viagem</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              {!tripCountdown ? (
-                <p className="text-muted-foreground">Defina início e fim da viagem para ativar o countdown.</p>
-              ) : (
-                <>
-                  {tripCountdown.phase === 'before' && (
-                    <p className="font-medium">
-                      Faltam {tripCountdown.daysUntilStart} dia(s) para começar.
-                    </p>
-                  )}
-                  {tripCountdown.phase === 'during' && (
-                    <p className="font-medium">
-                      Viagem em andamento, {tripCountdown.daysRemaining} dia(s) para finalizar.
-                    </p>
-                  )}
-                  {tripCountdown.phase === 'after' && (
-                    <p className="font-medium">
-                      Viagem concluída há {tripCountdown.daysAfterEnd} dia(s).
-                    </p>
-                  )}
-                  <Progress value={tripCountdown.progressPercent} className="h-2" />
-                  <p className="text-xs text-muted-foreground">
-                    Progresso do período: {tripCountdown.progressPercent}% • duração total {tripCountdown.totalDays} dia(s)
-                  </p>
                 </>
               )}
             </CardContent>
@@ -249,51 +279,26 @@ export function OverviewTabPanel({
               )}
             </CardContent>
           </Card>
-
-          <Card className="border-border/50">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Resumo diário</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div>
-                <p className="font-medium">{dailySummary.title}</p>
-                <p className="text-xs text-muted-foreground">Referência: {dailySummary.referenceDate}</p>
-              </div>
-              <ul className="space-y-1 text-sm text-muted-foreground">
-                {dailySummary.lines.map((line, index) => (
-                  <li key={`${line}-${index}`}>• {line}</li>
-                ))}
-              </ul>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 px-0 text-xs text-primary hover:bg-transparent hover:text-primary/80"
-                onClick={() => onOpenTab(dailySummary.focusTab)}
-              >
-                Abrir módulo recomendado
-              </Button>
-            </CardContent>
-          </Card>
         </div>
       </div>
 
+      {/* Map — reduced height on mobile */}
       <Card className="border-border/50">
         <CardHeader>
           <CardTitle className="text-base">Mapa da viagem (OpenStreetMap)</CardTitle>
         </CardHeader>
         <CardContent>
           {isAnyCrudDialogOpen ? (
-            <div className="flex h-[320px] items-center justify-center rounded-2xl border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground">
+            <div className="flex h-[200px] items-center justify-center rounded-2xl border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground sm:h-[320px]">
               Mapa temporariamente oculto enquanto um modal está aberto.
             </div>
           ) : (
-            <Suspense fallback={<div className="h-[320px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Carregando mapa...</div>}>
+            <Suspense fallback={<div className="h-[200px] rounded-2xl border border-dashed p-4 text-sm text-muted-foreground sm:h-[320px]">Carregando mapa...</div>}>
               <TripOpenMap
                 stays={stays}
                 transports={transports}
                 flights={flights}
-                height="clamp(220px, 42vh, 320px)"
+                height="clamp(200px, 42vh, 320px)"
                 disabled={isAnyCrudDialogOpen}
                 background
               />

@@ -370,7 +370,7 @@ export function StaysTabPanel({
             <div className="grid gap-3 lg:grid-cols-2">
               {visibleStays.map((stay) => (
                 <Card key={stay.id} className="border-border/50">
-                  <CardContent className="space-y-2 p-4">
+                  <CardContent className="space-y-2 p-3 sm:p-4">
                     <div className="w-full text-left">
                       <p className="font-semibold">{stay.nome || 'Hospedagem sem nome'}</p>
                       <p className="text-sm text-muted-foreground">{stay.localizacao || 'Localização não informada'}</p>
@@ -379,73 +379,34 @@ export function StaysTabPanel({
                       </p>
                       <p className="text-sm font-medium">{formatCurrency(stay.valor, stay.moeda ?? 'BRL')}</p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {buildMapsUrl('search', { query: [stay.nome, stay.localizacao].filter(Boolean).join(' ') }) && (
-                        <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
-                          <a href={buildMapsUrl('search', { query: [stay.nome, stay.localizacao].filter(Boolean).join(' ') })!} target="_blank" rel="noopener noreferrer">
-                            <MapPin className="h-3 w-3" />
-                            Ver no Google Maps
-                          </a>
-                        </Button>
-                      )}
-                      {buildBookingUrl(stay) && (
-                        <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
-                          <a href={buildBookingUrl(stay)!} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="h-3 w-3" />
-                            Buscar no Booking
-                          </a>
-                        </Button>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       {statusBadge(stay.status)}
-                      <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
+                      <div className="flex items-center gap-1.5">
+                        {buildMapsUrl('search', { query: [stay.nome, stay.localizacao].filter(Boolean).join(' ') }) && (
+                          <Button variant="outline" size="icon" className="h-8 w-8" asChild>
+                            <a href={buildMapsUrl('search', { query: [stay.nome, stay.localizacao].filter(Boolean).join(' ') })!} target="_blank" rel="noopener noreferrer" aria-label="Google Maps">
+                              <MapPin className="h-3.5 w-3.5" />
+                            </a>
+                          </Button>
+                        )}
                         <Button
                           variant="outline"
-                          size="sm"
-                          className="w-full sm:w-auto"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void onEnrichStay(stay);
-                          }}
-                          disabled={!canEditTrip || enrichingStayId === stay.id}
+                          size="icon"
+                          className="h-8 w-8"
+                          aria-label="Ver detalhes"
+                          onClick={(e) => { e.stopPropagation(); onOpenStayDetail(stay); }}
                         >
-                          {enrichingStayId === stay.id ? 'Gerando...' : 'Gerar dicas IA'}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full sm:w-auto"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void onSuggestRestaurants(stay);
-                          }}
-                          disabled={!canEditTrip || suggestingRestaurantsStayId === stay.id}
-                        >
-                          {suggestingRestaurantsStayId === stay.id ? 'Sugerindo...' : 'Sugerir restaurantes'}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full sm:w-auto"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onOpenStayDetail(stay);
-                          }}
-                        >
-                          Ver detalhes
+                          <ExternalLink className="h-3.5 w-3.5" />
                         </Button>
                         <Button
                           variant="outline"
                           size="icon"
+                          className="h-8 w-8"
                           aria-label="Editar hospedagem"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openEditStay(stay);
-                          }}
+                          onClick={(e) => { e.stopPropagation(); openEditStay(stay); }}
                           disabled={!canEditTrip}
                         >
-                          <Pencil className="h-4 w-4" />
+                          <Pencil className="h-3.5 w-3.5" />
                         </Button>
                         <ConfirmActionButton
                           ariaLabel="Remover hospedagem"
@@ -455,9 +416,30 @@ export function StaysTabPanel({
                           disabled={!canEditTrip || isRemovingStay}
                           onConfirm={() => void removeStay(stay.id)}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         </ConfirmActionButton>
                       </div>
+                    </div>
+                    {/* AI actions — collapsed to a row on mobile */}
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-[11px]"
+                        onClick={(e) => { e.stopPropagation(); void onEnrichStay(stay); }}
+                        disabled={!canEditTrip || enrichingStayId === stay.id}
+                      >
+                        {enrichingStayId === stay.id ? 'Gerando...' : 'Dicas IA'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-[11px]"
+                        onClick={(e) => { e.stopPropagation(); void onSuggestRestaurants(stay); }}
+                        disabled={!canEditTrip || suggestingRestaurantsStayId === stay.id}
+                      >
+                        {suggestingRestaurantsStayId === stay.id ? 'Sugerindo...' : 'Restaurantes'}
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
