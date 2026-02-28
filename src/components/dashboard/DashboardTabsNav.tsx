@@ -13,7 +13,7 @@ type DashboardTabsNavProps = {
 
 export function DashboardTabsNav({ tabs }: DashboardTabsNavProps) {
   return (
-    <div className="overflow-x-auto pb-1 tp-scroll">
+    <div className="hidden overflow-x-auto pb-1 tp-scroll xl:block">
       <TabsList
         className="inline-flex h-auto w-max min-w-full snap-x snap-mandatory items-center gap-2 rounded-2xl border border-primary/15 bg-white/90 p-2 shadow-sm dark:bg-card/80"
         aria-label="Navegação entre módulos da viagem"

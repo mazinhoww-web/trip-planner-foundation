@@ -259,10 +259,10 @@ export function FlightsTabPanel({
             <div className="space-y-3">
               {visibleFlights.map((flight) => (
                 <Card key={flight.id} className="border-border/50">
-                  <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <CardContent className="flex flex-col gap-3 p-3 sm:p-4 sm:flex-row sm:items-center sm:justify-between">
                     <button
                       type="button"
-                      className="text-left"
+                      className="min-w-0 text-left"
                       onClick={() => onSelectFlight(flight)}
                     >
                       <p className="font-semibold">
@@ -273,48 +273,40 @@ export function FlightsTabPanel({
                       </p>
                       <p className="mt-1 text-sm font-medium">{formatCurrency(flight.valor, flight.moeda ?? 'BRL')}</p>
                     </button>
-                    <div className="flex flex-wrap gap-2">
-                      {buildMapsUrl('route', { origin: flight.origem, destination: flight.destino }) && (
-                        <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
-                          <a href={buildMapsUrl('route', { origin: flight.origem, destination: flight.destino })!} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="h-3 w-3" />
-                            Ver rota
-                          </a>
-                        </Button>
-                      )}
-                      {buildGoogleFlightsUrl(flight.origem, flight.destino, flight.data) && (
-                        <Button variant="outline" size="sm" className="gap-1.5 text-xs" asChild>
-                          <a href={buildGoogleFlightsUrl(flight.origem, flight.destino, flight.data)!} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="h-3 w-3" />
-                            Buscar no Google Flights
-                          </a>
-                        </Button>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-between gap-2 sm:justify-end">
                       {statusBadge(flight.status)}
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        aria-label="Editar voo"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openEditFlight(flight);
-                        }}
-                        disabled={!canEditTrip}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <ConfirmActionButton
-                        ariaLabel="Remover voo"
-                        title="Remover voo"
-                        description="Essa ação remove o voo definitivamente desta viagem."
-                        confirmLabel="Remover"
-                        disabled={!canEditTrip || isRemovingFlight}
-                        onConfirm={() => void removeFlight(flight.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </ConfirmActionButton>
+                      <div className="flex items-center gap-1.5">
+                        {buildMapsUrl('route', { origin: flight.origem, destination: flight.destino }) && (
+                          <Button variant="outline" size="icon" className="h-8 w-8" asChild>
+                            <a href={buildMapsUrl('route', { origin: flight.origem, destination: flight.destino })!} target="_blank" rel="noopener noreferrer" aria-label="Ver rota">
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </a>
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-8 w-8"
+                          aria-label="Editar voo"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openEditFlight(flight);
+                          }}
+                          disabled={!canEditTrip}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <ConfirmActionButton
+                          ariaLabel="Remover voo"
+                          title="Remover voo"
+                          description="Essa ação remove o voo definitivamente desta viagem."
+                          confirmLabel="Remover"
+                          disabled={!canEditTrip || isRemovingFlight}
+                          onConfirm={() => void removeFlight(flight.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </ConfirmActionButton>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
